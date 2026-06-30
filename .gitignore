@@ -48,5 +48,8 @@ uploads/
 ocr_failed/
 *.log
 
+# MinGW / Git Bash crash dumps (no son parte del proyecto)
+*.stackdump
+
 # Claude / local memory
 .claude/
