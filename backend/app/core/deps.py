@@ -83,7 +83,10 @@ def parking_context(
     """Valida que el usuario (no admin) tenga membresía en la sucursal."""
     from app.models.user import ParkingMembership
 
-    if current.role.value == "admin":
+    # El rol se persiste como String(16); tras recargar el ORM puede venir
+    # como enum o como str (depende del flush). Aceptamos ambos casos.
+    role_value = current.role.value if hasattr(current.role, "value") else current.role
+    if role_value == "admin":
         return current
 
     membership = (

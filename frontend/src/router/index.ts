@@ -51,6 +51,12 @@ const routes: RouteRecordRaw[] = [
     meta: { roles: ['admin', 'gestor'] },
   },
   {
+    path: '/calibrate/:parkingId/:cameraId',
+    name: 'gestor-calibrate',
+    component: () => import('@/views/gestor/CalibrateView.vue'),
+    meta: { roles: ['admin', 'gestor'] },
+  },
+  {
     path: '/vivo',
     name: 'operador-live',
     component: () => import('@/views/operador/LiveView.vue'),

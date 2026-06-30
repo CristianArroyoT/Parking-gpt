@@ -1,9 +1,10 @@
 <script setup lang="ts">
 /**
- * Listado de cámaras del parking seleccionado. La calibración de geocercas
- * (rectángulos sobre frame RTSP) entra en Fase 2.
+ * Listado de cámaras del parking seleccionado. Desde cada fila se
+ * enlaza con la vista de calibración de geocercas sobre el frame.
  */
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { http } from '@/api/client'
 import { useUiStore } from '@/stores/ui'
@@ -20,23 +21,35 @@ const selectedId = ref<number | null>(null)
 const cameras = ref<Camera[]>([])
 const loading = ref(true)
 
-async function load(): Promise<void> {
+async function loadCameras(): Promise<void> {
+  if (!selectedId.value) return
   try {
-    const [p, c] = await Promise.all([
-      http.get<Parking[]>('/parkings'),
-      selectedId.value
-        ? http.get<Camera[]>(`/parkings/${selectedId.value}/cameras`)
-        : Promise.resolve({ data: [] as Camera[] }),
-    ])
-    parkings.value = p.data
-    cameras.value = c.data
-    if (!selectedId.value && p.data.length) selectedId.value = p.data[0].id
+    const { data } = await http.get<Camera[]>(`/parkings/${selectedId.value}/cameras`)
+    cameras.value = data
   } catch {
     ui.pushToast('error', 'No se pudieron cargar las cámaras')
   } finally {
     loading.value = false
   }
 }
+
+async function load(): Promise<void> {
+  try {
+    const { data } = await http.get<Parking[]>('/parkings')
+    parkings.value = data
+    if (data.length) selectedId.value = data[0].id
+  } catch {
+    ui.pushToast('error', 'No se pudieron cargar las cámaras')
+  } finally {
+    loading.value = false
+  }
+  // Carga explícita además del watch: cubre el caso mount donde el watch
+  // puede no dispararse si selectedId cambia antes del primer tick.
+  await loadCameras()
+}
+
+// Re-carga las cámaras cada vez que cambia la sucursal seleccionada.
+watch(selectedId, () => { void loadCameras() })
 
 onMounted(load)
 </script>
@@ -46,7 +59,7 @@ onMounted(load)
     <div class="flex items-center justify-between mb-6">
       <div>
         <h1 class="text-2xl font-semibold tracking-tight">Cámaras</h1>
-        <p class="text-sm text-slate-500">Inventario y geocercas (calibración en Fase 2)</p>
+        <p class="text-sm text-slate-500">Inventario y calibración de geocercas</p>
       </div>
       <select v-model.number="selectedId" class="input w-auto" @change="load">
         <option v-for="p in parkings" :key="p.id" :value="p.id">{{ p.name }}</option>
@@ -65,6 +78,7 @@ onMounted(load)
             <th class="px-5 py-3 font-medium">FPS</th>
             <th class="px-5 py-3 font-medium">URL RTSP</th>
             <th class="px-5 py-3 font-medium">Estado</th>
+            <th class="px-5 py-3 font-medium text-right">Acciones</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100">
@@ -79,9 +93,15 @@ onMounted(load)
                 {{ cam.is_active ? 'Activa' : 'Inactiva' }}
               </span>
             </td>
+            <td class="px-5 py-3 text-right">
+              <RouterLink
+                :to="{ name: 'gestor-calibrate', params: { parkingId: selectedId, cameraId: cam.id } }"
+                class="btn-secondary"
+              >Calibrar</RouterLink>
+            </td>
           </tr>
           <tr v-if="!cameras.length">
-            <td colspan="6" class="px-5 py-6 text-center text-slate-500">
+            <td colspan="7" class="px-5 py-6 text-center text-slate-500">
               Esta sucursal no tiene cámaras dadas de alta.
             </td>
           </tr>
