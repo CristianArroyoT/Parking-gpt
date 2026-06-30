@@ -1,10 +1,15 @@
 """Tareas Celery reales (sustituyen al heartbeat placeholder de Fase 1).
 
-Estado en MVP (Fase 2 temprana):
+Estado en MVP (Fase 2 cerrada):
 - `tick_cameras` consulta el modelo Camera y loguea totales.
-- `ping_camera` envía un frame placeholder al servicio OCR separado
-  (`ocr:8800`) y persiste los hits en `plates_detected`. En Fase 2
-  el placeholder 1×1 se sustituye por el frame real del pull RTSP.
+- `ping_camera` distingue dos modos de fallo (sprint CAMERA_OFFLINE):
+    * `grab_frame` devuelve ``None`` → cámara caída: alerta CRITICAL al
+      admin, NO se envía a OCR. Resetea el contador de OCR_FAILED para
+      que el fallback al placeholder 1×1 no contamine la métrica.
+    * `grab_frame` devuelve bytes pero OCR no detecta → OCR_FAILED,
+      alerta WARN al gestor (igual que en sprint ALERTAS).
+  El frame se persiste en `plates_detected` cuando hay lecturas y se
+  envía a `process_plate_hits` para crear/cerrar tickets.
 - `cleanup_failed_frames` purga el directorio /tmp/ocr-failed de frames
   con más de N días. Idempotente y seguro aunque esté vacío.
 
@@ -16,18 +21,20 @@ La app prefiere un "no hay lectura" a un 500 cuando OCR está caído.
 from __future__ import annotations
 
 import asyncio
-import io
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from PIL import Image
-
 from app.core.db import SessionLocal
 from app.models.parking import Camera
 from app.models.plates_detected import PlatesDetected
-from app.services.alerts import record_ocr_failure, reset_ocr_failure
+from app.services.alerts import (
+    record_camera_offline,
+    record_ocr_failure,
+    reset_camera_offline,
+    reset_ocr_failure,
+)
 from app.services.cameras.capture import grab_frame
 from app.services.ingest_service import process_plate_hits
 from app.services.ocr.client import get_ocr_client
@@ -38,19 +45,6 @@ log = logging.getLogger(__name__)
 # Retención de frames fallidos (días) — corte limpio cada pasada.
 FAILED_FRAMES_RETENTION_DAYS = 30
 DEFAULT_OCR_FAILED_DIR = Path("/tmp/ocr-failed")
-
-
-def _placeholder_frame_jpeg() -> bytes:
-    """Genera un JPEG 1×1 negro en memoria.
-
-    Placeholder temporal hasta enchufar el pull RTSP real. Sirve para
-    ejercitar la ruta cliente-OCR → BD sin depender del driver de
-    cámara (que se decide en otra iteración de Fase 2).
-    """
-    img = Image.new("RGB", (1, 1), color=(0, 0, 0))
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=70)
-    return buf.getvalue()
 
 
 @celery_app.task(name="solidapp.tick_cameras")
@@ -92,10 +86,28 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
             return {"status": "missing"}
 
         frame = asyncio.run(grab_frame(cam))
-        frame_source = "rtsp"
         if frame is None:
-            frame = _placeholder_frame_jpeg()
-            frame_source = "placeholder"
+            # Cámara caída (RTSP inválido, timeout, codec desconocido).
+            # Sprint CAMERA_OFFLINE: NO enviamos a OCR — el placeholder
+            # contaminaría el detector de OCR_FAILED. Distinguimos:
+            # cámara caída = CRITICAL al admin; OCR vacío = WARN al gestor.
+            record_camera_offline(cam)
+            # Resetear OCR counter: este fallo NO es de OCR.
+            reset_ocr_failure(cam.id)
+            log.warning(
+                "ping_camera: id=%s code=%s CAMERA_OFFLINE (frame=None)",
+                cam.id,
+                cam.code,
+            )
+            return {
+                "status": "camera_offline",
+                "code": cam.code,
+                "plates_found": 0,
+            }
+
+        # Cámara OK: limpiar el contador offline antes de continuar.
+        reset_camera_offline(cam.id)
+
         ocr = get_ocr_client()
         try:
             hits = asyncio.run(ocr.recognize(frame))
@@ -111,15 +123,14 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
             # creará una alerta + email + guardará el frame en /tmp/ocr-failed.
             record_ocr_failure(cam, frame)
             log.info(
-                "ping_camera: id=%s code=%s source=%s plates_found=0",
+                "ping_camera: id=%s code=%s source=rtsp plates_found=0",
                 cam.id,
                 cam.code,
-                frame_source,
             )
             return {
                 "status": "ok",
                 "code": cam.code,
-                "source": frame_source,
+                "source": "rtsp",
                 "plates_found": 0,
             }
 
@@ -157,26 +168,24 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
         closed = sum(1 for r in ingest_results if r.status == "ticket_closed")
         if created or closed:
             log.info(
-                "ping_camera: id=%s code=%s source=%s plates_found=%s tickets_created=%s tickets_closed=%s",
+                "ping_camera: id=%s code=%s source=rtsp plates_found=%s tickets_created=%s tickets_closed=%s",
                 cam.id,
                 cam.code,
-                frame_source,
                 len(hits),
                 created,
                 closed,
             )
         else:
             log.info(
-                "ping_camera: id=%s code=%s source=%s plates_found=%s",
+                "ping_camera: id=%s code=%s source=rtsp plates_found=%s",
                 cam.id,
                 cam.code,
-                frame_source,
                 len(hits),
             )
         return {
             "status": "ok",
             "code": cam.code,
-            "source": frame_source,
+            "source": "rtsp",
             "plates_found": len(hits),
             "tickets_created": created,
             "tickets_closed": closed,

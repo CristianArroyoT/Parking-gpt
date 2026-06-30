@@ -95,6 +95,20 @@ def _resolve_manager_email(db, parking_id: int) -> str | None:
     return row.email if row else None
 
 
+def _resolve_admin_email(db) -> str | None:
+    """Email del primer admin activo. Usado para alertas CRITICAL
+    (cámara caída) — el operador no siempre tiene gestor asignado y
+    el admin necesita enterarse para movilizar soporte técnico.
+    """
+    row = (
+        db.query(User)
+        .filter(User.role == UserRole.ADMIN, User.is_active.is_(True))
+        .order_by(User.id)
+        .first()
+    )
+    return row.email if row else None
+
+
 def _save_frame(camera_code: str, frame_bytes: bytes) -> str | None:
     """Guarda el JPEG en ``/tmp/ocr-failed/<code>-<ts>.jpg``.
 
@@ -246,4 +260,142 @@ def reset_ocr_failure(camera_id: int) -> None:
         )
 
 
-__all__ = ["record_ocr_failure", "reset_ocr_failure"]
+# ── Cámara offline ────────────────────────────────────────────────
+# Mismo patrón que OCR_FAILED pero con claves Redis separadas y
+# severidad CRITICAL. La cámara caída requiere soporte técnico, no es
+# un problema operativo que el gestor pueda resolver.
+def _consecutive_offline_key(camera_id: int) -> str:
+    return f"camera:{camera_id}:consecutive_offline"
+
+
+def _offline_lock_key(camera_id: int) -> str:
+    return f"camera:{camera_id}:offline_alert_lock"
+
+
+def record_camera_offline(camera: Camera) -> Alert | None:
+    """Incrementa el contador de capturas fallidas y, si llega al umbral,
+    crea una alerta ``CAMERA_OFFLINE`` (severidad CRITICAL) con email al
+    admin. Distinto de ``record_ocr_failure`` porque la cámara caída
+    requiere soporte técnico, no recalibración de geocercas.
+    """
+    settings = get_settings()
+    threshold = settings.ocr_frames_before_fail
+    if threshold <= 0:
+        return None
+
+    try:
+        rds = _redis_client()
+        count = rds.incr(_consecutive_offline_key(camera.id))
+        if count == 1:
+            rds.expire(_consecutive_offline_key(camera.id), COUNT_TTL_SECONDS)
+    except RedisError as exc:
+        log.warning(
+            "alerts: Redis no disponible en offline counter camera=%s: %s",
+            camera.id,
+            exc,
+        )
+        return None
+
+    if count < threshold:
+        return None
+
+    try:
+        got_lock = rds.set(
+            _offline_lock_key(camera.id),
+            "1",
+            nx=True,
+            ex=ALERT_LOCK_TTL_SECONDS,
+        )
+    except RedisError as exc:
+        log.warning(
+            "alerts: no se pudo tomar offline lock camera=%s: %s",
+            camera.id,
+            exc,
+        )
+        return None
+
+    if not got_lock:
+        log.info(
+            "alerts: CAMERA_OFFLINE ya creada hace <1h camera=%s — se omite",
+            camera.id,
+        )
+        return None
+
+    try:
+        rds.delete(_consecutive_offline_key(camera.id))
+    except RedisError:
+        pass
+
+    try:
+        with SessionLocal() as db:
+            message = (
+                f"Cámara {camera.code} sin respuesta — "
+                f"{count} intentos consecutivos de captura fallidos"
+            )
+            context: dict = {
+                "camera_id": camera.id,
+                "camera_code": camera.code,
+                "consecutive_fails": count,
+                "threshold": threshold,
+            }
+            alert = Alert(
+                parking_id=camera.parking_id,
+                type=AlertType.CAMERA_OFFLINE,
+                severity=AlertSeverity.CRITICAL,
+                message=message,
+                context=context,
+            )
+            db.add(alert)
+            db.commit()
+            db.refresh(alert)
+
+            admin_email = _resolve_admin_email(db)
+            parking = alert.parking
+            parking_name = parking.name if parking else f"parking-{camera.parking_id}"
+
+        log.warning(
+            "alerts: CAMERA_OFFLINE alert id=%s camera=%s count=%s threshold=%s",
+            alert.id,
+            camera.code,
+            count,
+            threshold,
+        )
+
+        email_module.send_alert_email(
+            alert,
+            admin_email,
+            template_kind="camera_offline",
+            camera_code=camera.code,
+            parking_name=parking_name,
+            count=int(count),
+            threshold=threshold,
+        )
+        return alert
+    except Exception as exc:  # noqa: BLE001 — defensiva
+        log.exception(
+            "alerts: fallo inesperado creando CAMERA_OFFLINE alert camera=%s: %s",
+            camera.id,
+            exc,
+        )
+        return None
+
+
+def reset_camera_offline(camera_id: int) -> None:
+    """Borra el contador y el lock de offline cuando la cámara vuelve."""
+    try:
+        rds = _redis_client()
+        rds.delete(_consecutive_offline_key(camera_id), _offline_lock_key(camera_id))
+    except RedisError as exc:
+        log.warning(
+            "alerts: Redis no disponible en reset offline camera=%s: %s",
+            camera_id,
+            exc,
+        )
+
+
+__all__ = [
+    "record_ocr_failure",
+    "reset_ocr_failure",
+    "record_camera_offline",
+    "reset_camera_offline",
+]

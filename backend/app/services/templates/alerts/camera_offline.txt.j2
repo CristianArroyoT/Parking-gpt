@@ -1,0 +1,28 @@
+solidAPP — Alerta crítica · soporte técnico
+===========================================
+
+⛔ Cámara {{ camera_code }} caída
+--------------------------------
+
+La cámara {{ camera_code }} de la sucursal "{{ parking_name }}" ha dejado
+de responder al sistema de captura. Se han registrado {{ count }} intentos
+consecutivos sin frame válido, por encima del umbral configurado
+({{ threshold }} frames).
+
+Severidad: {{ severity|upper }}
+Tipo:      camera_offline
+Hora:      {{ detected_at }}
+Frames sin respuesta: {{ count }} / {{ threshold }}
+
+Posibles causas:
+- Corte de red, switch POE reiniciado o pérdida de alimentación.
+- URL RTSP modificada o credenciales caducadas.
+- Cámara apagada, cableado dañado o firmware colgado.
+
+Acción recomendada:
+- Comprobar la cámara en directo desde el panel del operador.
+- Verificar la red, la alimentación y la URL RTSP.
+- Si la cámara funciona, revisar manualmente la conectividad desde el backend.
+- Reconocer la alerta una vez resuelta: {{ dashboard_url }}
+
+ID interno: #{{ alert_id }}

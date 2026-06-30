@@ -38,7 +38,7 @@ log = logging.getLogger(__name__)
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 _DASHBOARD_URL = "http://localhost:5173/gestor/alertas"
 
-TemplateKind = Literal["ocr_failed", "robery_reported"]
+TemplateKind = Literal["ocr_failed", "robery_reported", "camera_offline"]
 
 _env = Environment(
     loader=FileSystemLoader(str(_TEMPLATES_DIR)),
@@ -180,6 +180,18 @@ def send_alert_email(
             )
             subject = (
                 f"[solidAPP] 🚨 Reporte de robo — {parking_name} (#{alert.id})"
+            )
+        elif template_kind == "camera_offline":
+            text_body, html_body = _render_camera_offline(
+                alert,
+                camera_code=camera_code,
+                parking_name=parking_name,
+                count=count,
+                threshold=threshold,
+            )
+            subject = (
+                f"[solidAPP] ⛔ Cámara caída {camera_code} — "
+                f"{parking_name} (#{alert.id})"
             )
         else:
             log.warning(
