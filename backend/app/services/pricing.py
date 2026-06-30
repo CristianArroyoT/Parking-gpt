@@ -139,11 +139,3 @@ __all__ = [
     "is_vehicle_known",
     "_ensure_aware",
 ]
-
-
-__all__ = [
-    "PricingError",
-    "TicketTotal",
-    "calculate_ticket_total",
-    "is_vehicle_known",
-]
