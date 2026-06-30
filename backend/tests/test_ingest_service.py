@@ -9,7 +9,7 @@ apunta al motor de prueba.
 Casos cubiertos:
   1. Cámara sin geocercas → SKIPPED_NO_GEOFENCE.
   2. Bbox fuera de toda geocerca → SKIPPED_NO_GEOFENCE.
-  3. Confidence < threshold de la geocerca → SKIPPED_NO_GEOFENCE.
+  3. Confidence < threshold de la geocerca → SKIPPED_LOW_CONFIDENCE.
   4. Vehículo desconocido → INSERT + TICKET_CREATED.
   5. Vehículo existente → reusa, no duplica.
   6. Vehículo con ticket activo → SALIDA: cierra con tarifa, TICKET_CLOSED.
@@ -147,7 +147,7 @@ def test_bbox_outside_geofences(ingest_env) -> None:
 
 
 def test_low_confidence_below_threshold(ingest_env) -> None:
-    """Confidence 0.5 < threshold 0.85 → no se considera, SKIPPED."""
+    """Confidence 0.5 < threshold 0.85 → SKIPPED_LOW_CONFIDENCE (granular)."""
     _setup_with_geofence(ingest_env, threshold=0.85)
 
     parking = ingest_env.query(Parking).one()
@@ -156,7 +156,9 @@ def test_low_confidence_below_threshold(ingest_env) -> None:
     hit = PlateHit(plate="1234ABC", confidence=0.5, bbox=[10, 10, 50, 50])
     result = process_plate_hit(hit, camera)
 
-    assert result.status == IngestStatus.SKIPPED_NO_GEOFENCE
+    assert result.status == IngestStatus.SKIPPED_LOW_CONFIDENCE
+    assert result.confidence == 0.5
+    assert result.reason and "confidence" in result.reason.lower()
     assert ingest_env.query(Ticket).count() == 0
     assert ingest_env.query(Vehicle).count() == 0
 

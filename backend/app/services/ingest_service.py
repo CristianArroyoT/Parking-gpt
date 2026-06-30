@@ -158,8 +158,26 @@ def _process_in_tx(
         )
 
     # 2. Mejor geocerca por IoU + threshold
-    matched = _match_geofence(geofences, hit)
+    matched, skip_reason = _match_geofence(geofences, hit)
     if matched is None:
+        if skip_reason == "low_confidence":
+            log.warning(
+                "ingest: confidence %.2f por debajo de thresholds plate=%s camera=%s",
+                hit.confidence,
+                hit.plate,
+                camera.id,
+            )
+            return IngestResult(
+                plate=hit.plate,
+                camera_id=camera.id,
+                parking_id=camera.parking_id,
+                status=IngestStatus.SKIPPED_LOW_CONFIDENCE,
+                confidence=hit.confidence,
+                reason=(
+                    f"confidence {hit.confidence:.2f} por debajo de los "
+                    f"thresholds de las geocercas calibradas"
+                ),
+            )
         log.warning(
             "ingest: bbox fuera de geocercas plate=%s camera=%s bbox=%s",
             hit.plate,
@@ -359,20 +377,35 @@ def _close_ticket_for_exit(db, ticket: Ticket, *, exit_at: datetime) -> Ticket:
 def _match_geofence(
     geofences: Sequence[CameraGeofence],
     hit: PlateHit,
-) -> CameraGeofence | None:
-    """Geocerca con mayor IoU que supere su threshold de confianza."""
+) -> tuple[CameraGeofence | None, str | None]:
+    """Devuelve ``(geofence_ganadora, None)`` o ``(None, razón_de_skip)``.
+
+    Razones de skip:
+      - ``"low_confidence"``: ninguna geocerca pasó el filtro de
+        ``confidence_threshold``. El operador tiene que recalibrar
+        bajando el threshold o mejorando el OCR.
+      - ``"no_intersection"``: alguna geocerca pasó el threshold pero
+        el ``bbox`` del hit no solapó con su rectángulo. El operador
+        tiene que pintar más geocercas o reubicar el hit.
+    """
     hx1, hy1, hx2, hy2 = (float(v) for v in hit.bbox)
     best: tuple[float, CameraGeofence] | None = None
+    any_passed_threshold = False
     for g in geofences:
         if hit.confidence < g.confidence_threshold:
             continue
+        any_passed_threshold = True
         gx2, gy2 = g.x + g.w, g.y + g.h
         iou = _iou((hx1, hy1, hx2, hy2), (g.x, g.y, gx2, gy2))
         if iou <= 0:
             continue
         if best is None or iou > best[0]:
             best = (iou, g)
-    return best[1] if best is not None else None
+    if best is not None:
+        return best[1], None
+    if not any_passed_threshold:
+        return None, "low_confidence"
+    return None, "no_intersection"
 
 
 def _iou(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> float:
