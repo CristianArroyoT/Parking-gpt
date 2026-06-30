@@ -43,6 +43,27 @@ services:
     ports:
       - "6379:6379"
 
+  # ── Servicio OCR (PaddleOCR separado) ─────────────────────────────────
+  # Mantiene PaddleOCR aislado del backend (~1.5 GB de imagen sólo aquí).
+  # El backend le envía frames por HTTP. Los modelos se cachean en el
+  # volumen 'ocr_models' para no re-descargarlos cada arranque.
+  # Solo el puerto 8801 se publica al host para debug manual con curl.
+  ocr:
+    build:
+      context: ./docker/ocr
+      dockerfile: Dockerfile
+    image: solidapp-ocr:latest
+    environment:
+      OCR_ENGINE: paddle
+      OCR_PORT: "8800"
+      OCR_LANG: en
+      OCR_MODELS_DIR: /models
+    volumes:
+      - ocr_models:/models
+    ports:
+      - "8801:8800"
+    restart: unless-stopped
+
   # ── API FastAPI ──────────────────────────────────────────────────────
   backend:
     build:
@@ -58,11 +79,17 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       ENVIRONMENT: development
+      # Cliente OCR (Fase 2). Si el servicio 'ocr' no está levantado,
+      # el cliente hace fallback silencioso y devuelve [] — NUNCA 500.
+      OCR_SERVICE_URL: http://ocr:8800
+      OCR_SERVICE_TIMEOUT: "4"
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      ocr:
+        condition: service_started
     ports:
       - "8000:8000"
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
@@ -103,6 +130,8 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      OCR_SERVICE_URL: http://ocr:8800
+      OCR_SERVICE_TIMEOUT: "4"
     depends_on:
       backend:
         condition: service_started
@@ -131,6 +160,8 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      OCR_SERVICE_URL: http://ocr:8800
+      OCR_SERVICE_TIMEOUT: "4"
     depends_on:
       backend:
         condition: service_started
@@ -148,3 +179,4 @@ services:
 volumes:
   pgdata:
   redisdata:
+  ocr_models:
