@@ -118,3 +118,22 @@ export interface LoginResponse {
   token_type: string
   expires_in: number
 }
+
+// ── Tipos de alta manual (espejo de app/schemas/ticket.py) ───────────
+export type ManualEntryReason = 'camera_down' | 'ocr_failed' | 'other'
+export type TicketDirection = 'entry' | 'exit'
+export type TicketOrigin =
+  | 'automatic'
+  | 'manual_entry'
+  | 'manual_exit'
+
+export interface ManualEntryPayload {
+  plate: string
+  direction: TicketDirection
+  parking_id: number
+  parking_space_id?: number | null
+  reason: ManualEntryReason
+  notes?: string | null
+  camera_id?: number | null
+  occurred_at?: string | null
+}

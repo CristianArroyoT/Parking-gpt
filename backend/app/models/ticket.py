@@ -10,7 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 from app.models.base import TimestampMixin
-from app.models.enums import TicketStatus
+from app.models.enums import TicketOrigin, TicketStatus
 
 if TYPE_CHECKING:
     from app.models.parking import Parking, ParkingSpace
@@ -40,6 +40,20 @@ class Ticket(Base, TimestampMixin):
     total: Mapped[float | None] = mapped_column(Float, nullable=True)
     payment_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
     pdf_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    origin: Mapped[TicketOrigin] = mapped_column(
+        String(16),
+        default=TicketOrigin.AUTOMATIC,
+        server_default=TicketOrigin.AUTOMATIC.value,
+        nullable=False,
+        index=True,
+    )
+    origin: Mapped[TicketOrigin] = mapped_column(
+        String(16),
+        default=TicketOrigin.AUTOMATIC,
+        server_default=TicketOrigin.AUTOMATIC.value,
+        nullable=False,
+        index=True,
+    )
 
     parking: Mapped["Parking"] = relationship()
     vehicle: Mapped["Vehicle"] = relationship()

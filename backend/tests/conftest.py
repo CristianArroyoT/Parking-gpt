@@ -15,15 +15,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+import app.models  # noqa: F401 — fuerza el registro de todas las tablas en Base.metadata
 from app.core.db import Base, get_db
 from app.main import create_app
 
 
 @pytest.fixture()
-def db_session():
-    # StaticPool: garantiza que TODAS las conexiones del engine
-    # compartan la misma BD en memoria. Sin esto, `Base.metadata.create_all`
-    # crea las tablas en una conexión y luego la sesión abre otra que no las ve.
+def db_session(monkeypatch):
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         future=True,
@@ -32,6 +30,15 @@ def db_session():
     )
     Base.metadata.create_all(engine)
     SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+    # Sustituir SessionLocal que ``app.services.manual_tickets`` y
+    # ``app.services.ingest_service`` abren internamente, para que apunten
+    # al motor de prueba y vean los datos sembrados.
+    from app.services import manual_tickets as mt_mod
+    from app.services import ingest_service as ingest_mod
+    monkeypatch.setattr(mt_mod, "SessionLocal", SessionLocal)
+    monkeypatch.setattr(ingest_mod, "SessionLocal", SessionLocal)
+
     session = SessionLocal()
     try:
         yield session

@@ -5,16 +5,17 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Query as SAQuery
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, parking_context, require_role
 from app.models.enums import TicketStatus, UserRole
 from app.models.ticket import Ticket
 from app.models.user import ParkingMembership, User
-from app.schemas.ticket import TicketClose, TicketCreate, TicketRead
+from app.schemas.ticket import TicketClose, TicketCreate, TicketManualCreate, TicketRead
+from app.services.manual_tickets import create_manual_ticket as _create_manual_ticket
 from app.services.pricing import PricingError, calculate_ticket_total
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
@@ -64,6 +65,34 @@ def create_ticket(
     db.commit()
     db.refresh(ticket)
     return ticket
+
+
+@router.post(
+    "/manual",
+    response_model=TicketRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[
+        Depends(require_role(
+            UserRole.ADMIN.value,
+            UserRole.GESTOR.value,
+            UserRole.OPERADOR.value,
+        ))
+    ],
+)
+def create_manual_ticket_endpoint(
+    payload: TicketManualCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Ticket:
+    """Alta manual ENTRADA/SALIDA del operador.
+
+    RBAC: admin, gestor u operador. El operador debe tener membresía en la
+    sucursal (validado con ``parking_context``).
+    """
+    parking_context(payload.parking_id, current=current_user, db=db)
+    ip = request.client.host if request.client else None
+    return _create_manual_ticket(payload, current_user=current_user, ip=ip)
 
 
 @router.get("/{ticket_id}", response_model=TicketRead)

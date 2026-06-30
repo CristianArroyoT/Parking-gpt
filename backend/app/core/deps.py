@@ -65,7 +65,8 @@ def require_role(*roles: str):
     allowed = set(roles)
 
     def _checker(current: User = Depends(get_current_user)) -> User:
-        if current.role.value not in allowed:
+        role_value = current.role.value if hasattr(current.role, "value") else current.role
+        if role_value not in allowed:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="No tiene permisos para esta operación",

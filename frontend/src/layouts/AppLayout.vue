@@ -22,14 +22,17 @@ const NAV_BY_ROLE: Record<string, NavItem[]> = {
     { name: 'gestor-map', label: 'Mapa', to: '/mapa' },
     { name: 'gestor-cameras', label: 'Cámaras', to: '/cameras' },
     { name: 'operador-live', label: 'En vivo', to: '/vivo' },
+    { name: 'operador-manual', label: 'Alta manual', to: '/operador/alta-manual' },
   ],
   gestor: [
     { name: 'gestor-map', label: 'Mapa', to: '/mapa' },
     { name: 'gestor-cameras', label: 'Cámaras', to: '/cameras' },
     { name: 'operador-live', label: 'En vivo', to: '/vivo' },
+    { name: 'operador-manual', label: 'Alta manual', to: '/operador/alta-manual' },
   ],
   operador: [
     { name: 'operador-live', label: 'En vivo', to: '/vivo' },
+    { name: 'operador-manual', label: 'Alta manual', to: '/operador/alta-manual' },
   ],
   cliente: [
     { name: 'cliente-tickets', label: 'Mis tickets', to: '/mis-tickets' },
@@ -68,9 +71,9 @@ async function onLogout(): Promise<void> {
     >
       <div class="px-5 py-5 flex items-center gap-3 border-b border-slate-800">
         <img
-          src="/logo-solidapp.png"
+          src="/logo-solidapp.png?v=2"
           alt="solidAPP"
-          class="h-9 w-9 rounded-lg bg-white"
+          class="h-10 w-10 rounded-lg bg-white p-1"
         />
         <div class="font-semibold tracking-tight">solidAPP</div>
       </div>

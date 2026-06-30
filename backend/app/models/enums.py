@@ -36,3 +36,24 @@ class AlertType(str, enum.Enum):
     ROBERY_REPORTED = "robery_reported"
     SPACE_BROKEN = "space_broken"
     OTHER = "other"
+
+
+class ManualEntryReason(str, enum.Enum):
+    """Motivo declarado por el operador al hacer un alta manual.
+
+    Distinto semánticamente de ``AlertType``: aquí clasifica la ACCIÓN del
+    operador, mientras que ``AlertType`` notifica INCIDENCIAS del sistema.
+    """
+
+    CAMERA_DOWN = "camera_down"
+    OCR_FAILED = "ocr_failed"
+    OTHER = "other"
+
+
+class TicketOrigin(str, enum.Enum):
+    """Origen del ticket. ``AUTOMATIC`` para OCR; ``MANUAL_ENTRY/EXIT`` para
+    alta manual del operador."""
+
+    AUTOMATIC = "automatic"
+    MANUAL_ENTRY = "manual_entry"
+    MANUAL_EXIT = "manual_exit"

@@ -63,6 +63,12 @@ const routes: RouteRecordRaw[] = [
     meta: { roles: ['admin', 'gestor', 'operador'] },
   },
   {
+    path: '/operador/alta-manual',
+    name: 'operador-manual',
+    component: () => import('@/views/operador/ManualEntryView.vue'),
+    meta: { roles: ['admin', 'gestor', 'operador'] },
+  },
+  {
     path: '/mis-tickets',
     name: 'cliente-tickets',
     component: () => import('@/views/cliente/TicketsView.vue'),
