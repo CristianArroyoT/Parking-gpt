@@ -18,6 +18,7 @@ const NAV_BY_ROLE: Record<string, NavItem[]> = {
     { name: 'dashboard', label: 'Dashboard', to: '/dashboard' },
     { name: 'admin-parkings', label: 'Sucursales', to: '/admin/parkings' },
     { name: 'admin-users', label: 'Usuarios', to: '/admin/users' },
+    { name: 'admin-tariffs', label: 'Tarifas', to: '/admin/tariffs' },
     { name: 'gestor-map', label: 'Mapa', to: '/mapa' },
     { name: 'gestor-cameras', label: 'Cámaras', to: '/cameras' },
     { name: 'operador-live', label: 'En vivo', to: '/vivo' },

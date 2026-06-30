@@ -33,6 +33,12 @@ const routes: RouteRecordRaw[] = [
     meta: { roles: ['admin'] },
   },
   {
+    path: '/admin/tariffs',
+    name: 'admin-tariffs',
+    component: () => import('@/views/admin/TariffsView.vue'),
+    meta: { roles: ['admin'] },
+  },
+  {
     path: '/mapa',
     name: 'gestor-map',
     component: () => import('@/views/gestor/MapView.vue'),
