@@ -1,0 +1,69 @@
+"""Modelos de sucursal, plaza y cámara."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.core.db import Base
+from app.models.base import TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.user import ParkingMembership
+
+
+class Parking(Base, TimestampMixin):
+    __tablename__ = "parkings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(32), unique=True, index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    address: Mapped[str] = mapped_column(String(512), nullable=False)
+    city: Mapped[str] = mapped_column(String(128), nullable=False)
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    spaces: Mapped[list["ParkingSpace"]] = relationship(
+        back_populates="parking", cascade="all, delete-orphan"
+    )
+    cameras: Mapped[list["Camera"]] = relationship(
+        back_populates="parking", cascade="all, delete-orphan"
+    )
+    members: Mapped[list["ParkingMembership"]] = relationship(
+        back_populates="parking", cascade="all, delete-orphan"
+    )
+
+
+class ParkingSpace(Base, TimestampMixin):
+    __tablename__ = "parking_spaces"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    parking_id: Mapped[int] = mapped_column(
+        ForeignKey("parkings.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    lane: Mapped[str] = mapped_column(String(8), nullable=False, index=True)
+    number: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notes: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    parking: Mapped[Parking] = relationship(back_populates="spaces")
+
+
+class Camera(Base, TimestampMixin):
+    __tablename__ = "cameras"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    parking_id: Mapped[int] = mapped_column(
+        ForeignKey("parkings.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    code: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    rtsp_url: Mapped[str] = mapped_column(String(1024), nullable=False)
+    lane_hint: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    fps: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    parking: Mapped[Parking] = relationship(back_populates="cameras")

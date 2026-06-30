@@ -1,0 +1,1 @@
+"""Paquete de scripts CLI del backend."""

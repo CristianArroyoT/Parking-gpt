@@ -1,1 +1,0 @@
-uvicorn\nfastapi\npydantic\n

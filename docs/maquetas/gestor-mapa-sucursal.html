@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>solidAPP · Madrid-A · Mapa</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+          colors: {
+            park: {
+              libre:'#10b981', ocupado:'#f43f5e', alerta:'#f59e0b',
+              inactivo:'#64748b', marca:'#0f172a', acento:'#2563eb'
+            }
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    body { font-family:'Inter',sans-serif; }
+    .shadow-card { box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 4px 12px rgba(15,23,42,.06); }
+    .plaza { transition: transform .12s ease, box-shadow .12s ease; }
+    .plaza:hover { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(15,23,42,.08); }
+    .plaza.selected { outline: 3px solid #2563eb; outline-offset: 1px; }
+    .pulse-dot::after {
+      content: ''; display:inline-block; width:.5rem; height:.5rem; border-radius:9999px;
+      background:#10b981; margin-right:.4rem;
+      box-shadow: 0 0 0 0 rgba(16,185,129,.6);
+      animation: pulse 1.8s infinite;
+    }
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(16,185,129,.55); }
+      70%  { box-shadow: 0 0 0 8px rgba(16,185,129,0); }
+      100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); }
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 antialiased">
+<div class="min-h-screen flex">
+
+  <aside class="w-60 bg-slate-900 text-slate-200 flex flex-col">
+    <div class="px-5 py-5 flex items-center gap-3 border-b border-slate-800">
+      <div class="h-9 w-9 rounded-lg bg-white text-slate-900 grid place-items-center font-bold">s</div>
+      <div class="font-semibold tracking-tight">solidAPP</div>
+    </div>
+    <nav class="flex-1 px-3 py-4 space-y-1 text-sm">
+      <a class="block px-3 py-2 rounded-md bg-slate-800 text-white" href="#">Mapa</a>
+      <a class="block px-3 py-2 rounded-md hover:bg-slate-800" href="gestor-calibrar-camara.html">Cámaras</a>
+      <a class="block px-3 py-2 rounded-md hover:bg-slate-800" href="#">Tarifas</a>
+      <a class="block px-3 py-2 rounded-md hover:bg-slate-800" href="#">Entradas/Salidas</a>
+      <a class="block px-3 py-2 rounded-md hover:bg-slate-800" href="#">Reportes</a>
+      <a class="block px-3 py-2 rounded-md hover:bg-slate-800" href="#">Alertas</a>
+      <a class="block px-3 py-2 rounded-md hover:bg-slate-800" href="#">Operadores</a>
+    </nav>
+    <div class="px-5 py-4 border-t border-slate-800 text-xs text-slate-400">
+      <div class="font-medium text-slate-200">Lucía G.</div>
+      <div>Gestora · Madrid-A, Madrid-B</div>
+      <a href="login.html" class="block mt-2 text-blue-400 hover:underline">Cerrar sesión</a>
+    </div>
+  </aside>
+
+  <main class="flex-1 p-6 lg:p-8">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+      <div>
+        <div class="text-xs text-slate-500">Sucursal</div>
+        <h1 class="text-2xl font-semibold tracking-tight">Madrid-A · Gran Vía</h1>
+        <div class="mt-1 text-sm text-slate-500 flex items-center gap-3">
+          <span class="pulse-dot text-emerald-700">En vivo</span>
+          <span>· 60 plazas</span><span>·</span>
+          <span>Cámara activa: <span class="font-mono">CAM-01</span></span>
+          <span>·</span><span>24 fps</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <a href="index.html" class="text-xs text-slate-500 hover:text-slate-800">← Índice</a>
+        <button class="text-sm bg-white border border-slate-300 hover:bg-slate-50 rounded-lg px-3 py-1.5">Exportar</button>
+        <button class="text-sm bg-slate-900 hover:bg-slate-800 text-white rounded-lg px-3 py-1.5">Refrescar</button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 xl:grid-cols-4 gap-6">
+      <div class="xl:col-span-3 bg-white rounded-xl shadow-card p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="font-semibold">Mapa de plazas</h2>
+          <div class="flex items-center gap-3 text-xs">
+            <span class="inline-flex items-center gap-1"><span class="h-3 w-3 rounded bg-emerald-500"></span> Libre</span>
+            <span class="inline-flex items-center gap-1"><span class="h-3 w-3 rounded bg-rose-500"></span> Ocupada</span>
+            <span class="inline-flex items-center gap-1"><span class="h-3 w-3 rounded bg-amber-500"></span> Alerta</span>
+            <span class="inline-flex items-center gap-1"><span class="h-3 w-3 rounded bg-slate-400"></span> Inactiva</span>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="border border-slate-200 rounded-lg p-4 bg-slate-50">
+            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Calle A</div>
+            <div class="grid grid-cols-4 gap-2">
+              <div class="plaza bg-emerald-500 text-white text-xs font-medium rounded p-2 text-center selected">A-01</div>
+              <div class="plaza bg-rose-500 text-white text-xs font-medium rounded p-2 text-center">A-02</div>
+              <div class="plaza bg-rose-500 text-white text-xs font-medium rounded p-2 text-center">A-03</div>
+              <div class="plaza bg-emerald-500 text-white text-xs font-medium rounded p-2 text-center">A-04</div>
+              <div class="plaza bg-rose-500 text-white text-xs font-medium rounded p-2 text-center">A-05</div>
+              <div class="plaza bg-emerald-500 text-white text-xs font-medium rounded p-2 text-center">A-06</div>
+              <div class="plaza bg-rose-500 text-white text-xs font-medium rounded p-2 text-center">A-07</div>
+              <div class="plaza bg-amber-500 text-white text-xs font-medium rounded p-2 text-center">A-08</div>
+            </div>
+          </div>
+
+          <div class="border border-slate-200 rounded-lg p-4 bg-slate-50">
+            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Calle B</div>
+            <div class="grid grid-cols-4 gap-2">
+              <div class="plaza bg-rose-500 text-white text-xs font-medium rounded p-2 text-center">B-01</div>
+              <div class="plaza bg-rose-500 text-white text-xs font-medium rounded p-2 text-center">B-02</div>
+              <div class="plaza bg-emerald-500 text-white text-xs font-medium rounded p-2 text-center">B-03</div>
+              <div class="plaza bg-emerald-500 text-white text-xs font-medium rounded p-2 text-center">B-04</div>
+              <div class="plaza bg-rose-500 text-white text-xs font-medium rounded p-2 text-center">B-05</div>
+              <div class="plaza bg-rose-500 text-white text-xs font-medium rounded p-2 text-center">B-06</div>
+              <div class="plaza bg-slate-400 text-white text-xs font-medium rounded p-2 text-center">B-07</div>
+              <div class="plaza bg-emerald-500 text-white text-xs font-medium rounded p-2 text-center">B-08</div>
+            </div>
+          </div>
+
+          <div class="border border-slate-200 rounded-lg p-4 bg-slate-50">
+            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Calle C</div>
+            <div class="grid grid-cols-4 gap-2">
+              <div class="plaza bg-rose-500 text-white text-xs font-medium rounded p-2 text-center">C-01</div>
+              <div class="plaza bg-emerald-500 text-white text-xs font-medium rounded p-2 text-center">C-02</div>
+              <div class="plaza bg-emerald-500 text-white text-xs font-medium rounded p-2 text-center">C-03</div>
+              <div class="plaza bg-rose-500 text-white text-xs font-medium rounded p-2 text-center">C-04</div>
+              <div class="plaza bg-rose-500 text-white text-xs font-medium rounded p-2 text-center">C-05</div>
+              <div class="plaza bg-emerald-500 text-white text-xs font-medium rounded p-2 text-center">C-06</div>
+              <div class="plaza bg-emerald-500 text-white text-xs font-medium rounded p-2 text-center">C-07</div>
+              <div class="plaza bg-rose-500 text-white text-xs font-medium rounded p-2 text-center">C-08</div>
+            </div>
+          </div>
+
+          <div class="border border-slate-200 rounded-lg p-4 bg-slate-50">
+            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Calle D</div>
+            <div class="grid grid-cols-4 gap-2">
+              <div class="plaza bg-emerald-500 text-white text-xs font-medium rounded p-2 text-center">D-01</div>
+              <div class="plaza bg-emerald-500 text-white text-xs font-medium rounded p-2 text-center">D-02</div>
+              <div class="plaza bg-rose-500 text-white text-xs font-medium rounded p-2 text-center">D-03</div>
+              <div class="plaza bg-emerald-500 text-white text-xs font-medium rounded p-2 text-center">D-04</div>
+              <div class="plaza bg-rose-500 text-white text-xs font-medium rounded p-2 text-center">D-05</div>
+              <div class="plaza bg-emerald-500 text-white text-xs font-medium rounded p-2 text-center">D-06</div>
+              <div class="plaza bg-amber-500 text-white text-xs font-medium rounded p-2 text-center">D-07</div>
+              <div class="plaza bg-rose-500 text-white text-xs font-medium rounded p-2 text-center">D-08</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="bg-white rounded-xl shadow-card p-5">
+          <div class="text-xs uppercase tracking-wide text-slate-500">Plaza seleccionada</div>
+          <div class="mt-1 flex items-baseline gap-2">
+            <div class="text-3xl font-semibold tracking-tight">A-04</div>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Libre</span>
+          </div>
+          <div class="mt-4 text-sm space-y-1.5">
+            <div class="flex justify-between"><span class="text-slate-500">Matrícula</span><span class="font-mono">1234-BCD</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Vehículo</span><span>Seat León · blanco</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Entrada</span><span>hoy 09:42</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Tiempo</span><span>3 h 01 m</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Ticket</span><span>#4821</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Importe est.</span><span>7,60 €</span></div>
+          </div>
+          <button class="mt-4 w-full rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium py-2">Ver ticket completo</button>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-card">
+          <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+            <div class="font-semibold text-sm">Eventos en vivo</div>
+            <span class="pulse-dot text-xs text-slate-500">stream</span>
+          </div>
+          <ul class="divide-y divide-slate-100 text-sm">
+            <li class="px-5 py-3">
+              <div class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-emerald-500"></span><span class="text-slate-500 w-12">12:43</span><span>ENTRADA <span class="font-mono">1234-BCD</span> → A-04</span></div>
+              <div class="ml-6 mt-0.5 text-xs text-slate-500">Confianza OCR 98 %</div>
+            </li>
+            <li class="px-5 py-3">
+              <div class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-amber-500"></span><span class="text-slate-500 w-12">12:42</span><span>OCR fallido <span class="font-mono">6421-ABC</span> (operador pendiente)</span></div>
+            </li>
+            <li class="px-5 py-3">
+              <div class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-blue-500"></span><span class="text-slate-500 w-12">12:39</span><span>SALIDA <span class="font-mono">9988-XYZ</span> plaza B-02 → 2 h 14 m · ticket #4820</span></div>
+            </li>
+            <li class="px-5 py-3">
+              <div class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-rose-500"></span><span class="text-slate-500 w-12">12:31</span><span>Cámara CAM-07 sin respuesta</span></div>
+            </li>
+          </ul>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+</body>
+</html>

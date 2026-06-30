@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>solidAPP · Operador · Vista en vivo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+          colors: {
+            park: {
+              libre:'#10b981', ocupado:'#f43f5e', alerta:'#f59e0b',
+              inactivo:'#64748b', marca:'#0f172a', acento:'#2563eb'
+            }
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    body { font-family:'Inter',sans-serif; }
+    .shadow-card { box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 4px 12px rgba(15,23,42,.06); }
+    .pulse-dot::after {
+      content: ''; display:inline-block; width:.5rem; height:.5rem; border-radius:9999px;
+      background:#10b981; margin-right:.4rem;
+      box-shadow: 0 0 0 0 rgba(16,185,129,.6);
+      animation: pulse 1.8s infinite;
+    }
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(16,185,129,.55); }
+      70%  { box-shadow: 0 0 0 8px rgba(16,185,129,0); }
+      100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); }
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 antialiased">
+<div class="min-h-screen flex">
+
+  <aside class="w-60 bg-slate-900 text-slate-200 flex flex-col">
+    <div class="px-5 py-5 flex items-center gap-3 border-b border-slate-800">
+      <div class="h-9 w-9 rounded-lg bg-white text-slate-900 grid place-items-center font-bold">s</div>
+      <div class="font-semibold tracking-tight">solidAPP</div>
+    </div>
+    <nav class="flex-1 px-3 py-4 space-y-1 text-sm">
+      <a class="block px-3 py-2 rounded-md bg-slate-800 text-white" href="#">Vista en vivo</a>
+      <a class="block px-3 py-2 rounded-md hover:bg-slate-800" href="operador-alta-manual.html">Alta manual</a>
+      <a class="block px-3 py-2 rounded-md hover:bg-slate-800" href="#">Reportar robo</a>
+      <a class="block px-3 py-2 rounded-md hover:bg-slate-800" href="#">Incidencias</a>
+    </nav>
+    <div class="px-5 py-4 border-t border-slate-800 text-xs text-slate-400">
+      <div class="font-medium text-slate-200">Javi O. · #12</div>
+      <div>Operador · Turno Mañana</div>
+      <div class="mt-1">Madrid-A</div>
+      <a href="login.html" class="block mt-2 text-blue-400 hover:underline">Cerrar sesión</a>
+    </div>
+  </aside>
+
+  <main class="flex-1 p-6 lg:p-8">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight">Vista en vivo</h1>
+        <p class="text-sm text-slate-500 flex items-center gap-3">
+          <span class="pulse-dot text-emerald-700">Activo</span>
+          <span>· Madrid-A</span><span>·</span><span>Cámara <span class="font-mono">CAM-01</span></span>
+        </p>
+      </div>
+      <div class="flex items-center gap-2 text-sm">
+        <a href="index.html" class="text-xs text-slate-500 hover:text-slate-800">← Índice</a>
+        <button class="bg-white border border-slate-300 hover:bg-slate-50 rounded-lg px-3 py-1.5">Histórico</button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+      <div class="xl:col-span-2 bg-white rounded-xl shadow-card p-5">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2 text-sm">
+            <label class="text-slate-500">Cámara</label>
+            <select class="rounded-lg border border-slate-300 px-2 py-1 text-sm">
+              <option>CAM-01 · Calle A</option>
+              <option>CAM-02 · Calle B</option>
+              <option>CAM-03 · Calle C</option>
+              <option disabled>CAM-07 · sin respuesta</option>
+            </select>
+          </div>
+          <div class="text-xs text-slate-500">24 fps · 1080p</div>
+        </div>
+
+        <div class="relative w-full aspect-video bg-slate-900 rounded-lg overflow-hidden">
+          <svg viewBox="0 0 960 540" preserveAspectRatio="xMidYMid slice" class="absolute inset-0 w-full h-full">
+            <defs>
+              <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#1e293b"/>
+                <stop offset="1" stop-color="#0f172a"/>
+              </linearGradient>
+            </defs>
+            <rect width="960" height="540" fill="url(#g)"/>
+            <rect x="40" y="40" width="880" height="460" fill="#1f2937" stroke="#334155"/>
+            <g stroke="#fafafa" stroke-width="2" stroke-dasharray="10 8" fill="none" opacity=".8">
+              <line x1="160" y1="60"  x2="160" y2="480"/>
+              <line x1="280" y1="60"  x2="280" y2="480"/>
+              <line x1="400" y1="60"  x2="400" y2="480"/>
+              <line x1="520" y1="60"  x2="520" y2="480"/>
+              <line x1="640" y1="60"  x2="640" y2="480"/>
+              <line x1="760" y1="60"  x2="760" y2="480"/>
+              <line x1="60"  y1="180" x2="900" y2="180"/>
+              <line x1="60"  y1="300" x2="900" y2="300"/>
+              <line x1="60"  y1="420" x2="900" y2="420"/>
+            </g>
+            <g>
+              <rect x="170" y="80" width="120" height="100" rx="8" fill="#0ea5e9" opacity=".9"/>
+              <rect x="180" y="95" width="100" height="30" rx="3" fill="#0c4a6e"/>
+              <rect x="180" y="135" width="100" height="35" rx="3" fill="#0c4a6e"/>
+            </g>
+          </svg>
+          <div class="absolute top-2 left-2 bg-rose-500 text-white text-xs px-2 py-1 rounded font-medium">● EN VIVO</div>
+          <div class="absolute bottom-2 right-2 bg-slate-900/70 text-white text-xs px-2 py-1 rounded font-mono">
+            1234-BCD · 98 %
+          </div>
+        </div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="bg-white rounded-xl shadow-card p-5">
+          <h2 class="font-semibold mb-3">Último evento</h2>
+          <div class="text-sm">
+            <div class="flex items-center gap-2">
+              <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
+              <span class="text-slate-500 w-12">12:43</span>
+              <span class="font-medium">ENTRADA <span class="font-mono">1234-BCD</span></span>
+            </div>
+            <div class="ml-6 mt-1 text-xs text-slate-500">→ plaza A-04 · Seat León blanco · confianza 98 %</div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-card p-5">
+          <h2 class="font-semibold mb-3">Acciones rápidas</h2>
+          <div class="space-y-2">
+            <a href="operador-alta-manual.html" class="block rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2.5 text-center">Alta manual de entrada</a>
+            <a href="operador-alta-manual.html" class="block rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2.5 text-center">Alta manual de salida</a>
+            <button class="block w-full rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-sm font-medium py-2.5">Marcar plaza como averiada</button>
+            <button class="block w-full rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm font-medium py-2.5">Reportar robo / incidente</button>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-card">
+          <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+            <h2 class="font-semibold text-sm">Incidencias recientes</h2>
+            <span class="text-xs text-slate-500">últimos 30 min</span>
+          </div>
+          <ul class="divide-y divide-slate-100 text-sm">
+            <li class="px-5 py-3">
+              <div class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-amber-500"></span><span class="text-slate-500 w-12">12:42</span><span>OCR fallido <span class="font-mono">6421-ABC</span></span></div>
+              <div class="ml-6 mt-0.5 text-xs text-slate-500">Pendiente de revisión</div>
+            </li>
+            <li class="px-5 py-3">
+              <div class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-rose-500"></span><span class="text-slate-500 w-12">12:31</span><span>Cámara CAM-07 sin respuesta</span></div>
+            </li>
+          </ul>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+</body>
+</html>

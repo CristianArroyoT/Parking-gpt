@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>solidAPP · Operador · Alta manual</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+          colors: {
+            park: {
+              libre:'#10b981', ocupado:'#f43f5e', alerta:'#f59e0b',
+              inactivo:'#64748b', marca:'#0f172a', acento:'#2563eb'
+            }
+          }
+        }
+      }
+    };
+  </script>
+  <style>body { font-family:'Inter',sans-serif; } .shadow-card { box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 4px 12px rgba(15,23,42,.06); }</style>
+</head>
+<body class="bg-slate-100 text-slate-800 antialiased">
+<div class="min-h-screen flex">
+
+  <aside class="w-60 bg-slate-900 text-slate-200 flex flex-col">
+    <div class="px-5 py-5 flex items-center gap-3 border-b border-slate-800">
+      <div class="h-9 w-9 rounded-lg bg-white text-slate-900 grid place-items-center font-bold">s</div>
+      <div class="font-semibold tracking-tight">solidAPP</div>
+    </div>
+    <nav class="flex-1 px-3 py-4 space-y-1 text-sm">
+      <a class="block px-3 py-2 rounded-md hover:bg-slate-800" href="operador-vivo.html">Vista en vivo</a>
+      <a class="block px-3 py-2 rounded-md bg-slate-800 text-white" href="#">Alta manual</a>
+      <a class="block px-3 py-2 rounded-md hover:bg-slate-800" href="#">Reportar robo</a>
+      <a class="block px-3 py-2 rounded-md hover:bg-slate-800" href="#">Incidencias</a>
+    </nav>
+    <div class="px-5 py-4 border-t border-slate-800 text-xs text-slate-400">
+      <div class="font-medium text-slate-200">Javi O. · #12</div>
+      <div>Operador · Turno Mañana</div>
+      <div class="mt-1">Madrid-A</div>
+      <a href="login.html" class="block mt-2 text-blue-400 hover:underline">Cerrar sesión</a>
+    </div>
+  </aside>
+
+  <main class="flex-1 p-6 lg:p-8">
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <div class="text-xs text-slate-500"><a class="hover:underline" href="operador-vivo.html">Vista en vivo</a> · Alta manual</div>
+        <h1 class="text-2xl font-semibold tracking-tight">Alta manual de entrada</h1>
+        <p class="text-sm text-slate-500">Se utiliza cuando la cámara ha caído o el OCR no detecta matrícula.</p>
+      </div>
+      <a href="index.html" class="text-xs text-slate-500 hover:text-slate-800">← Índice</a>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="lg:col-span-2 bg-white rounded-xl shadow-card">
+        <form class="p-6 space-y-5">
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-2">Motivo del alta manual</label>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <label class="border border-blue-600 bg-blue-50 text-blue-700 rounded-lg px-3 py-2 text-sm text-center cursor-pointer">
+                <input type="radio" name="motivo" class="hidden" checked /> Cámara caída
+              </label>
+              <label class="border border-slate-300 hover:bg-slate-50 rounded-lg px-3 py-2 text-sm text-center cursor-pointer">
+                <input type="radio" name="motivo" class="hidden" /> OCR fallido
+              </label>
+              <label class="border border-slate-300 hover:bg-slate-50 rounded-lg px-3 py-2 text-sm text-center cursor-pointer">
+                <input type="radio" name="motivo" class="hidden" /> Otro
+              </label>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">Cámara</label>
+              <select class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                <option>CAM-03 · Calle C</option>
+                <option selected>CAM-07 · Calle D (sin respuesta)</option>
+                <option>CAM-01 · Calle A</option>
+                <option>CAM-02 · Calle B</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">Plaza</label>
+              <select class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                <option>A-08</option><option selected>D-04</option><option>D-05</option><option>D-06</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Matrícula</label>
+            <div class="flex items-center gap-3">
+              <input type="text" maxlength="4" value="6421" class="w-32 rounded-lg border border-slate-300 px-3 py-2 text-lg font-mono uppercase tracking-widest text-center"/>
+              <span class="text-slate-400">—</span>
+              <input type="text" maxlength="3" value="ABC" class="w-32 rounded-lg border border-slate-300 px-3 py-2 text-lg font-mono uppercase tracking-widest text-center"/>
+            </div>
+            <p class="text-xs text-slate-500 mt-1">Formato matrícula española: 4 números + 3 letras (sin vocales ni Q).</p>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">Marca</label>
+              <select class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                <option>— Selecciona —</option>
+                <option>Seat</option><option>Renault</option><option>Citroën</option><option>Volkswagen</option><option>Otra</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">Modelo</label>
+              <input type="text" placeholder="León, Clio, C3…" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"/>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">Color (opcional)</label>
+              <input type="text" placeholder="Blanco, gris…" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"/>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Notas para auditoría</label>
+            <textarea rows="3" placeholder="Algo que reportar sobre el vehículo o la operación…"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"></textarea>
+          </div>
+
+          <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <a href="operador-vivo.html" class="rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-sm px-4 py-2">Cancelar</a>
+            <button type="button" class="rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2">Crear ticket</button>
+          </div>
+        </form>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-4 text-sm">
+          <div class="font-semibold mb-1">Cámara sin respuesta</div>
+          <p>CAM-07 lleva 14 minutos sin responder. Los tickets creados manualmente durante este periodo quedan marcados con <span class="font-mono">alta_manual=true</span>.</p>
+        </div>
+        <div class="bg-white rounded-xl shadow-card p-5 text-sm">
+          <h3 class="font-semibold mb-2">Vista previa del ticket</h3>
+          <ul class="space-y-1.5">
+            <li class="flex justify-between"><span class="text-slate-500">Sucursal</span><span>Madrid-A</span></li>
+            <li class="flex justify-between"><span class="text-slate-500">Plaza</span><span>D-04</span></li>
+            <li class="flex justify-between"><span class="text-slate-500">Matrícula</span><span class="font-mono">6421-ABC</span></li>
+            <li class="flex justify-between"><span class="text-slate-500">Hora entrada</span><span>hoy 12:47</span></li>
+            <li class="flex justify-between"><span class="text-slate-500">Origen</span><span class="text-amber-700 font-medium">Alta manual</span></li>
+          </ul>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+</body>
+</html>

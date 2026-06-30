@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>solidAPP · wireframes borrador</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+          },
+          colors: {
+            park: {
+              libre: '#10b981',
+              ocupado: '#f43f5e',
+              alerta: '#f59e0b',
+              inactivo: '#64748b',
+              marca: '#0f172a',
+              acento: '#2563eb',
+            },
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .shadow-card { box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 4px 12px rgba(15,23,42,.06); }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 antialiased">
+  <header class="border-b border-slate-200 bg-white">
+    <div class="mx-auto max-w-6xl px-6 py-5 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="h-10 w-10 rounded-lg bg-park-marca text-white grid place-items-center font-bold">s</div>
+        <div>
+          <div class="font-semibold tracking-tight text-lg">solidAPP</div>
+          <div class="text-xs text-slate-500">Wireframes borrador · MVP</div>
+        </div>
+      </div>
+      <span class="text-xs text-slate-500">2026-06-30 · Estado: borrador</span>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-6xl px-6 py-10">
+    <h1 class="text-2xl font-semibold tracking-tight">Wireframes borrador</h1>
+    <p class="mt-2 text-slate-600 max-w-2xl">
+      Maquetas estáticas (HTML + Tailwind) para validar pantallas antes de implementar.
+      Datos sintéticos. Sin lógica. Sin facial en MVP.
+    </p>
+
+    <section class="mt-8">
+      <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wide">Acceso</h2>
+      <div class="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <a href="login.html" class="block bg-white rounded-xl shadow-card hover:shadow-md transition p-5">
+          <div class="font-semibold">login.html</div>
+          <div class="mt-1 text-sm text-slate-500">Inicio de sesión con email + contraseña</div>
+        </a>
+      </div>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wide">Administrador</h2>
+      <div class="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <a href="admin-dashboard.html" class="block bg-white rounded-xl shadow-card hover:shadow-md transition p-5">
+          <div class="font-semibold">admin-dashboard.html</div>
+          <div class="mt-1 text-sm text-slate-500">Resumen global de las 5 sucursales</div>
+        </a>
+      </div>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wide">Gestor de parking</h2>
+      <div class="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <a href="gestor-mapa-sucursal.html" class="block bg-white rounded-xl shadow-card hover:shadow-md transition p-5">
+          <div class="font-semibold">gestor-mapa-sucursal.html</div>
+          <div class="mt-1 text-sm text-slate-500">Mapa de calles A/B/C/D con plazas en grid</div>
+        </a>
+        <a href="gestor-calibrar-camara.html" class="block bg-white rounded-xl shadow-card hover:shadow-md transition p-5">
+          <div class="font-semibold">gestor-calibrar-camara.html</div>
+          <div class="mt-1 text-sm text-slate-500">Calibración de geocercas sobre el frame RTSP</div>
+        </a>
+      </div>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wide">Operador</h2>
+      <div class="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <a href="operador-vivo.html" class="block bg-white rounded-xl shadow-card hover:shadow-md transition p-5">
+          <div class="font-semibold">operador-vivo.html</div>
+          <div class="mt-1 text-sm text-slate-500">Vista de cámara en vivo + acciones rápidas</div>
+        </a>
+        <a href="operador-alta-manual.html" class="block bg-white rounded-xl shadow-card hover:shadow-md transition p-5">
+          <div class="font-semibold">operador-alta-manual.html</div>
+          <div class="mt-1 text-sm text-slate-500">Alta manual cuando cámara cae u OCR falla</div>
+        </a>
+      </div>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wide">Cliente</h2>
+      <div class="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <a href="cliente-mis-tickets.html" class="block bg-white rounded-xl shadow-card hover:shadow-md transition p-5">
+          <div class="font-semibold">cliente-mis-tickets.html</div>
+          <div class="mt-1 text-sm text-slate-500">Historial de tickets del cliente</div>
+        </a>
+      </div>
+    </section>
+
+    <footer class="mt-14 text-xs text-slate-500">
+      Paleta: verde (libre), rojo (ocupado), ámbar (alerta), gris (inactivo).
+      Stack objetivo: FastAPI · Vue 3 · Postgres+PostGIS · Redis/Celery · PaddleOCR · Docker.
+    </footer>
+  </main>
+</body>
+</html>

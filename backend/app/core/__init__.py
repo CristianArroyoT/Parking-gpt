@@ -1,0 +1,1 @@
+"""Núcleo: configuración, BD, seguridad, dependencias comunes."""
