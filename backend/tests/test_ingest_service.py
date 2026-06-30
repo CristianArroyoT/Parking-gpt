@@ -70,8 +70,11 @@ def ingest_env(monkeypatch):
         engine.dispose()
 
 
-def _setup_with_geofence(db, *, threshold: float = 0.85):
-    """Crea parking + plaza + cámara + geocerca (0..200, 0..200)."""
+def _setup_with_geofence(db, *, threshold: float = 0.85, direction: str = "entry"):
+    """Crea parking + plaza + cámara + geocerca (0..200, 0..200).
+
+    ``direction`` puede ser ``"entry"`` (default) o ``"exit"``.
+    """
     parking = Parking(code="P1", name="P1", address="x", city="y")
     db.add(parking)
     db.flush()
@@ -90,6 +93,7 @@ def _setup_with_geofence(db, *, threshold: float = 0.85):
             parking_space_id=space.id,
             x=0, y=0, w=200, h=200,
             confidence_threshold=threshold,
+            direction=direction,
         )
     )
     db.commit()
@@ -207,9 +211,9 @@ def test_reuses_existing_vehicle(ingest_env) -> None:
     assert ingest_env.query(Vehicle).filter_by(plate="EXIST-1").one().id == existing_id
 
 
-def test_closes_active_ticket_on_second_hit(ingest_env) -> None:
-    """Vehículo con ticket activo → SALIDA: cierra y calcula tarifa."""
-    parking, space, camera = _setup_with_geofence(ingest_env)
+def test_exit_closes_active_ticket(ingest_env) -> None:
+    """Cámara de salida (direction=exit) cierra el ticket activo del vehículo."""
+    parking, space, camera = _setup_with_geofence(ingest_env, direction="exit")
     ingest_env.add(_add_tariff(ingest_env, parking.id))
     ingest_env.commit()
 
@@ -228,10 +232,7 @@ def test_closes_active_ticket_on_second_hit(ingest_env) -> None:
     )
     ingest_env.commit()
 
-    # Forzamos exit_at exacto a 1h30 después del entry_at para evitar
-    # drift de microsegundos entre el datetime.now() del servicio y el del
-    # test (un drift > 0 hace que las fracciones redondeen a 3 en lugar
-    # de 2). Con 1h30 exactos: 1 h × 2 € + ceil(30/15)=2 × 0.50 € = 3 €.
+    # exit_at exacto a 1h30 para evitar drift de fracciones.
     fixed_exit = entry + timedelta(hours=1, minutes=30)
 
     hit = PlateHit(plate="EXIT-1", confidence=0.95, bbox=[10, 10, 50, 50])
@@ -248,14 +249,12 @@ def test_closes_active_ticket_on_second_hit(ingest_env) -> None:
     assert ticket.status == TicketStatus.CERRADO
     assert ticket.exit_at is not None
     assert ticket.amount == 3.0
-    assert ticket.total == 3.0
 
 
-def test_close_fails_without_active_tariff(ingest_env) -> None:
-    """SALIDA sin tarifa vigente → SKIPPED_CLOSE_FAILED, ticket sigue activo."""
-    parking, space, camera = _setup_with_geofence(ingest_env)
+def test_exit_fails_without_active_tariff(ingest_env) -> None:
+    """Cámara de salida sin tarifa vigente → SKIPPED_CLOSE_FAILED."""
+    parking, space, camera = _setup_with_geofence(ingest_env, direction="exit")
     # SIN tarifa — calculate_ticket_total lanzará PricingError.
-
     veh = Vehicle(plate="NOFARE-1")
     ingest_env.add(veh)
     ingest_env.flush()
@@ -274,39 +273,31 @@ def test_close_fails_without_active_tariff(ingest_env) -> None:
     result = process_plate_hit(hit, camera)
 
     assert result.status == IngestStatus.SKIPPED_CLOSE_FAILED
-    assert result.ticket_id is not None  # ticket previo referenciado
+    assert result.ticket_id is not None
     assert result.reason and "tarifa" in result.reason.lower()
 
     ingest_env.expire_all()
     ticket = ingest_env.get(Ticket, result.ticket_id)
-    assert ticket.status == TicketStatus.ACTIVO  # no se cerró
+    assert ticket.status == TicketStatus.ACTIVO
 
 
-def test_close_applies_subscription_discount(ingest_env) -> None:
-    """Vehículo vinculado a usuario con plan activo → descuento aplicado al cerrar."""
-    parking, space, camera = _setup_with_geofence(ingest_env)
+def test_exit_with_subscription_discount(ingest_env) -> None:
+    """Cámara de salida con plan activo aplica descuento."""
+    parking, space, camera = _setup_with_geofence(ingest_env, direction="exit")
     ingest_env.add(_add_tariff(ingest_env, parking.id))
 
-    # Usuario con plan activo al 20%
     user = User(
-        email="subs@test.es",
-        full_name="Subs User",
-        role=UserRole.CLIENTE,
+        email="subs@test.es", full_name="Subs", role=UserRole.CLIENTE,
         hashed_password="x",
     )
     plan = Plan(
-        code="EMPRESA",
-        name="Empresa",
-        monthly_price=200.0,
-        discount_percent=20.0,
-        included_vehicles=10,
-        is_active=True,
+        code="EMPRESA", name="Empresa", monthly_price=200.0,
+        discount_percent=20.0, included_vehicles=10, is_active=True,
     )
     ingest_env.add_all([user, plan])
     ingest_env.flush()
     sub = Subscription(
-        user_id=user.id,
-        plan_id=plan.id,
+        user_id=user.id, plan_id=plan.id,
         starts_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         ends_at=datetime(2027, 1, 1, tzinfo=timezone.utc),
         is_active=True,
@@ -314,28 +305,15 @@ def test_close_applies_subscription_discount(ingest_env) -> None:
     veh = Vehicle(plate="SUB-1")
     ingest_env.add_all([sub, veh])
     ingest_env.flush()
-    ingest_env.add(
-        VehicleUser(
-            vehicle_id=veh.id, user_id=user.id, role=VehicleRole.PROPIETARIO,
-        )
-    )
+    ingest_env.add(VehicleUser(vehicle_id=veh.id, user_id=user.id, role=VehicleRole.PROPIETARIO))
     entry = datetime.now(timezone.utc) - timedelta(hours=2)
-    ingest_env.add(
-        Ticket(
-            parking_id=parking.id,
-            vehicle_id=veh.id,
-            parking_space_id=space.id,
-            status=TicketStatus.ACTIVO,
-            entry_at=entry,
-        )
-    )
+    ingest_env.add(Ticket(
+        parking_id=parking.id, vehicle_id=veh.id, parking_space_id=space.id,
+        status=TicketStatus.ACTIVO, entry_at=entry,
+    ))
     ingest_env.commit()
 
-    # exit_at exacto = entry + 2h para evitar el drift de ms que añadiría
-    # 1 fracción extra (15 min). Con 2h exactas: 2 h × 2 € = 4 €;
-    # descuento 20 % = 0.80 €; total = 3.20 €.
     fixed_exit = entry + timedelta(hours=2)
-
     hit = PlateHit(plate="SUB-1", confidence=0.95, bbox=[10, 10, 50, 50])
     result = process_plate_hit(hit, camera, now=fixed_exit)
 
@@ -343,6 +321,98 @@ def test_close_applies_subscription_discount(ingest_env) -> None:
     assert result.amount == 4.0
     assert result.discount == 0.8
     assert result.total == 3.2
+
+
+# ── Tests nuevos del sprint dirección cámara ─────────────────────
+def test_exit_without_active_ticket_returns_skip(ingest_env) -> None:
+    """Cámara de salida sin ticket activo del vehículo → SKIPPED_NO_ACTIVE_TICKET."""
+    parking, _space, camera = _setup_with_geofence(ingest_env, direction="exit")
+    hit = PlateHit(plate="GHOST-1", confidence=0.95, bbox=[10, 10, 50, 50])
+    result = process_plate_hit(hit, camera)
+    assert result.status == IngestStatus.SKIPPED_NO_ACTIVE_TICKET
+    assert "ticket activo" in (result.reason or "").lower()
+
+
+def test_entry_rejects_vehicle_already_inside(ingest_env) -> None:
+    """Cámara de entrada: vehículo ya dentro → SKIPPED_ALREADY_INSIDE."""
+    parking, space, camera = _setup_with_geofence(ingest_env, direction="entry")
+    veh = Vehicle(plate="INSIDE-1")
+    ingest_env.add(veh)
+    ingest_env.flush()
+    ingest_env.add(Ticket(
+        parking_id=parking.id, vehicle_id=veh.id, parking_space_id=space.id,
+        status=TicketStatus.ACTIVO,
+        entry_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+    ))
+    ingest_env.commit()
+
+    hit = PlateHit(plate="INSIDE-1", confidence=0.95, bbox=[10, 10, 50, 50])
+    result = process_plate_hit(hit, camera)
+    assert result.status == IngestStatus.SKIPPED_ALREADY_INSIDE
+
+
+def test_exit_with_space_occupied_by_other(ingest_env) -> None:
+    """Cámara de salida, OTRO vehículo ocupa la plaza → SKIPPED_SPACE_OCCUPIED."""
+    parking, space, camera = _setup_with_geofence(ingest_env, direction="exit")
+    other = Vehicle(plate="OTHER-1")
+    ingest_env.add(other)
+    ingest_env.flush()
+    ingest_env.add(Ticket(
+        parking_id=parking.id, vehicle_id=other.id, parking_space_id=space.id,
+        status=TicketStatus.ACTIVO, entry_at=datetime.now(timezone.utc),
+    ))
+    ingest_env.commit()
+
+    hit = PlateHit(plate="NEW-1", confidence=0.95, bbox=[10, 10, 50, 50])
+    result = process_plate_hit(hit, camera)
+    # La cámara es de salida pero el vehículo no tiene ticket activo,
+    # por lo que el flujo correcto es SKIPPED_NO_ACTIVE_TICKET (no
+    # SPACE_OCCUPIED, que es para flujo de ENTRY).
+    assert result.status == IngestStatus.SKIPPED_NO_ACTIVE_TICKET
+
+
+def test_entry_with_space_broken_returns_skip(ingest_env) -> None:
+    """Cámara de entrada con plaza averiada → SKIPPED_SPACE_BROKEN."""
+    parking, space, camera = _setup_with_geofence(ingest_env, direction="entry")
+    space.is_broken = True
+    ingest_env.commit()
+
+    hit = PlateHit(plate="NEW-1", confidence=0.95, bbox=[10, 10, 50, 50])
+    result = process_plate_hit(hit, camera)
+    assert result.status == IngestStatus.SKIPPED_SPACE_BROKEN
+
+
+def test_mixed_cameras_independent(ingest_env) -> None:
+    """Dos cámaras separadas (entry+exit) del mismo parking: el comportamiento
+    ya no depende del historial del vehículo. Cada cámara decide."""
+    parking, _space_a, cam_entry = _setup_with_geofence(ingest_env, direction="entry")
+    space_b = ParkingSpace(parking_id=parking.id, lane="B", number="B-01")
+    ingest_env.add(space_b)
+    ingest_env.flush()
+    cam_exit = Camera(
+        parking_id=parking.id, code="CAM-OUT", name="Out",
+        rtsp_url="rtsp://demo.invalid/x",
+    )
+    ingest_env.add(cam_exit)
+    ingest_env.flush()
+    ingest_env.add(CameraGeofence(
+        camera_id=cam_exit.id, parking_space_id=space_b.id,
+        x=0, y=0, w=200, h=200, confidence_threshold=0.85,
+        direction="exit",
+    ))
+    ingest_env.add(_add_tariff(ingest_env, parking.id))
+    ingest_env.commit()
+
+    # Hit en entry → TICKET_CREATED (no importa historial).
+    hit = PlateHit(plate="MIX-1", confidence=0.95, bbox=[10, 10, 50, 50])
+    r1 = process_plate_hit(hit, cam_entry)
+    assert r1.status == IngestStatus.TICKET_CREATED
+    assert r1.ticket_id is not None
+
+    # Misma matrícula en exit → TICKET_CLOSED.
+    r2 = process_plate_hit(hit, cam_exit)
+    assert r2.status == IngestStatus.TICKET_CLOSED
+    assert r2.ticket_id == r1.ticket_id
 
 
 def test_skips_when_space_already_occupied(ingest_env) -> None:

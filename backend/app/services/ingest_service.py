@@ -46,7 +46,7 @@ from typing import Sequence
 from sqlalchemy.exc import IntegrityError
 
 from app.core.db import SessionLocal
-from app.models.enums import TicketStatus
+from app.models.enums import GeofenceDirection, TicketStatus
 from app.models.geofence import CameraGeofence
 from app.models.parking import Camera, ParkingSpace
 from app.models.ticket import Ticket
@@ -68,6 +68,8 @@ class IngestStatus(StrEnum):
     SKIPPED_CLOSE_FAILED = "skipped_close_failed"
     SKIPPED_SPACE_OCCUPIED = "skipped_space_occupied"
     SKIPPED_SPACE_BROKEN = "skipped_space_broken"
+    SKIPPED_ALREADY_INSIDE = "skipped_already_inside"
+    SKIPPED_NO_ACTIVE_TICKET = "skipped_no_active_ticket"
 
 
 @dataclass(frozen=True)
@@ -222,24 +224,50 @@ def _process_in_tx(
                 vehicle.id,
             )
 
-    # 4. ¿Vehículo ya tiene ticket activo en este parking? → SALIDA.
-    duplicate_vehicle = (
-        db.query(Ticket)
-        .filter(
-            Ticket.vehicle_id == vehicle.id,
-            Ticket.parking_id == camera.parking_id,
-            Ticket.status == TicketStatus.ACTIVO,
+    # 4. Decisión ENTRADA / SALIDA basada en `direction` de la geocerca
+    # matched. Elimina la regla "primer hit abre, segundo cierra" del MVP
+    # de una sola cámara: cada cámara sabe si procesa entrada o salida.
+    direction = getattr(matched, "direction", GeofenceDirection.ENTRY)
+    if hasattr(direction, "value"):
+        direction_value = direction.value
+    else:
+        direction_value = str(direction)
+    is_exit = direction_value == GeofenceDirection.EXIT.value
+
+    if is_exit:
+        # ── Cámara de SALIDA ─────────────────────────────────────
+        active_ticket = (
+            db.query(Ticket)
+            .filter(
+                Ticket.vehicle_id == vehicle.id,
+                Ticket.parking_id == camera.parking_id,
+                Ticket.status == TicketStatus.ACTIVO,
+            )
+            .first()
         )
-        .first()
-    )
-    if duplicate_vehicle is not None:
+        if active_ticket is None:
+            log.info(
+                "ingest: EXIT sin ticket activo plate=%s camera=%s",
+                hit.plate,
+                camera.id,
+            )
+            return IngestResult(
+                plate=hit.plate,
+                camera_id=camera.id,
+                parking_id=camera.parking_id,
+                status=IngestStatus.SKIPPED_NO_ACTIVE_TICKET,
+                confidence=hit.confidence,
+                vehicle_id=vehicle.id,
+                parking_space_id=matched.parking_space_id,
+                reason="Cámara de salida: vehículo sin ticket activo en este parking",
+            )
         try:
-            closed = _close_ticket_for_exit(db, duplicate_vehicle, exit_at=now)
+            closed = _close_ticket_for_exit(db, active_ticket, exit_at=now)
         except PricingError as exc:
             log.warning(
                 "ingest: SALIDA fallida plate=%s ticket=%s motivo=%s",
                 hit.plate,
-                duplicate_vehicle.id,
+                active_ticket.id,
                 exc,
             )
             return IngestResult(
@@ -248,7 +276,7 @@ def _process_in_tx(
                 parking_id=camera.parking_id,
                 status=IngestStatus.SKIPPED_CLOSE_FAILED,
                 confidence=hit.confidence,
-                ticket_id=duplicate_vehicle.id,
+                ticket_id=active_ticket.id,
                 vehicle_id=vehicle.id,
                 parking_space_id=matched.parking_space_id,
                 reason=str(exc),
@@ -265,6 +293,35 @@ def _process_in_tx(
             amount=closed.amount,
             discount=closed.discount,
             total=closed.total,
+        )
+
+    # ── Cámara de ENTRADA ─────────────────────────────────────────
+    # 4a. ¿Vehículo ya tiene ticket activo en este parking?
+    duplicate_vehicle = (
+        db.query(Ticket)
+        .filter(
+            Ticket.vehicle_id == vehicle.id,
+            Ticket.parking_id == camera.parking_id,
+            Ticket.status == TicketStatus.ACTIVO,
+        )
+        .first()
+    )
+    if duplicate_vehicle is not None:
+        log.info(
+            "ingest: ENTRY vehículo ya dentro plate=%s camera=%s",
+            hit.plate,
+            camera.id,
+        )
+        return IngestResult(
+            plate=hit.plate,
+            camera_id=camera.id,
+            parking_id=camera.parking_id,
+            status=IngestStatus.SKIPPED_ALREADY_INSIDE,
+            confidence=hit.confidence,
+            ticket_id=duplicate_vehicle.id,
+            vehicle_id=vehicle.id,
+            parking_space_id=matched.parking_space_id,
+            reason="Vehículo ya tiene ticket activo en este parking",
         )
 
     # 5. ¿Plaza del geofence ya tiene ticket activo de OTRO vehículo?

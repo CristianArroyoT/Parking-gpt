@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Float, ForeignKey, UniqueConstraint
+from sqlalchemy import Float, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
 from app.models.base import TimestampMixin
+from app.models.enums import GeofenceDirection
 
 
 class CameraGeofence(Base, TimestampMixin):
@@ -27,3 +28,10 @@ class CameraGeofence(Base, TimestampMixin):
     w: Mapped[float] = mapped_column(Float, nullable=False)
     h: Mapped[float] = mapped_column(Float, nullable=False)
     confidence_threshold: Mapped[float] = mapped_column(Float, default=0.85, nullable=False)
+    direction: Mapped[GeofenceDirection] = mapped_column(
+        String(8),
+        default=GeofenceDirection.ENTRY,
+        server_default=GeofenceDirection.ENTRY.value,
+        nullable=False,
+        index=True,
+    )

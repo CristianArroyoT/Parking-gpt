@@ -57,3 +57,12 @@ class TicketOrigin(str, enum.Enum):
     AUTOMATIC = "automatic"
     MANUAL_ENTRY = "manual_entry"
     MANUAL_EXIT = "manual_exit"
+
+
+class GeofenceDirection(str, enum.Enum):
+    """Dirección de la geocerca: si la cámara procesa esta plaza como
+    entrada o salida. Permite separar físicamente las cámaras cuando se
+    decida el fabricante."""
+
+    ENTRY = "entry"
+    EXIT = "exit"
