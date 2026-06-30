@@ -28,6 +28,7 @@ from app.core.db import SessionLocal
 from app.models.parking import Camera
 from app.models.plates_detected import PlatesDetected
 from app.services.cameras.capture import grab_frame
+from app.services.ingest_service import process_plate_hits
 from app.services.ocr.client import get_ocr_client
 from app.workers.celery_app import celery_app
 
@@ -133,18 +134,41 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
                 )
             )
         db.commit()
-        log.info(
-            "ping_camera: id=%s code=%s source=%s plates_found=%s",
-            cam.id,
-            cam.code,
-            frame_source,
-            len(hits),
-        )
+
+        # Cruce con geocercas → ticket o skip. Cada hit abre su propia
+        # transacción en process_plate_hits; un fallo aquí no debe tumbar
+        # el worker. Encapsulamos por defensa (el servicio ya devuelve
+        # IngestResult en lugar de propagar, pero blindamos el beat).
+        try:
+            ingest_results = process_plate_hits(hits, cam)
+        except Exception as exc:  # noqa: BLE001 — defensiva
+            log.warning("ping_camera: error en ingest_service: %s", exc)
+            ingest_results = []
+
+        created = sum(1 for r in ingest_results if r.status == "ticket_created")
+        if created:
+            log.info(
+                "ping_camera: id=%s code=%s source=%s plates_found=%s tickets_created=%s",
+                cam.id,
+                cam.code,
+                frame_source,
+                len(hits),
+                created,
+            )
+        else:
+            log.info(
+                "ping_camera: id=%s code=%s source=%s plates_found=%s",
+                cam.id,
+                cam.code,
+                frame_source,
+                len(hits),
+            )
         return {
             "status": "ok",
             "code": cam.code,
             "source": frame_source,
             "plates_found": len(hits),
+            "tickets_created": created,
         }
     finally:
         db.close()

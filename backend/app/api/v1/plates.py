@@ -21,11 +21,13 @@ from app.core.deps import parking_context
 from app.models.parking import Camera
 from app.models.plates_detected import PlatesDetected
 from app.models.user import User
+from app.schemas.ingest import IngestResultRead
 from app.schemas.plate import (
     PlateDetectedCreate,
     PlateDetectedRead,
     PlateHit,
 )
+from app.services.ingest_service import process_plate_hits
 
 router = APIRouter(
     prefix="/parkings/{parking_id}",
@@ -60,7 +62,7 @@ def list_plates_detected(
 
 @router.post(
     "/cameras/{camera_id}/plates",
-    response_model=list[PlateDetectedRead],
+    response_model=list[IngestResultRead],
     status_code=status.HTTP_201_CREATED,
 )
 def create_plates_detected(
@@ -69,14 +71,24 @@ def create_plates_detected(
     payload: PlateDetectedCreate,
     db: Session = Depends(get_db),
     _user: User = Depends(parking_context),
-) -> list[PlatesDetected]:
-    """Empuja manualmente una lista de hits a la tabla plates_detected.
+) -> list[IngestResultRead]:
+    """Empuja manualmente una lista de hits y dispara el flujo ENTRADA.
+
+    Persiste una fila cruda en ``plates_detected`` por cada hit (registro
+    de auditoría de la lectura OCR) y, a continuación, llama a
+    ``process_plate_hits`` para cruzar el bbox con las geocercas de la
+    cámara y crear el ticket correspondiente (o registrar el skip).
 
     Pensado para:
     - tests de integración (smoke test del POST),
-    - futuras herramientas de depuración del gestor.
-    El worker Celery también usará este flujo, pero vía la sesión
-    propia de Celery, no vía HTTP.
+    - herramientas de depuración del gestor,
+    - re-emisión manual de hits cuando el OCR falló en su momento.
+
+    El worker Celery sigue el mismo flujo pero usa su propia sesión de BD
+    en lugar de este endpoint HTTP.
+
+    Devuelve ``list[IngestResultRead]`` con el resultado por hit: status
+    ``ticket_created`` con sus IDs, o ``skipped_*`` con el motivo.
     """
     camera = (
         db.query(Camera)
@@ -108,4 +120,9 @@ def create_plates_detected(
     db.commit()
     for row in rows:
         db.refresh(row)
-    return rows
+
+    # Tras persistir la fila cruda, cruzamos con geocercas. El servicio
+    # abre su propia sesión por hit para no acoplar su commit al de este
+    # endpoint.
+    ingest = process_plate_hits(payload.hits, camera)
+    return [IngestResultRead.model_validate(r) for r in ingest]
