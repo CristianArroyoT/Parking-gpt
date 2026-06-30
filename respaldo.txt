@@ -1,0 +1,161 @@
+Alcance de las funcionalidades
+1.1 Gestión de sucursales (parking) – creación, actualización, borrado.
+1.2 Registro de vehículos – matrícula, marca, modelo, propietario.
+1.3 Entrada‑salida – detección automática por cámara IP + OCR de matrícula.
+1.4 Medición de tiempo – cálculo de tarifas por estancia.
+1.5 Asociación de vehículos con “integrantes” (usuarios, conductores, responsables).
+1.6 Módulo de facturación – generación de tickets, impresión, PDF, envío por correo.
+1.7 Gestión de costos – costos de mantenimiento, costos de cámara, costes de operación, márgenes.
+1.8 Reportes y dashboards – ingresos, ocupación, tickets, alertas.
+1.9 Integraciones – API para terceros (apps de movilidad, autoridades).
+
+Roles de usuarios
+2.1 Administrador del sistema (gestor general).
+2.2 Gestor de parking (supervisor de sucursales).
+2.3 Operador de cámara (monitor).
+2.4 Cliente/Propietario (ver tickets y reportes).
+
+Arquitectura tecnológica
+3.1 Base de datos – SQL (PostgreSQL) vs NoSQL (Mongo).
+4.1 API – ¿Django con Django‑Rest‑Framework? ¿FastAPI? ¿Spring Boot?
+4.2 Camaras – protocolo ONVIF, RTSP, gestión de streams.
+3.3 OCR – Tesseract, Google Vision, Amazon Rekognition.
+3.4 Front‑end – SPA (React/Angular/Vue) o servidor‑renderizado (Django‑T).
+
+Requisitos legales
+4.1 Protección de datos (GDPR + LOPD).
+4.2 Seguridad – cifrado, autenticación, autorización.
+
+Escalado y rendimiento
+5.1 Número de conexiones simultáneas (cámaras, usuarios).
+5.2 Requiere de procesamiento en tiempo real para OCR y tracking.
+5.3 Caching, colas de trabajo (RabbitMQ, Kafka).
+
+Entorno de desarrollo
+6.1 Contenedores (Docker).
+6.2 Orquestador (K8s).
+6.3 CI/CD (GitHub Actions, GitLab).
+
+Testing
+7.1 Unit tests, integration tests.
+7.2 OCR quality metrics.
+
+Plan de entrega
+8.1 Fase 1 – Modelo de datos, API base.
+8.2 Fase 2 – Integración de cámara & OCR.
+8.3 Fase 4 – Reportes y dashboards.
+
+
+
+1. Arquitectura general
+Capa	Tecnología sugerida	Motivo
+Front‑end	Vue.js 3 (con Pinia)	SPA ligero, fácil de integrar con FastAPI
+Back‑end	FastAPI 0.100+ (Python 3.11)	Alto rendimiento, soporte asincrónico, fácil de documentar
+Base de datos	PostgreSQL 15 (con PostGIS opcional)	SQL robusta, transaccionalidad, soporte de índices
+Almacenamiento de logs	Loki + Prometheus (para métricas)	Escalable, permite auditoría completa
+OCR	PyTesseract + OpenCV 4	Tesseract es de código abierto, 95 %+ precisión con configuración adecuada
+Cámara	RTSP + ONVIF	Soporta la mayoría de cámaras IP de la industria
+Cola de trabajo	RabbitMQ 3.11	Procesamiento asincrónico de frames OCR
+Autorización	JWT + OAuth2	Permite roles y permisos definidos (admin, gestor, operador, cliente)
+2. Modelo de datos
+Entidad	Campos principales	Relaciones
+Parking	id, nombre, dirección, zona, latitud, longitud, número_cámaras, estado (activo, mantenimiento)	1‑> 1‑>
+Camera	id, parking_id, modelo, IP, puerto, RTSP_URI	1‑> Parking
+Vehículo	id, matrícula (unica), marca, modelo, color, tipo_vehículo	1‑> 1‑>
+Usuario	id, nombre, email, teléfono, rol	1‑> 1‑>
+Ticket	id, parking_id, vehicle_id, hora_entrada, hora_salida, estado (activo, cerrado)	1‑> 1‑>
+Tarifa	id, parking_id, tipo, monto, descuento, vigencia	1‑> 1‑>
+Auditoría	id, parking_id, usuario_id, acción, timestamp, detalle	1‑> 1‑>
+Notas
+
+La tabla Vehículo puede asociarse a varios usuarios (propietario, conductor) mediante tabla intermedia Vehículo‑Usuario.
+Los frames de cámara se almacenan en la cola y solo se persiste el resultado OCR.
+Los logs de auditoría guardan la acción, el usuario y un JSON con datos de la petición.
+3. Flujo de operación (Entrada → Salida)
+Entrada
+Cámara RTSP detecta movimiento → envía frame a RabbitMQ.
+Worker OCR recibe frame → pytesseract → devuelve matrícula.
+API POST /parking/{id}/entrada recibe matrícula, busca vehículo → crea ticket con hora_entrada.
+Salida
+Cámara RTSP detecta vehículo con matrícula (identificada) → envía frame a RabbitMQ.
+Worker OCR lee frame → devuelve matrícula.
+API POST /parking/{id}/salida recibe matrícula → busca ticket activo → calcula tiempo, tarifa, actualiza hora_salida, estado cerrado.
+Se genera PDF (ticket, PDF con código de barras).
+Facturación
+Al cerrar ticket se envía email con PDF al email del usuario (si se ha registrado).
+Si el usuario tiene plan de suscripción, se aplica descuento automáticamente.
+Auditoría
+Todas las operaciones (entrada, salida, error, OCR fallido) se registran en tabla Auditoría.
+Se loguean en Loki para métricas y alertas.
+4. Seguridad y auditoría
+Tema	Medidas	Herramientas
+Protección de datos	GDPR + LOPD	Campos sensibles cifrados (AES) en la DB, encriptado TLS 1.3 para API
+Autenticación	JWT con refresco	FastAPI OAuth2PasswordBearer
+Control de acceso	Roles (admin, gestor, operador, cliente)	FastAPI Depends
+Auditoría	Registro de todas las peticiones con IP, timestamp, detalle	Tabla Auditoría + Loki
+Backup	RPO 1 h, RTO 30 min (cron)	pg_dump + rsync a NAS remoto
+5. Desarrollo en iteraciones (MVP → producción)
+Iteración	Objetivo	Entregable	Comentarios
+1 (MVP)	5 sucursales con 10 cámaras cada una.	API con CRUD, OCR 95 %+	Solo web, no app móvil
+2	Facturación, PDF, email	Generación de PDF (ReportLab) + email (SMTP)	
+3	Auditoría completa	Tabla Auditoría, logs en Loki	
+4	Escalado a 50 sucursales	Infraestructura con Docker Compose + Docker Swarm	
+5	Optimización de OCR (GPU)	OpenCV + Tesseract GPU	
+Producción – Servidores locales en cada parking + un cluster central de alta disponibilidad (K8s + HA‑Ingress) – RPO 1 h, RTO 30 min.
+
+6. Plan de trabajo técnico
+Paso	Tarea	Herramienta/Comando	Responsable
+A	Crear repositorio GitHub + CI/CD (GitHub Actions)	git init	
+B	Definir esquema de base de datos (PostgreSQL)	psql	
+C	Implementar API de parking y OCR (FastAPI, RabbitMQ)	uvicorn main:app --reload	
+D	Implementar front‑end (Vue)	npm init	
+E	Generar PDF (ReportLab)	pip install reportlab	
+F	Configurar auditoría (Loki)	helm install loki	
+G	Desplegar en Docker Swarm	docker stack deploy	
+H	Test de carga (Locust)	pip install locust	
+7. Próximos pasos
+Confirma que la estructura de carpetas sea la que esperas (por ejemplo src/, app/, config/).
+Envía el listado de archivos (puedes usar ls -R).
+Con esa información, podré proponer un esquema de módulos y archivos concretos.
+Si quieres que escriba algún archivo: dime el nombre y te daré el contenido; luego te pediré que cambies a Agent mode para que se escriba realmente.
+
+¿Puedes enviarme la estructura de carpetas y archivos que ya tienes (o un listado de los 5 sucursales y sus cámaras)? Si lo deseas, dime el nombre del archivo que te gustaría que genere, y lo haré.
+
+Preguntas de clarificación
+¿Cuál es el flujo esperado de un vehículo que entra y sale?
+¿Se requiere detección de colores o marcas de la matrícula?
+¿Se usarán cámaras IP de marcas específicas (Axis, Hikvision, etc.)?
+¿Qué nivel de precisión de OCR es necesario (p.ej. 95 %)?
+¿Se requiere reconocimiento facial o de conductores?
+¿Qué modelo de tarifas se empleará (tarifa fija, tarifa por hora, descuento por usuario frecuente)?
+¿Se requiere soporte móvil (app) o solo web?
+¿Se necesita registro de incidentes (intrusión, error de OCR, etc.)?
+¿Se planea integrarse con autoridades de tráfico o con sistemas de parking ya existentes?
+¿Qué datos de usuario se recopilarán para la asociación (nombre, email, teléfono)?
+¿Qué datos de vehículo se almacenarán (marca, modelo, color, tipo de vehículo)?
+¿Se necesita generar tickets impresos o PDF?
+¿Cuál es la política de retención de logs y datos?
+¿Qué nivel de escalabilidad se necesita (p.ej. 1000 conexiones simultáneas)?
+¿Qué infraestructura de hardware se espera (p.ej. servidores propios, nube pública)?
+¿Qué tipo de base de datos se prefiere (SQL vs NoSQL)?
+¿Cuál es la política de backup y recuperación de datos?
+
+respuestas: 
+
+1 si entra y sale y hay que analizar cada sucursal las plazas disponibles y en cual ha estado y por cuanto tiempo 
+2 solo la matricula por ahora, si podemos asociarla a un color o modelo ideal pero no es necesario 
+3 no lo he decidido aun  
+4 95% o mas  
+5 si 
+6 fija por hora y descuentos para planes tipo suscripcion mensual 
+7 por ahora solo web en el futuro haremos una app movil 
+8 si auditoria muy especifica y completa 
+9 no 
+10 mail matricula nada mas 
+11 si los 4 si es posible 
+12 impresos y pdf por mail 
+13 duran 1 año 
+14 por ahora es un mvp, aceptar por lo menos 5 sucursales y 10 camaras por sucursal 
+15 el mvp en un servidor local, pero en produccion servidores pequeños en cada parking y unos centrales de gran capacidad en alta disponibilidad 
+16 sql 
+17 respaldo de la BD cada 1 hora  
