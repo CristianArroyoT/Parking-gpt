@@ -88,6 +88,9 @@ services:
       - /app/node_modules
 
   # ── Celery worker ────────────────────────────────────────────────────
+  # El healthcheck del Dockerfile del backend (curl :8000) se sobreescribe
+  # aquí porque el worker NO expone el puerto HTTP: el probe real es
+  # `celery inspect ping` contra el propio broker.
   celery-worker:
     build:
       context: .
@@ -106,8 +109,16 @@ services:
     volumes:
       - ./backend:/app
     command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info"]
+    healthcheck:
+      test: ["CMD", "celery", "-A", "app.workers.celery_app", "inspect", "ping", "-t", "5"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
   # ── Celery beat (scheduler) ──────────────────────────────────────────
+  # El beat no responde a "ping": está vivo si el archivo celerybeat-schedule
+  # se actualiza con cada tick. Probamos mtime < 120 s.
   celery-beat:
     build:
       context: .
@@ -126,6 +137,13 @@ services:
     volumes:
       - ./backend:/app
     command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=info"]
+    healthcheck:
+      # celerybeat-schedule vive en /app porque WORKDIR es /app.
+      test: ["CMD-SHELL", "find /app/celerybeat-schedule -mmin -2 | grep -q ."]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
 volumes:
   pgdata:
