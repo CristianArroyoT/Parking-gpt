@@ -24,8 +24,10 @@ interface Geofence {
   id: number; camera_id: number; parking_space_id: number
   x: number; y: number; w: number; h: number
   confidence_threshold: number; created_at: string; updated_at: string
+  direction: 'entry' | 'exit'
 }
 interface Camera { id: number; code: string; name: string; rtsp_url: string }
+type Direction = 'entry' | 'exit'
 
 const route = useRoute()
 const ui = useUiStore()
@@ -49,6 +51,7 @@ const drawing = ref(false)
 const form = reactive({
   parking_space_id: null as number | null,
   confidence_threshold: 0.85,
+  direction: 'entry' as Direction,
 })
 const selectedId = ref<number | null>(null)
 
@@ -133,6 +136,7 @@ function onMouseUp(): void {
   const free = spaces.value.find((s) => s.is_active && !used.has(s.id))
   form.parking_space_id = free ? free.id : null
   form.confidence_threshold = 0.85
+  form.direction = 'entry'
 }
 function cancelDraft(): void {
   draft.value = null
@@ -149,6 +153,7 @@ async function saveDraft(): Promise<void> {
         w: round(draft.value.w),
         h: round(draft.value.h),
         confidence_threshold: form.confidence_threshold,
+        direction: form.direction,
       },
     )
     ui.pushToast('success', 'Geocerca creada')
@@ -174,6 +179,18 @@ async function updateConfidence(fence: Geofence, value: number): Promise<void> {
     fence.confidence_threshold = value
   } catch (err: unknown) {
     ui.pushToast('error', extractError(err, 'No se pudo actualizar la geocerca'))
+  }
+}
+async function updateDirection(fence: Geofence, value: Direction): Promise<void> {
+  if (fence.direction === value) return
+  try {
+    await http.patch(
+      `/parkings/${parkingId.value}/cameras/${cameraId.value}/geofences/${fence.id}`,
+      { direction: value },
+    )
+    fence.direction = value
+  } catch (err: unknown) {
+    ui.pushToast('error', extractError(err, 'No se pudo actualizar la dirección'))
   }
 }
 
@@ -329,6 +346,13 @@ function fenceLabel(g: Geofence): string {
                 <span class="text-sm font-mono w-12 text-right">{{ Math.round(form.confidence_threshold * 100) }} %</span>
               </div>
             </div>
+            <div>
+              <label class="block text-slate-700 font-medium mb-1">Dirección de la cámara</label>
+              <select v-model="form.direction" class="input">
+                <option value="entry">Entrada (vehículos entran)</option>
+                <option value="exit">Salida (vehículos salen)</option>
+              </select>
+            </div>
             <div class="flex gap-2 pt-2">
               <button type="button" class="btn-secondary flex-1" @click="cancelDraft">Cancelar</button>
               <button
@@ -360,6 +384,17 @@ function fenceLabel(g: Geofence): string {
                     <span class="text-sm font-mono w-12 text-right">{{ Math.round(g.confidence_threshold * 100) }} %</span>
                   </div>
                 </div>
+                <div class="mt-3">
+                  <label class="block text-slate-700 font-medium mb-1">Dirección de la cámara</label>
+                  <select
+                    :value="g.direction"
+                    class="input"
+                    @change="updateDirection(g, ($event.target as HTMLSelectElement).value as Direction)"
+                  >
+                    <option value="entry">Entrada (vehículos entran)</option>
+                    <option value="exit">Salida (vehículos salen)</option>
+                  </select>
+                </div>
               </div>
             </template>
           </div>
@@ -382,7 +417,13 @@ function fenceLabel(g: Geofence): string {
               :class="['px-5 py-2 flex items-center justify-between cursor-pointer hover:bg-slate-50', selectedId === g.id && 'bg-amber-50']"
               @click="selectFence(g.id)"
             >
-              <span class="font-medium">{{ fenceLabel(g) }}</span>
+              <span class="flex items-center gap-2">
+                <span class="font-medium">{{ fenceLabel(g) }}</span>
+                <span
+                  :class="['text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded',
+                           g.direction === 'entry' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700']"
+                >{{ g.direction === 'entry' ? 'Entrada' : 'Salida' }}</span>
+              </span>
               <span class="text-slate-500 font-mono text-xs">
                 {{ Math.round(g.x) }},{{ Math.round(g.y) }} · {{ Math.round(g.w) }}×{{ Math.round(g.h) }}
               </span>

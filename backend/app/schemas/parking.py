@@ -7,6 +7,7 @@ from typing import Optional
 
 from pydantic import Field
 
+from app.models.enums import GeofenceDirection
 from app.schemas import ORMModel, TimestampMixinSchema
 
 
@@ -93,6 +94,7 @@ class GeofenceCreate(ORMModel):
     w: float
     h: float
     confidence_threshold: float = 0.85
+    direction: GeofenceDirection = GeofenceDirection.ENTRY
 
 
 class GeofenceUpdate(ORMModel):
@@ -101,6 +103,7 @@ class GeofenceUpdate(ORMModel):
     w: Optional[float] = None
     h: Optional[float] = None
     confidence_threshold: Optional[float] = None
+    direction: Optional[GeofenceDirection] = None
 
 
 class GeofenceRead(GeofenceCreate, TimestampMixinSchema):
