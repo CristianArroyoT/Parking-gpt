@@ -146,14 +146,16 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
             ingest_results = []
 
         created = sum(1 for r in ingest_results if r.status == "ticket_created")
-        if created:
+        closed = sum(1 for r in ingest_results if r.status == "ticket_closed")
+        if created or closed:
             log.info(
-                "ping_camera: id=%s code=%s source=%s plates_found=%s tickets_created=%s",
+                "ping_camera: id=%s code=%s source=%s plates_found=%s tickets_created=%s tickets_closed=%s",
                 cam.id,
                 cam.code,
                 frame_source,
                 len(hits),
                 created,
+                closed,
             )
         else:
             log.info(
@@ -169,6 +171,7 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
             "source": frame_source,
             "plates_found": len(hits),
             "tickets_created": created,
+            "tickets_closed": closed,
         }
     finally:
         db.close()

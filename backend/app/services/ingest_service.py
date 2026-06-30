@@ -1,4 +1,4 @@
-"""Cruce bbox↔geocerca, lookup/create de vehículo y creación de Ticket.
+"""Cruce bbox↔geocerca, ENTRADA/SALIDA de tickets.
 
 Aislado del worker y del router para poder testearlo sin Celery ni FastAPI.
 Abre su propia sesión SQLAlchemy (vía SessionLocal) — no recibe ``db`` por
@@ -7,15 +7,18 @@ pueda seguir procesando más hits.
 
 Pipeline (ver `process_plate_hit`):
 
-1. Cargar `CameraGeofence WHERE camera_id = camera.id`.
+1. Cargar ``CameraGeofence WHERE camera_id = camera.id``.
    Sin filas → ``SKIPPED_NO_GEOFENCE``.
 2. Para cada geocerca, IoU contra el ``bbox`` del hit + filtro por
    ``confidence >= geofence.confidence_threshold``. Mejor IoU gana.
    Si ninguna matchea → ``SKIPPED_NO_GEOFENCE``.
 3. Lookup Vehicle por ``plate``; INSERT si no existe. Captura
    ``IntegrityError`` por race con otra transacción concurrente.
-4. ¿Vehículo ya tiene Ticket activo en este parking? → ``SKIPPED_DUPLICATE_ACTIVE_TICKET``.
-5. ¿Plaza del geofence ya tiene Ticket activo? → ``SKIPPED_SPACE_OCCUPIED``.
+4. ¿Vehículo ya tiene ticket activo en este parking? → SALIDA:
+   cerrar el ticket, calcular tarifa, generar PDF, devolver
+   ``TICKET_CLOSED``. Si el cálculo de tarifa falla → ``SKIPPED_CLOSE_FAILED``.
+5. ¿Plaza del geofence ya tiene ticket activo de OTRO vehículo?
+   → ``SKIPPED_SPACE_OCCUPIED``.
 6. INSERT Ticket activo. Devuelve ``TICKET_CREATED`` con IDs.
 
 Por qué una sola sesión propia y no la del caller: tanto el worker
@@ -24,7 +27,13 @@ persistir ``PlatesDetected``. Si el servicio reusara esa sesión,
 un fallo al hacer commit del Ticket revertiría también la fila de
 ``PlatesDetected``, que es información cruda de OCR que no queremos
 perder. Mejor mantener transacciones independientes: la persistencia
-del raw siempre commitea, el ticket se crea o se skipea aparte.
+del raw siempre commitea, el ticket se crea o se cierra aparte.
+
+Modelo entrada/salida (MVP): el mismo OCR dispara los dos. Si la
+matrícula no estaba dentro → ENTRADA. Si ya estaba dentro (ticket
+activo) → SALIDA. Esta convención cubre el caso de una sola cámara;
+con dos (entrada y salida separadas) haría falta un flag ``direction``
+en CameraGeofence o Camera. Por ahora se asume la regla más simple.
 """
 from __future__ import annotations
 
@@ -43,6 +52,8 @@ from app.models.parking import Camera
 from app.models.ticket import Ticket
 from app.models.vehicle import Vehicle
 from app.schemas.plate import PlateHit
+from app.services.pdf import save_ticket_pdf
+from app.services.pricing import PricingError, calculate_ticket_total
 
 log = logging.getLogger(__name__)
 
@@ -51,9 +62,10 @@ class IngestStatus(StrEnum):
     """Resultado del procesamiento de un hit OCR."""
 
     TICKET_CREATED = "ticket_created"
+    TICKET_CLOSED = "ticket_closed"
     SKIPPED_LOW_CONFIDENCE = "skipped_low_confidence"
     SKIPPED_NO_GEOFENCE = "skipped_no_geofence"
-    SKIPPED_DUPLICATE_ACTIVE_TICKET = "skipped_duplicate_active_ticket"
+    SKIPPED_CLOSE_FAILED = "skipped_close_failed"
     SKIPPED_SPACE_OCCUPIED = "skipped_space_occupied"
 
 
@@ -69,6 +81,9 @@ class IngestResult:
     ticket_id: int | None = None
     vehicle_id: int | None = None
     parking_space_id: int | None = None
+    amount: float | None = None
+    discount: float | None = None
+    total: float | None = None
     reason: str | None = None
 
 
@@ -120,7 +135,7 @@ def _process_in_tx(
     *,
     now: datetime,
 ) -> IngestResult:
-    """Lógica de cruce + creación. La sesión es del servicio (no del caller)."""
+    """Lógica de cruce + creación/cierre. La sesión es del servicio (no del caller)."""
     # 1. Geocercas de la cámara
     geofences = (
         db.query(CameraGeofence)
@@ -188,7 +203,7 @@ def _process_in_tx(
                 vehicle.id,
             )
 
-    # 4. ¿Vehículo ya tiene ticket activo en este parking?
+    # 4. ¿Vehículo ya tiene ticket activo en este parking? → SALIDA.
     duplicate_vehicle = (
         db.query(Ticket)
         .filter(
@@ -199,25 +214,41 @@ def _process_in_tx(
         .first()
     )
     if duplicate_vehicle is not None:
-        log.info(
-            "ingest: vehículo %s ya tiene ticket activo %s en parking %s",
-            vehicle.plate,
-            duplicate_vehicle.id,
-            camera.parking_id,
-        )
+        try:
+            closed = _close_ticket_for_exit(db, duplicate_vehicle, exit_at=now)
+        except PricingError as exc:
+            log.warning(
+                "ingest: SALIDA fallida plate=%s ticket=%s motivo=%s",
+                hit.plate,
+                duplicate_vehicle.id,
+                exc,
+            )
+            return IngestResult(
+                plate=hit.plate,
+                camera_id=camera.id,
+                parking_id=camera.parking_id,
+                status=IngestStatus.SKIPPED_CLOSE_FAILED,
+                confidence=hit.confidence,
+                ticket_id=duplicate_vehicle.id,
+                vehicle_id=vehicle.id,
+                parking_space_id=matched.parking_space_id,
+                reason=str(exc),
+            )
         return IngestResult(
             plate=hit.plate,
             camera_id=camera.id,
             parking_id=camera.parking_id,
-            status=IngestStatus.SKIPPED_DUPLICATE_ACTIVE_TICKET,
+            status=IngestStatus.TICKET_CLOSED,
             confidence=hit.confidence,
-            ticket_id=duplicate_vehicle.id,
+            ticket_id=closed.id,
             vehicle_id=vehicle.id,
-            parking_space_id=matched.parking_space_id,
-            reason="Vehículo ya tiene ticket activo en este parking",
+            parking_space_id=closed.parking_space_id,
+            amount=closed.amount,
+            discount=closed.discount,
+            total=closed.total,
         )
 
-    # 5. ¿Plaza del geofence ya tiene ticket activo?
+    # 5. ¿Plaza del geofence ya tiene ticket activo de OTRO vehículo?
     occupied_space = (
         db.query(Ticket)
         .filter(
@@ -244,7 +275,7 @@ def _process_in_tx(
             reason="Plaza ya tiene ticket activo",
         )
 
-    # 6. Crear ticket
+    # 6. Crear ticket (ENTRADA)
     ticket = Ticket(
         parking_id=camera.parking_id,
         vehicle_id=vehicle.id,
@@ -256,7 +287,7 @@ def _process_in_tx(
     db.commit()
     db.refresh(ticket)
     log.info(
-        "ingest: ticket creado id=%s plate=%s vehicle_id=%s space_id=%s",
+        "ingest: ENTRADA ticket creado id=%s plate=%s vehicle_id=%s space_id=%s",
         ticket.id,
         vehicle.plate,
         vehicle.id,
@@ -272,6 +303,57 @@ def _process_in_tx(
         vehicle_id=vehicle.id,
         parking_space_id=ticket.parking_space_id,
     )
+
+
+def _close_ticket_for_exit(db, ticket: Ticket, *, exit_at: datetime) -> Ticket:
+    """Cierra un ticket activo: calcula tarifa, marca CERRADO, genera PDF.
+
+    El commit del cierre + cálculo de tarifa es atómico. La generación de
+    PDF va en un commit aparte: si falla, el ticket ya queda cerrado y
+    el operador puede regenerar el PDF manualmente.
+
+    Lanza ``PricingError`` si no hay tarifa vigente (el caller decide
+    qué hacer — típicamente devolver ``SKIPPED_CLOSE_FAILED``).
+    """
+    ticket.exit_at = exit_at
+    total = calculate_ticket_total(
+        db,
+        parking_id=ticket.parking_id,
+        vehicle_id=ticket.vehicle_id,
+        entry_at=ticket.entry_at,
+        exit_at=exit_at,
+    )
+    ticket.amount = total.amount
+    ticket.discount = total.discount
+    ticket.total = total.total
+    ticket.status = TicketStatus.CERRADO
+    db.commit()
+    db.refresh(ticket)
+
+    # PDF en commit aparte; un fallo aquí no rompe el cierre.
+    try:
+        vehicle = db.get(Vehicle, ticket.vehicle_id)
+        ticket.pdf_path = save_ticket_pdf(ticket, vehicle)
+        db.commit()
+        db.refresh(ticket)
+    except Exception as exc:  # noqa: BLE001 — defensiva
+        log.warning(
+            "ingest: PDF no generado para ticket %s: %s",
+            ticket.id,
+            exc,
+        )
+
+    # Email al usuario asociado al vehículo: Fase 3. Por ahora sólo log.
+    log.info(
+        "ingest: SALIDA ticket cerrado id=%s plate=%s amount=%.2f discount=%.2f total=%.2f",
+        ticket.id,
+        ticket.vehicle.plate if ticket.vehicle else "?",
+        ticket.amount or 0.0,
+        ticket.discount or 0.0,
+        ticket.total or 0.0,
+    )
+
+    return ticket
 
 
 def _match_geofence(

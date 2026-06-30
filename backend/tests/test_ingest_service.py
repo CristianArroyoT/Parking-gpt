@@ -1,4 +1,4 @@
-"""Tests del servicio de ingesta (OCR → ticket).
+"""Tests del servicio de ingesta (OCR → ticket ENTRADA/SALIDA).
 
 Estrategia: BD SQLite en memoria con StaticPool (mismo patrón que
 ``test_ticket_close.py``). El servicio abre su propia sesión vía
@@ -12,13 +12,15 @@ Casos cubiertos:
   3. Confidence < threshold de la geocerca → SKIPPED_NO_GEOFENCE.
   4. Vehículo desconocido → INSERT + TICKET_CREATED.
   5. Vehículo existente → reusa, no duplica.
-  6. Vehículo ya con ticket activo en parking → SKIPPED_DUPLICATE_ACTIVE_TICKET.
-  7. Plaza ya con ticket activo → SKIPPED_SPACE_OCCUPIED.
-  8. Varias geocercas matchean → elige la de mayor IoU.
+  6. Vehículo con ticket activo → SALIDA: cierra con tarifa, TICKET_CLOSED.
+  7. SALIDA sin tarifa vigente → SKIPPED_CLOSE_FAILED, ticket sigue activo.
+  8. SALIDA con suscripción del vehículo → descuento aplicado.
+  9. Plaza ya con ticket activo de OTRO vehículo → SKIPPED_SPACE_OCCUPIED.
+ 10. Varias geocercas matchean → elige la de mayor IoU.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine
@@ -30,8 +32,10 @@ from app.core.db import Base
 from app.models.enums import TicketStatus
 from app.models.geofence import CameraGeofence
 from app.models.parking import Camera, Parking, ParkingSpace
+from app.models.pricing import Plan, Subscription, Tariff
 from app.models.ticket import Ticket
-from app.models.vehicle import Vehicle
+from app.models.user import User, UserRole
+from app.models.vehicle import Vehicle, VehicleRole, VehicleUser
 from app.schemas.plate import PlateHit
 from app.services import ingest_service
 from app.services.ingest_service import IngestStatus, process_plate_hit
@@ -89,10 +93,20 @@ def _setup_with_geofence(db, *, threshold: float = 0.85):
         )
     )
     db.commit()
-    # Expulsar del identity map para que process_plate_hit (otra sesión)
-    # los vea limpios. Re-fetch con el sessionlocal original es OK porque
-    # comparten el motor.
     return parking, space, camera
+
+
+def _add_tariff(db, parking_id: int, *, valid_from=None) -> Tariff:
+    """Crea una tarifa vigente estándar para que ``calculate_ticket_total``
+    no lance ``PricingError``."""
+    return Tariff(
+        parking_id=parking_id,
+        name="Estándar",
+        price_per_hour=2.0,
+        price_per_fraction=0.5,
+        fraction_minutes=15,
+        valid_from=valid_from or datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
 
 
 def test_no_geofences_calibrated(ingest_env) -> None:
@@ -159,8 +173,6 @@ def test_creates_vehicle_when_unknown_plate(ingest_env) -> None:
     assert result.vehicle_id is not None
     assert result.parking_space_id == space.id
 
-    # El servicio escribió en su propia sesión. Limpiamos la nuestra
-    # y re-leemos del motor de prueba.
     ingest_env.expire_all()
     veh = ingest_env.get(Vehicle, result.vehicle_id)
     assert veh is not None
@@ -193,11 +205,56 @@ def test_reuses_existing_vehicle(ingest_env) -> None:
     assert ingest_env.query(Vehicle).filter_by(plate="EXIST-1").one().id == existing_id
 
 
-def test_skips_when_vehicle_already_has_active_ticket(ingest_env) -> None:
-    """Misma matrícula + mismo parking + ticket activo → SKIPPED_DUPLICATE."""
+def test_closes_active_ticket_on_second_hit(ingest_env) -> None:
+    """Vehículo con ticket activo → SALIDA: cierra y calcula tarifa."""
     parking, space, camera = _setup_with_geofence(ingest_env)
+    ingest_env.add(_add_tariff(ingest_env, parking.id))
+    ingest_env.commit()
 
-    veh = Vehicle(plate="DUP-1")
+    veh = Vehicle(plate="EXIT-1")
+    ingest_env.add(veh)
+    ingest_env.flush()
+    entry = datetime.now(timezone.utc) - timedelta(hours=1, minutes=30)
+    ingest_env.add(
+        Ticket(
+            parking_id=parking.id,
+            vehicle_id=veh.id,
+            parking_space_id=space.id,
+            status=TicketStatus.ACTIVO,
+            entry_at=entry,
+        )
+    )
+    ingest_env.commit()
+
+    # Forzamos exit_at exacto a 1h30 después del entry_at para evitar
+    # drift de microsegundos entre el datetime.now() del servicio y el del
+    # test (un drift > 0 hace que las fracciones redondeen a 3 en lugar
+    # de 2). Con 1h30 exactos: 1 h × 2 € + ceil(30/15)=2 × 0.50 € = 3 €.
+    fixed_exit = entry + timedelta(hours=1, minutes=30)
+
+    hit = PlateHit(plate="EXIT-1", confidence=0.95, bbox=[10, 10, 50, 50])
+    result = process_plate_hit(hit, camera, now=fixed_exit)
+
+    assert result.status == IngestStatus.TICKET_CLOSED
+    assert result.ticket_id is not None
+    assert result.amount == 3.0
+    assert result.discount == 0.0
+    assert result.total == 3.0
+
+    ingest_env.expire_all()
+    ticket = ingest_env.get(Ticket, result.ticket_id)
+    assert ticket.status == TicketStatus.CERRADO
+    assert ticket.exit_at is not None
+    assert ticket.amount == 3.0
+    assert ticket.total == 3.0
+
+
+def test_close_fails_without_active_tariff(ingest_env) -> None:
+    """SALIDA sin tarifa vigente → SKIPPED_CLOSE_FAILED, ticket sigue activo."""
+    parking, space, camera = _setup_with_geofence(ingest_env)
+    # SIN tarifa — calculate_ticket_total lanzará PricingError.
+
+    veh = Vehicle(plate="NOFARE-1")
     ingest_env.add(veh)
     ingest_env.flush()
     ingest_env.add(
@@ -211,12 +268,79 @@ def test_skips_when_vehicle_already_has_active_ticket(ingest_env) -> None:
     )
     ingest_env.commit()
 
-    hit = PlateHit(plate="DUP-1", confidence=0.95, bbox=[10, 10, 50, 50])
+    hit = PlateHit(plate="NOFARE-1", confidence=0.95, bbox=[10, 10, 50, 50])
     result = process_plate_hit(hit, camera)
 
-    assert result.status == IngestStatus.SKIPPED_DUPLICATE_ACTIVE_TICKET
-    assert result.ticket_id is not None  # referencia al ticket previo
-    assert ingest_env.query(Ticket).count() == 1  # no se duplica
+    assert result.status == IngestStatus.SKIPPED_CLOSE_FAILED
+    assert result.ticket_id is not None  # ticket previo referenciado
+    assert result.reason and "tarifa" in result.reason.lower()
+
+    ingest_env.expire_all()
+    ticket = ingest_env.get(Ticket, result.ticket_id)
+    assert ticket.status == TicketStatus.ACTIVO  # no se cerró
+
+
+def test_close_applies_subscription_discount(ingest_env) -> None:
+    """Vehículo vinculado a usuario con plan activo → descuento aplicado al cerrar."""
+    parking, space, camera = _setup_with_geofence(ingest_env)
+    ingest_env.add(_add_tariff(ingest_env, parking.id))
+
+    # Usuario con plan activo al 20%
+    user = User(
+        email="subs@test.es",
+        full_name="Subs User",
+        role=UserRole.CLIENTE,
+        hashed_password="x",
+    )
+    plan = Plan(
+        code="EMPRESA",
+        name="Empresa",
+        monthly_price=200.0,
+        discount_percent=20.0,
+        included_vehicles=10,
+        is_active=True,
+    )
+    ingest_env.add_all([user, plan])
+    ingest_env.flush()
+    sub = Subscription(
+        user_id=user.id,
+        plan_id=plan.id,
+        starts_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        ends_at=datetime(2027, 1, 1, tzinfo=timezone.utc),
+        is_active=True,
+    )
+    veh = Vehicle(plate="SUB-1")
+    ingest_env.add_all([sub, veh])
+    ingest_env.flush()
+    ingest_env.add(
+        VehicleUser(
+            vehicle_id=veh.id, user_id=user.id, role=VehicleRole.PROPIETARIO,
+        )
+    )
+    entry = datetime.now(timezone.utc) - timedelta(hours=2)
+    ingest_env.add(
+        Ticket(
+            parking_id=parking.id,
+            vehicle_id=veh.id,
+            parking_space_id=space.id,
+            status=TicketStatus.ACTIVO,
+            entry_at=entry,
+        )
+    )
+    ingest_env.commit()
+
+    # exit_at exacto = entry + 2h para evitar el drift de ms que añadiría
+    # 1 fracción extra (15 min). Con 2h exactas: 2 h × 2 € = 4 €;
+    # descuento 20 % = 0.80 €; total = 3.20 €.
+    fixed_exit = entry + timedelta(hours=2)
+
+    hit = PlateHit(plate="SUB-1", confidence=0.95, bbox=[10, 10, 50, 50])
+    result = process_plate_hit(hit, camera, now=fixed_exit)
+
+    assert result.status == IngestStatus.TICKET_CLOSED
+    assert result.amount == 4.0
+    assert result.discount == 0.8
+    assert result.total == 3.2
 
 
 def test_skips_when_space_already_occupied(ingest_env) -> None:
@@ -242,7 +366,7 @@ def test_skips_when_space_already_occupied(ingest_env) -> None:
 
     assert result.status == IngestStatus.SKIPPED_SPACE_OCCUPIED
     assert result.parking_space_id == space.id
-    assert ingest_env.query(Ticket).count() == 1  # no se crea el segundo
+    assert ingest_env.query(Ticket).count() == 1
 
 
 def test_selects_geofence_with_best_iou(ingest_env) -> None:
@@ -275,7 +399,6 @@ def test_selects_geofence_with_best_iou(ingest_env) -> None:
     ingest_env.commit()
 
     # Hit dentro de geocerca 2 (250..270), solapa muy poco con geocerca 1 (0..100).
-    # IoU con 2 >> IoU con 1.
     hit = PlateHit(plate="NEW-1", confidence=0.95, bbox=[250, 250, 270, 270])
     result = process_plate_hit(hit, camera)
 

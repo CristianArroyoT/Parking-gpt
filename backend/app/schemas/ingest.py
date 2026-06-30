@@ -22,6 +22,9 @@ class IngestResultRead(BaseModel):
     ticket_id: int | None = None
     vehicle_id: int | None = None
     parking_space_id: int | None = None
+    amount: float | None = None
+    discount: float | None = None
+    total: float | None = None
     reason: str | None = None
 
 
