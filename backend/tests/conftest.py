@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.core.db import Base, get_db
 from app.main import create_app
@@ -20,7 +21,15 @@ from app.main import create_app
 
 @pytest.fixture()
 def db_session():
-    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    # StaticPool: garantiza que TODAS las conexiones del engine
+    # compartan la misma BD en memoria. Sin esto, `Base.metadata.create_all`
+    # crea las tablas en una conexión y luego la sesión abre otra que no las ve.
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     Base.metadata.create_all(engine)
     SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     session = SessionLocal()

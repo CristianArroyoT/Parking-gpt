@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.deps import require_role
+from app.core.deps import get_current_user, require_role
 from app.core.security import hash_password
 from app.models.enums import UserRole
 from app.models.user import ParkingMembership, User
@@ -20,6 +20,12 @@ from app.schemas.user import (
 )
 
 router = APIRouter(prefix="/users", tags=["usuarios"])
+
+
+@router.get("/me", response_model=UserRead)
+def get_me(current: User = Depends(get_current_user)) -> User:
+    """Devuelve el usuario autenticado (usado por el frontend al arrancar)."""
+    return current
 
 
 @router.get("", response_model=list[UserRead])

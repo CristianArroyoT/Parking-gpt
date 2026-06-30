@@ -15,6 +15,7 @@ from app.models.enums import TicketStatus, UserRole
 from app.models.ticket import Ticket
 from app.models.user import ParkingMembership, User
 from app.schemas.ticket import TicketClose, TicketCreate, TicketRead
+from app.services.pricing import PricingError, calculate_ticket_total
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
@@ -90,6 +91,20 @@ def close_ticket(
     if ticket.status != TicketStatus.ACTIVO:
         raise HTTPException(status_code=409, detail="El ticket no está activo")
     ticket.exit_at = payload.exit_at or datetime.now(timezone.utc)
+    try:
+        total = calculate_ticket_total(
+            db,
+            parking_id=ticket.parking_id,
+            vehicle_id=ticket.vehicle_id,
+            entry_at=ticket.entry_at,
+            exit_at=ticket.exit_at,
+        )
+    except PricingError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    ticket.amount = total.amount
+    ticket.discount = total.discount
+    ticket.total = total.total
     ticket.status = TicketStatus.CERRADO
     ticket.payment_method = payload.payment_method
     db.commit()

@@ -22,7 +22,8 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 def _build_tokens(user: User) -> TokenPair:
     settings = get_settings()
-    access = create_access_token(user.id, extra={"role": user.role.value})
+    role_value = user.role.value if hasattr(user.role, "value") else str(user.role)
+    access = create_access_token(user.id, extra={"role": role_value})
     refresh = create_refresh_token(user.id)
     return TokenPair(
         access_token=access,
