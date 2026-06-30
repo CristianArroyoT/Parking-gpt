@@ -47,6 +47,9 @@ redis_data/
 uploads/
 ocr_failed/
 *.log
+# celery-beat autogenera este archivo de estado en cada arranque
+backend/celerybeat-schedule
+backend/celerybeat-schedule.db
 
 # MinGW / Git Bash crash dumps (no son parte del proyecto)
 *.stackdump

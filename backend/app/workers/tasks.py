@@ -27,6 +27,7 @@ from PIL import Image
 from app.core.db import SessionLocal
 from app.models.parking import Camera
 from app.models.plates_detected import PlatesDetected
+from app.services.cameras.capture import grab_frame
 from app.services.ocr.client import get_ocr_client
 from app.workers.celery_app import celery_app
 
@@ -73,11 +74,13 @@ def tick_cameras() -> dict[str, int]:
 def ping_camera(camera_id: int) -> dict[str, Any]:
     """Envía un frame al servicio OCR y persiste los hits detectados.
 
-    Sustituye al stub anterior: en lugar de un sleep simulado, ahora
-    genera un JPEG 1×1 (placeholder), lo envía a `ocr:8800/recognize`
-    y guarda cada hit en `plates_detected`. Si el servicio no
-    responde, `OcrClient.recognize` ya devuelve [] y la tarea termina
-    con `plates_found=0` en lugar de fallar.
+    Captura un frame real del stream RTSP de la cámara (vía
+    `app.services.cameras.capture.grab_frame`). Si la captura falla —
+    URL inválida, cámara caída, timeout — hace fallback al placeholder
+    1×1 negro para mantener la tarea robusta en desarrollo (las URLs
+    del seed apuntan a `demo.invalid` a propósito). En cualquier caso,
+    el frame se envía a `ocr:8800/recognize` y los hits se persisten
+    en `plates_detected`. Si OCR tampoco responde, `plates_found=0`.
     """
     db = SessionLocal()
     try:
@@ -86,7 +89,11 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
             log.warning("ping_camera: cámara %s no encontrada", camera_id)
             return {"status": "missing"}
 
-        frame = _placeholder_frame_jpeg()
+        frame = asyncio.run(grab_frame(cam))
+        frame_source = "rtsp"
+        if frame is None:
+            frame = _placeholder_frame_jpeg()
+            frame_source = "placeholder"
         ocr = get_ocr_client()
         try:
             hits = asyncio.run(ocr.recognize(frame))
@@ -98,11 +105,17 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
 
         if not hits:
             log.info(
-                "ping_camera: id=%s code=%s plates_found=0",
+                "ping_camera: id=%s code=%s source=%s plates_found=0",
                 cam.id,
                 cam.code,
+                frame_source,
             )
-            return {"status": "ok", "code": cam.code, "plates_found": 0}
+            return {
+                "status": "ok",
+                "code": cam.code,
+                "source": frame_source,
+                "plates_found": 0,
+            }
 
         now = datetime.now(timezone.utc)
         for h in hits:
@@ -121,14 +134,16 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
             )
         db.commit()
         log.info(
-            "ping_camera: id=%s code=%s plates_found=%s",
+            "ping_camera: id=%s code=%s source=%s plates_found=%s",
             cam.id,
             cam.code,
+            frame_source,
             len(hits),
         )
         return {
             "status": "ok",
             "code": cam.code,
+            "source": frame_source,
             "plates_found": len(hits),
         }
     finally:
