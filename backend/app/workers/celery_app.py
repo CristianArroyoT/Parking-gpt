@@ -30,19 +30,21 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
 )
 
-# ── Tareas placeholder Fase 1 ──────────────────────────────────────────
-@celery_app.task(name="solidapp.heartbeat")
-def heartbeat() -> dict[str, str]:
-    """Heartbeat periódico usado por el beat para verificar el pipeline.
-
-    En Fase 2 se sustituirá por tareas reales (OCR pull, reportes, alertas).
-    """
-    return {"status": "ok"}
+# ── Tareas reales (Fase 2 temprana) ────────────────────────────────────
+# Importar el módulo registra las tareas en este `celery_app` vía los
+# decoradores @celery_app.task. Ver `app/workers/tasks.py` para detalle.
+from app.workers import tasks  # noqa: F401, E402
 
 
 celery_app.conf.beat_schedule = {
-    "heartbeat-every-minute": {
-        "task": "solidapp.heartbeat",
+    # Inventario cada minuto: barato y útil para detectar caídas.
+    "tick-cameras-every-minute": {
+        "task": "solidapp.tick_cameras",
         "schedule": crontab(minute="*/1"),
+    },
+    # Limpieza de frames fallidos cada 6 horas.
+    "cleanup-failed-frames-every-6h": {
+        "task": "solidapp.cleanup_failed_frames",
+        "schedule": crontab(minute="0", hour="*/6"),
     },
 }
