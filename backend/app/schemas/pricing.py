@@ -21,6 +21,17 @@ class TariffCreate(ORMModel):
     valid_to: Optional[datetime] = None
 
 
+class TariffUpdate(ORMModel):
+    """Patch parcial de una tarifa (todos los campos opcionales)."""
+    name: Optional[str] = Field(default=None, min_length=2, max_length=64)
+    price_per_hour: Optional[float] = None
+    price_per_fraction: Optional[float] = None
+    fraction_minutes: Optional[int] = None
+    max_daily: Optional[float] = None
+    valid_from: Optional[datetime] = None
+    valid_to: Optional[datetime] = None
+
+
 class TariffRead(TariffCreate, TimestampMixinSchema):
     id: int
 

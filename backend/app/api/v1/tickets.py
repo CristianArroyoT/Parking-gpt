@@ -109,4 +109,16 @@ def close_ticket(
     ticket.payment_method = payload.payment_method
     db.commit()
     db.refresh(ticket)
+
+    # Generar PDF de justificante. Si ReportLab fallase (raro en prod),
+    # dejamos el ticket cerrado igualmente; sólo logueamos.
+    try:
+        vehicle = db.get(Vehicle, ticket.vehicle_id)
+        ticket.pdf_path = save_ticket_pdf(ticket, vehicle)
+        db.commit()
+        db.refresh(ticket)
+    except Exception:  # pragma: no cover - defensivo
+        import logging
+        logging.getLogger(__name__).exception("No se pudo generar el PDF del ticket %s", ticket.id)
+
     return ticket
