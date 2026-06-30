@@ -1,0 +1,15 @@
+# Raíz y caches.
+**/.git
+**/.idea
+**/.vscode
+**/.DS_Store
+**/node_modules
+**/dist
+**/build
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/*.stackdump
+**/coverage.xml
+**/htmlcov

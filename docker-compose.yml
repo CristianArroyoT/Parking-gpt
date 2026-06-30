@@ -1,0 +1,130 @@
+# Pila MVP de solidAPP: arranca backend, frontend, postgres+postgis, redis
+# y los workers Celery. Todo se construye en local; nada requiere pip/npm
+# en el host Windows.
+#
+# Uso:
+#   docker compose up -d
+#   docker compose exec backend alembic upgrade head
+#   docker compose exec backend python -m app.scripts.seed
+#   http://localhost:5173   → frontend Vite
+#   http://localhost:8000   → Swagger / OpenAPI
+
+services:
+
+  # ── Base de datos ─────────────────────────────────────────────────────
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: parking
+      POSTGRES_PASSWORD: parking
+      POSTGRES_DB: parking
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/seed.sql:/docker-entrypoint-initdb.d/01-postgis.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U parking -d parking"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "5432:5432"
+
+  # ── Cola + cache + scheduler ─────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "60", "1"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    ports:
+      - "6379:6379"
+
+  # ── API FastAPI ──────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: solidapp-backend:latest
+    environment:
+      DATABASE_URL: postgresql+psycopg://parking:parking@db:5432/parking
+      ASYNC_DATABASE_URL: postgresql+asyncpg://parking:parking@db:5432/parking
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      ENVIRONMENT: development
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    volumes:
+      - ./backend:/app
+
+  # ── Frontend Vue 3 (Vite dev) ────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: solidapp-frontend:latest
+    environment:
+      VITE_API_BASE: http://backend:8000
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+  # ── Celery worker ────────────────────────────────────────────────────
+  celery-worker:
+    build:
+      context: .
+      dockerfile: docker/celery/Dockerfile
+    image: solidapp-backend:latest
+    environment:
+      DATABASE_URL: postgresql+psycopg://parking:parking@db:5432/parking
+      ASYNC_DATABASE_URL: postgresql+asyncpg://parking:parking@db:5432/parking
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+    depends_on:
+      backend:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info"]
+
+  # ── Celery beat (scheduler) ──────────────────────────────────────────
+  celery-beat:
+    build:
+      context: .
+      dockerfile: docker/celery/Dockerfile
+    image: solidapp-backend:latest
+    environment:
+      DATABASE_URL: postgresql+psycopg://parking:parking@db:5432/parking
+      ASYNC_DATABASE_URL: postgresql+asyncpg://parking:parking@db:5432/parking
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+    depends_on:
+      backend:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+    command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=info"]
+
+volumes:
+  pgdata:
+  redisdata:
