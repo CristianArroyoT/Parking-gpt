@@ -31,13 +31,16 @@ def db_session(monkeypatch):
     Base.metadata.create_all(engine)
     SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
-    # Sustituir SessionLocal que ``app.services.manual_tickets`` y
-    # ``app.services.ingest_service`` abren internamente, para que apunten
-    # al motor de prueba y vean los datos sembrados.
+    # Sustituir SessionLocal que ``app.services.manual_tickets``,
+    # ``app.services.incidents`` y ``app.services.ingest_service`` abren
+    # internamente, para que apunten al motor de prueba y vean los datos
+    # sembrados.
     from app.services import manual_tickets as mt_mod
     from app.services import ingest_service as ingest_mod
+    from app.services import incidents as inc_mod
     monkeypatch.setattr(mt_mod, "SessionLocal", SessionLocal)
     monkeypatch.setattr(ingest_mod, "SessionLocal", SessionLocal)
+    monkeypatch.setattr(inc_mod, "SessionLocal", SessionLocal)
 
     session = SessionLocal()
     try:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 
 from pydantic import Field
@@ -54,6 +55,8 @@ class ParkingSpaceRead(ORMModel, TimestampMixinSchema):
     number: str
     is_active: bool
     notes: Optional[str]
+    is_broken: bool
+    is_broken_at: Optional[datetime]
 
 
 class CameraCreate(ORMModel):

@@ -8,6 +8,7 @@ from app.api.v1 import (
     alerts,
     auth,
     cameras,
+    incidents,
     parkings,
     plates,
     spaces,
@@ -28,5 +29,6 @@ api_router.include_router(tariffs.router)
 api_router.include_router(tickets.router)
 api_router.include_router(plates.router)
 api_router.include_router(alerts.router)
+api_router.include_router(incidents.router)
 
 __all__ = ["api_router"]

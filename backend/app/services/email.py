@@ -13,7 +13,10 @@ Reglas de operación:
 - El cliente SMTP es ``smtplib.SMTP`` síncrono con timeout 5 s.
   ``starttls()`` + ``login()`` sólo si hay credenciales.
 
-Plantillas: ``app/services/templates/alerts/ocr_failed.{txt,html}.j2``.
+Plantillas soportadas (vía ``template_kind``):
+
+- ``ocr_failed`` (default): ``alerts/ocr_failed.{txt,html}.j2``.
+- ``robery_reported``: ``alerts/robery_reported.{txt,html}.j2``.
 """
 from __future__ import annotations
 
@@ -23,7 +26,7 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import format_datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -35,6 +38,8 @@ log = logging.getLogger(__name__)
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 _DASHBOARD_URL = "http://localhost:5173/gestor/alertas"
 
+TemplateKind = Literal["ocr_failed", "robery_reported"]
+
 _env = Environment(
     loader=FileSystemLoader(str(_TEMPLATES_DIR)),
     autoescape=select_autoescape(["html"]),
@@ -43,7 +48,7 @@ _env = Environment(
 )
 
 
-def _render(
+def _render_ocr_failed(
     alert: Alert,
     *,
     camera_code: str,
@@ -53,7 +58,6 @@ def _render(
     frame_url: str | None,
     frame_path: str | None,
 ) -> tuple[str, str]:
-    """Devuelve ``(cuerpo_text, cuerpo_html)`` renderizados."""
     ctx: dict[str, Any] = {
         "alert_id": alert.id,
         "camera_code": camera_code,
@@ -66,9 +70,42 @@ def _render(
         "frame_url": frame_url,
         "frame_path": frame_path,
     }
-    txt_tmpl = _env.get_template("alerts/ocr_failed.txt.j2")
-    html_tmpl = _env.get_template("alerts/ocr_failed.html.j2")
-    return txt_tmpl.render(**ctx), html_tmpl.render(**ctx)
+    txt = _env.get_template("alerts/ocr_failed.txt.j2").render(**ctx)
+    html = _env.get_template("alerts/ocr_failed.html.j2").render(**ctx)
+    return txt, html
+
+
+def _render_robery_reported(
+    alert: Alert,
+    *,
+    parking_name: str,
+) -> tuple[str, str]:
+    ctx = alert.context or {}
+    plate = ctx.get("plate")
+    space_id = ctx.get("parking_space_id")
+    parking_space_label = None
+    if space_id:
+        from app.models.parking import ParkingSpace
+        with __import__("app.core.db", fromlist=["SessionLocal"]).SessionLocal() as sdb:
+            sp = sdb.get(ParkingSpace, space_id)
+            if sp:
+                parking_space_label = f"{sp.lane}-{sp.number}"
+    ctx_render: dict[str, Any] = {
+        "alert_id": alert.id,
+        "parking_name": parking_name,
+        "severity": alert.severity.value if hasattr(alert.severity, "value") else str(alert.severity),
+        "detected_at": alert.created_at.strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "dashboard_url": _DASHBOARD_URL,
+        "reason": ctx.get("reason", "other"),
+        "reported_by": ctx.get("reported_by", "operador"),
+        "plate": plate,
+        "parking_space_label": parking_space_label,
+        "photos": ctx.get("photos") or [],
+        "notes": ctx.get("notes"),
+    }
+    txt = _env.get_template("alerts/robery_reported.txt.j2").render(**ctx_render)
+    html = _env.get_template("alerts/robery_reported.html.j2").render(**ctx_render)
+    return txt, html
 
 
 def _build_message(
@@ -90,7 +127,6 @@ def _build_message(
 
 
 def _is_dry_run() -> bool:
-    """Dry-run fuera de producción. Centralizado para tests."""
     s = get_settings()
     return s.environment != "production"
 
@@ -99,10 +135,11 @@ def send_alert_email(
     alert: Alert,
     manager_email: str | None,
     *,
-    camera_code: str,
-    parking_name: str,
-    count: int,
-    threshold: int,
+    template_kind: TemplateKind = "ocr_failed",
+    parking_name: str = "",
+    camera_code: str = "",
+    count: int = 0,
+    threshold: int = 0,
     frame_url: str | None = None,
     frame_path: str | None = None,
 ) -> bool:
@@ -111,6 +148,9 @@ def send_alert_email(
     Nunca lanza. Captura todas las excepciones SMTP, las loguea y
     devuelve ``False``. La alerta ya está persistida en BD aunque el
     email falle — el operador la verá por el endpoint REST.
+
+    Refactor 2026-06-30: añadido ``template_kind`` para soportar
+    múltiples plantillas (``ocr_failed`` por defecto para retro-compat).
     """
     if not manager_email:
         log.warning(
@@ -120,15 +160,34 @@ def send_alert_email(
         return False
 
     try:
-        text_body, html_body = _render(
-            alert,
-            camera_code=camera_code,
-            parking_name=parking_name,
-            count=count,
-            threshold=threshold,
-            frame_url=frame_url,
-            frame_path=frame_path,
-        )
+        if template_kind == "ocr_failed":
+            text_body, html_body = _render_ocr_failed(
+                alert,
+                camera_code=camera_code,
+                parking_name=parking_name,
+                count=count,
+                threshold=threshold,
+                frame_url=frame_url,
+                frame_path=frame_path,
+            )
+            subject = (
+                f"[solidAPP] OCR sin lecturas en {camera_code} — "
+                f"{parking_name} (#{alert.id})"
+            )
+        elif template_kind == "robery_reported":
+            text_body, html_body = _render_robery_reported(
+                alert, parking_name=parking_name
+            )
+            subject = (
+                f"[solidAPP] 🚨 Reporte de robo — {parking_name} (#{alert.id})"
+            )
+        else:
+            log.warning(
+                "send_alert_email: template_kind=%s desconocido — alerta %s",
+                template_kind,
+                alert.id,
+            )
+            return False
     except Exception as exc:  # noqa: BLE001
         log.warning(
             "send_alert_email: error renderizando plantilla alert=%s: %s",
@@ -136,12 +195,6 @@ def send_alert_email(
             exc,
         )
         return False
-
-    settings = get_settings()
-    subject = (
-        f"[solidAPP] OCR sin lecturas en {camera_code} — "
-        f"{parking_name} (#{alert.id})"
-    )
 
     msg = _build_message(
         from_addr=settings.smtp_from,
@@ -153,9 +206,10 @@ def send_alert_email(
 
     if _is_dry_run():
         log.info(
-            "send_alert_email[dry-run]: alert=%s to=%s subject=%r",
+            "send_alert_email[dry-run]: alert=%s to=%s kind=%s subject=%r",
             alert.id,
             manager_email,
+            template_kind,
             subject,
         )
         return True
@@ -168,7 +222,10 @@ def send_alert_email(
                 smtp.login(settings.smtp_user, settings.smtp_password)
             smtp.send_message(msg)
         log.info(
-            "send_alert_email: alert=%s enviado a %s", alert.id, manager_email
+            "send_alert_email: alert=%s enviado a %s (kind=%s)",
+            alert.id,
+            manager_email,
+            template_kind,
         )
         return True
     except (smtplib.SMTPException, OSError) as exc:
@@ -186,4 +243,4 @@ def send_alert_email(
         return False
 
 
-__all__ = ["send_alert_email"]
+__all__ = ["send_alert_email", "TemplateKind"]

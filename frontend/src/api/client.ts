@@ -137,3 +137,17 @@ export interface ManualEntryPayload {
   camera_id?: number | null
   occurred_at?: string | null
 }
+
+// ── Tipos de incidentes (marcar plaza, reportar robo, rehabilitar) ───
+export type IncidentKind = 'space_broken' | 'space_unbroken' | 'robery_reported'
+export type IncidentReason =
+  | 'physical_damage' | 'paint' | 'sensor_failure'
+  | 'theft_attempt' | 'suspicious_behavior' | 'other'
+export interface IncidentCreatePayload {
+  kind: IncidentKind
+  parking_space_id?: number | null
+  plate?: string | null
+  reason: IncidentReason
+  notes?: string | null
+  photos?: string[]
+}

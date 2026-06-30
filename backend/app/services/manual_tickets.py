@@ -148,6 +148,11 @@ def create_manual_ticket(
                         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                         detail="La plaza no pertenece a la sucursal indicada",
                     )
+                if space.is_broken:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="La plaza está averiada; rehabilítala antes de asignar tickets",
+                    )
 
             ticket = Ticket(
                 parking_id=payload.parking_id,

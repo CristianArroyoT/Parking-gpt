@@ -48,7 +48,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.db import SessionLocal
 from app.models.enums import TicketStatus
 from app.models.geofence import CameraGeofence
-from app.models.parking import Camera
+from app.models.parking import Camera, ParkingSpace
 from app.models.ticket import Ticket
 from app.models.vehicle import Vehicle
 from app.schemas.plate import PlateHit
@@ -67,6 +67,7 @@ class IngestStatus(StrEnum):
     SKIPPED_NO_GEOFENCE = "skipped_no_geofence"
     SKIPPED_CLOSE_FAILED = "skipped_close_failed"
     SKIPPED_SPACE_OCCUPIED = "skipped_space_occupied"
+    SKIPPED_SPACE_BROKEN = "skipped_space_broken"
 
 
 @dataclass(frozen=True)
@@ -291,6 +292,24 @@ def _process_in_tx(
             parking_space_id=matched.parking_space_id,
             ticket_id=occupied_space.id,
             reason="Plaza ya tiene ticket activo",
+        )
+
+    # 5b. ¿Plaza del geofence está marcada como averiada?
+    space = db.get(ParkingSpace, matched.parking_space_id)
+    if space is not None and space.is_broken:
+        log.info(
+            "ingest: plaza %s averiada, se omite creación de ticket",
+            matched.parking_space_id,
+        )
+        return IngestResult(
+            plate=hit.plate,
+            camera_id=camera.id,
+            parking_id=camera.parking_id,
+            status=IngestStatus.SKIPPED_SPACE_BROKEN,
+            confidence=hit.confidence,
+            vehicle_id=vehicle.id,
+            parking_space_id=matched.parking_space_id,
+            reason="Plaza averiada; rehabilítala antes de asignar tickets",
         )
 
     # 6. Crear ticket (ENTRADA)

@@ -1,0 +1,22 @@
+solidAPP — Alerta crítica: Reporte de robo
+==========================================
+
+Sucursal: {{ parking_name }}
+Operador: {{ reported_by }}
+Motivo:   {{ reason }}{% if plate %}
+Matrícula: {{ plate }}{% endif %}{% if parking_space_label %}
+Plaza:    {{ parking_space_label }}{% endif %}
+Hora:     {{ detected_at }}{% if photos %}
+Fotos:    {% for p in photos %}{{ p }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}{% if notes %}
+
+Notas:    {{ notes }}{% endif %}
+
+Severidad: {{ severity|upper }}
+Tipo:      robery_reported
+
+Acción inmediata:
+- Verificar cámaras de la sucursal.
+- Si procede, avisar a las autoridades.
+- Reconocer la alerta una vez resuelta: {{ dashboard_url }}
+
+ID interno: #{{ alert_id }}
