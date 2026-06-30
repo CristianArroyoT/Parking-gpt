@@ -109,7 +109,7 @@ def create_geofence(
     return fence
 
 
-@router.patch("/geofences/{fence_id}", response_model=GeofenceRead)
+@router.patch("/{camera_id}/geofences/{fence_id}", response_model=GeofenceRead)
 def update_geofence(
     parking_id: int,
     camera_id: int,
