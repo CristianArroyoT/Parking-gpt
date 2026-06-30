@@ -67,7 +67,11 @@ async function onLogout(): Promise<void> {
       ]"
     >
       <div class="px-5 py-5 flex items-center gap-3 border-b border-slate-800">
-        <div class="h-9 w-9 rounded-lg bg-white text-slate-900 grid place-items-center font-bold">s</div>
+        <img
+          src="/logo-solidapp.png"
+          alt="solidAPP"
+          class="h-9 w-9 rounded-lg bg-white"
+        />
         <div class="font-semibold tracking-tight">solidAPP</div>
       </div>
 
