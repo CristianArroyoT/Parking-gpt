@@ -1,0 +1,1 @@
+"""Cliente HTTP para el servicio OCR separado (PaddleOCR en su contenedor)."""

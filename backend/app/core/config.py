@@ -39,6 +39,15 @@ class Settings(BaseSettings):
     ocr_lang: str = Field(default="es", alias="OCR_LANG")
     ocr_confidence_threshold: float = Field(default=0.85, alias="OCR_CONFIDENCE_THRESHOLD")
     ocr_frames_before_fail: int = Field(default=5, alias="OCR_FRAMES_BEFORE_FAIL")
+    # URL del servicio OCR separado (PaddleOCR en su propio contenedor).
+    # Si el servicio no responde, el cliente devuelve [] y el caller
+    # decide qué hacer. NO usar en tests salvo que se inyecte MockTransport.
+    ocr_service_url: str = Field(
+        default="http://localhost:8800", alias="OCR_SERVICE_URL"
+    )
+    ocr_service_timeout: float = Field(
+        default=4.0, alias="OCR_SERVICE_TIMEOUT"
+    )
 
     smtp_host: str = Field(default="localhost", alias="SMTP_HOST")
     smtp_port: int = Field(default=1025, alias="SMTP_PORT")
