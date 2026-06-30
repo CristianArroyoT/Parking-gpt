@@ -1,0 +1,27 @@
+solidAPP — Alerta operativa
+==============================
+
+OCR sin lecturas en {{ camera_code }}
+-----------------------------------
+
+La cámara {{ camera_code }} de la sucursal "{{ parking_name }}" ha dejado
+de detectar matrículas. Se han registrado {{ count }} frames consecutivos
+sin lecturas válidas, por encima del umbral configurado ({{ threshold }}
+frames).
+
+Severidad: {{ severity|upper }}
+Tipo:      ocr_failed
+Hora:      {{ detected_at }}{% if frame_path %}
+Frame:     {{ frame_path }}{% endif %}
+
+Posibles causas:
+- Cámara caída o URL RTSP inválida.
+- Servicio OCR saturado o no disponible.
+- Lente sucia o vehículo fuera de las geocercas calibradas.
+
+Acción recomendada:
+- Verificar la cámara en directo desde el panel del operador.
+- Si la cámara funciona, revisar las geocercas calibradas.
+- Reconocer la alerta una vez resuelta: {{ dashboard_url }}
+
+ID interno: #{{ alert_id }}

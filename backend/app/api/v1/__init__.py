@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    alerts,
     auth,
     cameras,
     parkings,
@@ -26,5 +27,6 @@ api_router.include_router(vehicles.router)
 api_router.include_router(tariffs.router)
 api_router.include_router(tickets.router)
 api_router.include_router(plates.router)
+api_router.include_router(alerts.router)
 
 __all__ = ["api_router"]

@@ -27,6 +27,7 @@ from PIL import Image
 from app.core.db import SessionLocal
 from app.models.parking import Camera
 from app.models.plates_detected import PlatesDetected
+from app.services.alerts import record_ocr_failure, reset_ocr_failure
 from app.services.cameras.capture import grab_frame
 from app.services.ingest_service import process_plate_hits
 from app.services.ocr.client import get_ocr_client
@@ -105,6 +106,10 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
             hits = []
 
         if not hits:
+            # Sin lecturas: notificar al detector de N consecutivos.
+            # Internamente, después de N (settings.ocr_frames_before_fail)
+            # creará una alerta + email + guardará el frame en /tmp/ocr-failed.
+            record_ocr_failure(cam, frame)
             log.info(
                 "ping_camera: id=%s code=%s source=%s plates_found=0",
                 cam.id,
@@ -117,6 +122,9 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
                 "source": frame_source,
                 "plates_found": 0,
             }
+
+        # Lecturas válidas: reset del detector.
+        reset_ocr_failure(cam.id)
 
         now = datetime.now(timezone.utc)
         for h in hits:
