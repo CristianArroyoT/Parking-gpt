@@ -10,9 +10,11 @@
  */
 import axios, { type AxiosInstance, type InternalAxiosRequestConfig } from 'axios'
 
-const baseURL = import.meta.env.VITE_API_BASE
-  ? `${import.meta.env.VITE_API_BASE.replace(/\/$/, '')}/api/v1`
-  : '/api/v1'
+// El frontend SIEMPRE habla con rutas relativas '/api/v1'. Vite las
+// redirige al backend (docker-compose: http://backend:8000, local:
+// http://localhost:8000) según VITE_PROXY_TARGET, variable que NO se
+// inyecta al bundle porque su nombre no empieza por VITE_API_*.
+const baseURL = '/api/v1'
 
 export const http: AxiosInstance = axios.create({
   baseURL,

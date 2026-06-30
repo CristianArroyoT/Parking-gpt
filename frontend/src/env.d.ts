@@ -8,7 +8,10 @@ declare module '*.vue' {
 }
 
 interface ImportMetaEnv {
-  readonly VITE_API_BASE: string
+  // Vacío por diseño: el frontend SIEMPRE habla con rutas relativas
+  // '/api/v1' que Vite redirige al backend mediante el proxy interno
+  // configurado en vite.config.ts (lee VITE_PROXY_TARGET, que no es
+  // inyectado al bundle).
 }
 
 interface ImportMeta {

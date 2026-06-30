@@ -76,7 +76,9 @@ services:
       dockerfile: Dockerfile
     image: solidapp-frontend:latest
     environment:
-      VITE_API_BASE: http://backend:8000
+      # Solo la usa vite.config.ts en el proxy de /api. No se exporta al
+      # bundle porque su nombre no empieza por VITE_*.
+      VITE_PROXY_TARGET: http://backend:8000
     depends_on:
       - backend
     ports:
