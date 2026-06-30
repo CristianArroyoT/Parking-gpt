@@ -69,13 +69,12 @@ async function onLogout(): Promise<void> {
         ui.sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
       ]"
     >
-      <div class="px-5 py-5 flex items-center gap-3 border-b border-slate-800">
+      <div class="px-4 py-4 flex items-center justify-center border-b border-slate-800">
         <img
           src="/logo-solidapp.png?v=2"
           alt="solidAPP"
-          class="h-10 w-10 rounded-lg bg-white p-1"
+          class="max-h-14 max-w-full bg-white"
         />
-        <div class="font-semibold tracking-tight">solidAPP</div>
       </div>
 
       <nav class="flex-1 px-3 py-4 space-y-1 text-sm overflow-y-auto">
@@ -116,7 +115,7 @@ async function onLogout(): Promise<void> {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        <span class="font-semibold tracking-tight text-slate-900">solidAPP</span>
+        <span class="w-6" />
         <span class="w-6" />
       </header>
 

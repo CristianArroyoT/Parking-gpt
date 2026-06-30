@@ -39,12 +39,13 @@ function fillDemo(role: 'admin' | 'gestor' | 'operador' | 'cliente'): void {
 <template>
   <div class="min-h-screen bg-slate-100 flex items-center justify-center p-6 antialiased">
     <div class="w-full max-w-sm">
-      <div class="flex items-center gap-3 justify-center mb-8">
-        <div class="h-12 w-12 rounded-xl bg-slate-900 text-white grid place-items-center font-bold text-lg">s</div>
-        <div>
-          <div class="font-semibold tracking-tight text-2xl text-slate-900">solidAPP</div>
-          <div class="text-xs text-slate-500">Gestión de parkings</div>
-        </div>
+      <div class="flex flex-col items-center gap-3 mb-8">
+        <img
+          src="/logo-solidapp.png?v=2"
+          alt="solidAPP"
+          class="h-20 w-20 rounded-2xl bg-white p-2 shadow-sm"
+        />
+        <div class="text-xs text-slate-500">Gestión de parkings</div>
       </div>
 
       <div class="bg-white rounded-2xl shadow-lg p-8">
