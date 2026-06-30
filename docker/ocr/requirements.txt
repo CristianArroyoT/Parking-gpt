@@ -4,3 +4,7 @@ paddlepaddle==2.6.2
 paddleocr==2.7.3
 pillow==10.4.0
 pydantic==2.9.2
+python-multipart==0.0.12
+# PaddleOCR 2.7.x y paddlepaddle 2.6.x traen binarios C compilados
+# contra numpy 1.x. numpy 2.x rompe la importación de cv2.
+numpy<2
