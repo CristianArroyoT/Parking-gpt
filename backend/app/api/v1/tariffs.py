@@ -39,9 +39,11 @@ def list_tariffs(
 
 
 @router.post("", response_model=TariffRead, status_code=status.HTTP_201_CREATED)
+@audited("create_tariff")
 def create_tariff(
     parking_id: int,
     payload: TariffCreate,
+    request: Request,
     db: Session = Depends(get_db),
     _current: User = Depends(parking_context),
 ) -> Tariff:
@@ -65,10 +67,12 @@ def create_tariff(
 
 
 @router.patch("/{tariff_id}", response_model=TariffRead)
+@audited("update_tariff", resource_arg="tariff_id")
 def update_tariff(
     parking_id: int,
     tariff_id: int,
     payload: TariffUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     _current: User = Depends(parking_context),
 ) -> Tariff:
@@ -87,9 +91,11 @@ def update_tariff(
 
 
 @router.delete("/{tariff_id}", status_code=status.HTTP_204_NO_CONTENT)
+@audited("delete_tariff", resource_arg="tariff_id")
 def delete_tariff(
     parking_id: int,
     tariff_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     _admin: User = Depends(require_role(UserRole.ADMIN.value)),
 ) -> None:

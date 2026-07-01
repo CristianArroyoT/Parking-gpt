@@ -36,6 +36,7 @@ from app.services.alerts import (
     reset_camera_offline,
     reset_ocr_failure,
 )
+from app.services.audit import record_audit_worker
 from app.services.cameras.capture import grab_frame
 from app.services.cameras.heartbeat import probe_camera
 from app.services.ingest_service import process_plate_hits
@@ -94,6 +95,21 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
             # contaminaría el detector de OCR_FAILED. Distinguimos:
             # cámara caída = CRITICAL al admin; OCR vacío = WARN al gestor.
             record_camera_offline(cam, kind="frame")
+            # Sprint Fase 3B: audit del evento crítico con ip="worker".
+            try:
+                record_audit_worker(
+                    db,
+                    action="camera_offline_frame",
+                    parking_id=cam.parking_id,
+                    resource=f"cameras/{cam.id}",
+                    payload={"code": cam.code},
+                    result="failure",
+                )
+                db.commit()
+            except Exception as exc:
+                log.warning("ping_camera: audit no persistido camera=%s: %s",
+                            cam.id, exc)
+                db.rollback()
             # Resetear OCR counter: este fallo NO es de OCR.
             reset_ocr_failure(cam.id)
             log.warning(
@@ -297,6 +313,21 @@ def probe_heartbeats() -> dict[str, Any]:
                 # lock de 1 h está tomado (porque ``ping_camera`` ya
                 # disparó), omite.
                 record_camera_offline(cam, kind="heartbeat")
+                # Sprint Fase 3B: audit del evento crítico con ip="worker".
+                try:
+                    record_audit_worker(
+                        db,
+                        action="camera_offline_heartbeat",
+                        parking_id=cam.parking_id,
+                        resource=f"cameras/{cam.id}",
+                        payload={"code": cam.code},
+                        result="failure",
+                    )
+                except Exception as exc:
+                    log.warning(
+                        "probe_heartbeats: audit no persistido camera=%s: %s",
+                        cam.id, exc,
+                    )
 
         # Commit batch de los health fields. Si falla, se hace rollback
         # silencioso: el worker NUNCA propaga, y la siguiente ronda del
