@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import Field
 
@@ -109,3 +109,33 @@ class GeofenceUpdate(ORMModel):
 class GeofenceRead(GeofenceCreate, TimestampMixinSchema):
     id: int
     camera_id: int
+
+
+# ── Camera Health (sprint 2026-07-01) ────────────────────────────────
+# Estado de salud derivable de ``Camera.last_heartbeat_at`` +
+# ``Camera.last_heartbeat_ok`` + ``alerts._redis_client.get(...)``.
+# Schema separado (no extiende ``CameraRead``) para evitar acoplar el CRUD
+# de cámara al endpoint de monitorización: cualquiera de los dos puede
+# evolucionar sin tocar al otro.
+class CameraHealthRead(ORMModel):
+    """Salud de una cámara: estado derivado de su último probe_heartbeats.
+
+    Estados posibles:
+      - ``never_probed``: ambos campos NULL (cámara recién creada o
+        desactivada por más de una ronda del beat).
+      - ``healthy``: ``last_heartbeat_ok=True`` y la edad del último probe
+        ≤ ``stale_threshold_seconds``.
+      - ``degraded``: ``last_heartbeat_ok=True`` pero el probe es antiguo
+        (probablemente el worker se quedó colgado).
+      - ``offline``: ``last_heartbeat_ok=False`` en el último probe.
+
+    ``consecutive_failures`` se lee de Redis con fallback a 0 si Redis
+    no responde (no queremos un 500 por monitorización caída).
+    """
+
+    camera_id: int
+    status: Literal["never_probed", "healthy", "degraded", "offline"]
+    last_heartbeat_at: Optional[datetime]
+    last_heartbeat_ok: Optional[bool]
+    consecutive_failures: int
+    stale_threshold_seconds: int

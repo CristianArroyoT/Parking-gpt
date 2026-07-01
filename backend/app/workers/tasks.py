@@ -236,6 +236,9 @@ def probe_heartbeats() -> dict[str, Any]:
       - Si falla → ``record_camera_offline(cam, kind="heartbeat")``,
         que incrementa el contador Redis y crea alerta CRITICAL al
         admin tras ``settings.heartbeat_failures_before_alert`` fallos.
+      - Persiste ``last_heartbeat_at`` y ``last_heartbeat_ok`` en BD
+        (sprint Camera Health 2026-07-01) para que el endpoint
+        ``GET /cameras/{id}/health`` pueda derivar el estado.
 
     Una sola tarea batch (no una por cámara). Si el sistema tiene
     50 cámaras y cada probe tarda ~1 s, la ronda tarda ~50 s. Está
@@ -251,6 +254,9 @@ def probe_heartbeats() -> dict[str, Any]:
     )
 
     db = SessionLocal()
+    probed = skipped = ok = failed = 0
+    health_updates = 0
+    now_utc = datetime.now(timezone.utc)
     try:
         cams = (
             db.query(Camera)
@@ -258,36 +264,58 @@ def probe_heartbeats() -> dict[str, Any]:
             .order_by(Camera.id)
             .all()
         )
+
+        for cam in cams:
+            if any(cam.rtsp_url.startswith(p) for p in skip_prefixes):
+                skipped += 1
+                continue
+            probed += 1
+            try:
+                is_alive = asyncio.run(probe_camera(cam))
+            except Exception as exc:  # noqa: BLE001 — defensiva
+                log.warning(
+                    "probe_heartbeats: probe lanzó excepción camera=%s: %s",
+                    cam.id, exc,
+                )
+                is_alive = False
+
+            # Persistir último probe en BD (sprint Camera Health).
+            # Commit batch al final del bucle para evitar 50 commits/min
+            # de churn en el WAL de Postgres.
+            cam.last_heartbeat_at = now_utc
+            cam.last_heartbeat_ok = is_alive
+            db.add(cam)
+            health_updates += 1
+
+            if is_alive:
+                ok += 1
+                reset_camera_offline(cam.id)
+            else:
+                failed += 1
+                # ``record_camera_offline`` incrementa el contador y crea
+                # la alerta CRITICAL sólo si supera el threshold. Si el
+                # lock de 1 h está tomado (porque ``ping_camera`` ya
+                # disparó), omite.
+                record_camera_offline(cam, kind="heartbeat")
+
+        # Commit batch de los health fields. Si falla, se hace rollback
+        # silencioso: el worker NUNCA propaga, y la siguiente ronda del
+        # beat (60 s después) sobrescribirá cualquier valor obsoleto.
+        if health_updates:
+            try:
+                db.commit()
+            except Exception as exc:  # noqa: BLE001 — defensiva
+                log.warning(
+                    "probe_heartbeats: fallo en commit health fields (%s updates): %s",
+                    health_updates, exc,
+                )
+                db.rollback()
     finally:
         db.close()
 
-    probed = skipped = ok = failed = 0
-    for cam in cams:
-        if any(cam.rtsp_url.startswith(p) for p in skip_prefixes):
-            skipped += 1
-            continue
-        probed += 1
-        try:
-            is_alive = asyncio.run(probe_camera(cam))
-        except Exception as exc:  # noqa: BLE001 — defensiva
-            log.warning(
-                "probe_heartbeats: probe lanzó excepción camera=%s: %s",
-                cam.id, exc,
-            )
-            is_alive = False
-
-        if is_alive:
-            ok += 1
-            reset_camera_offline(cam.id)
-        else:
-            failed += 1
-            # ``record_camera_offline`` incrementa el contador y crea la
-            # alerta CRITICAL sólo si supera el threshold. Si el lock de
-            # 1 h está tomado (porque ``ping_camera`` ya disparó), omite.
-            record_camera_offline(cam, kind="heartbeat")
-
     log.info(
-        "probe_heartbeats: probed=%s skipped=%s ok=%s failed=%s threshold=%s",
+        "probe_heartbeats: probed=%s skipped=%s ok=%s failed=%s threshold=%s health_updates=%s",
         probed, skipped, ok, failed, settings.heartbeat_failures_before_alert,
+        health_updates,
     )
     return {"probed": probed, "skipped": skipped, "ok": ok, "failed": failed}

@@ -2,21 +2,30 @@
 
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timezone
+
+import redis
 from fastapi import APIRouter, Depends, HTTPException, status
+from redis.exceptions import RedisError
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.deps import parking_context
 from app.models.geofence import CameraGeofence
 from app.models.parking import Camera, Parking
 from app.schemas.parking import (
     CameraCreate,
+    CameraHealthRead,
     CameraRead,
     CameraUpdate,
     GeofenceCreate,
     GeofenceRead,
     GeofenceUpdate,
 )
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/parkings/{parking_id}/cameras",
@@ -131,3 +140,75 @@ def update_geofence(
     db.commit()
     db.refresh(fence)
     return fence
+
+
+# ── Camera Health (sprint 2026-07-01) ──────────────────────────────
+@router.get("/{camera_id}/health", response_model=CameraHealthRead)
+def camera_health(
+    parking_id: int,
+    camera_id: int,
+    db: Session = Depends(get_db),
+) -> CameraHealthRead:
+    """Estado de salud derivado del último ``probe_heartbeats``.
+
+    RBAC: ``parking_context`` ya está como dep a nivel de router, así que
+    admin pasa gratis, gestor con membresía en ``parking_id`` también,
+    cliente/operador sin membresía → 403 (gestionado por la dep).
+
+    La lectura de ``consecutive_failures`` desde Redis se hace de forma
+    defensiva (try/except ``RedisError`` con fallback a 0): preferimos
+    devolver monitorización incompleta a un 500 cuando Redis está caído.
+    """
+    cam = (
+        db.query(Camera)
+        .filter(Camera.id == camera_id, Camera.parking_id == parking_id)
+        .one_or_none()
+    )
+    if not cam:
+        raise HTTPException(status_code=404, detail="Cámara no encontrada")
+
+    settings = get_settings()
+    stale = settings.camera_health_stale_threshold_seconds
+    last_at = cam.last_heartbeat_at
+    last_ok = cam.last_heartbeat_ok
+
+    # Status derivado de 4 estados posibles (ver docs de ``CameraHealthRead``).
+    if last_at is None or last_ok is None:
+        status_value = "never_probed"
+    elif not last_ok:
+        status_value = "offline"
+    else:
+        age_s = (datetime.now(timezone.utc) - last_at).total_seconds()
+        status_value = "healthy" if age_s <= stale else "degraded"
+
+    # Lectura defensiva del contador Redis. Si falla, devolvemos 0: la
+    # siguiente ronda del beat actualizará los health fields en BD, y
+    # el operador verá que la cámara sigue "offline" / "healthy" /
+    # "degraded" en ``status_value``. Sólo pierde granularidad en el
+    # número de fallos consecutivos.
+    consecutive = 0
+    try:
+        rds = redis.Redis.from_url(settings.redis_url, decode_responses=True)
+        raw = rds.get(f"camera:{cam.id}:consecutive_offline")
+        if raw is not None:
+            consecutive = int(raw)
+    except RedisError as exc:
+        log.warning(
+            "camera_health: Redis no disponible camera=%s: %s",
+            cam.id, exc,
+        )
+    except (TypeError, ValueError):
+        # Clave con valor no numérico (corrupción/legacy). No es crítico.
+        log.warning(
+            "camera_health: consecutive_offline no numérico camera=%s",
+            cam.id,
+        )
+
+    return CameraHealthRead(
+        camera_id=cam.id,
+        status=status_value,
+        last_heartbeat_at=last_at,
+        last_heartbeat_ok=last_ok,
+        consecutive_failures=consecutive,
+        stale_threshold_seconds=stale,
+    )

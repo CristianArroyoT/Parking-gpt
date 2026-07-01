@@ -13,7 +13,7 @@
  * con la plaza a asignar y el umbral de confianza. En modo "Seleccionar"
  * se hace click en un rectángulo existente para ver sus datos (PATCH).
  */
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { http } from '@/api/client'
@@ -27,6 +27,17 @@ interface Geofence {
   direction: 'entry' | 'exit'
 }
 interface Camera { id: number; code: string; name: string; rtsp_url: string }
+// Sprint Camera Health (2026-07-01): respuesta de
+// GET /parkings/{parking_id}/cameras/{camera_id}/health
+type HealthStatus = 'never_probed' | 'healthy' | 'degraded' | 'offline'
+interface CameraHealth {
+  camera_id: number
+  status: HealthStatus
+  last_heartbeat_at: string | null
+  last_heartbeat_ok: boolean | null
+  consecutive_failures: number
+  stale_threshold_seconds: number
+}
 type Direction = 'entry' | 'exit'
 
 const route = useRoute()
@@ -55,6 +66,24 @@ const form = reactive({
 })
 const selectedId = ref<number | null>(null)
 
+// ── Camera Health (sprint 2026-07-01) ────────────────────────────
+const health = ref<CameraHealth | null>(null)
+let healthPoll: number | null = null
+const HEALTH_POLL_MS = 15000
+
+async function loadHealth(): Promise<void> {
+  try {
+    const { data } = await http.get<CameraHealth>(
+      `/parkings/${parkingId.value}/cameras/${cameraId.value}/health`,
+    )
+    health.value = data
+  } catch {
+    // No hacer toast en cada poll — el siguiente intento actualizará
+    // el estado. Si la cámara no tiene permisos (403), el badge
+    // simplemente no aparece (health queda en null).
+  }
+}
+
 const spacesById = computed(() => new Map(spaces.value.map((s) => [s.id, s])))
 
 async function loadCamera(): Promise<void> {
@@ -74,11 +103,21 @@ async function loadGeofences(): Promise<void> {
 
 onMounted(async () => {
   try {
-    await Promise.all([loadCamera(), loadSpaces(), loadGeofences()])
+    await Promise.all([loadCamera(), loadSpaces(), loadGeofences(), loadHealth()])
   } catch {
     ui.pushToast('error', 'No se pudieron cargar los datos de la cámara')
   } finally {
     loading.value = false
+  }
+  // Polling ligero del endpoint /health cada 15 s. Patrón idéntico al
+  // usado en MapView.vue (setInterval + cleanup en onBeforeUnmount).
+  healthPoll = window.setInterval(loadHealth, HEALTH_POLL_MS)
+})
+
+onBeforeUnmount(() => {
+  if (healthPoll !== null) {
+    window.clearInterval(healthPoll)
+    healthPoll = null
   }
 })
 
@@ -87,7 +126,7 @@ watch([parkingId, cameraId], async () => {
   selectedId.value = null
   draft.value = null
   try {
-    await Promise.all([loadCamera(), loadGeofences()])
+    await Promise.all([loadCamera(), loadGeofences(), loadHealth()])
   } catch {
     ui.pushToast('error', 'Error al recargar la cámara')
   } finally {
@@ -224,6 +263,35 @@ function fenceLabel(g: Geofence): string {
           Dibuja rectángulos sobre la imagen y asígnalos a plazas de la sucursal.
         </p>
       </div>
+
+      <!-- Sprint Camera Health (2026-07-01): badge de salud -->
+      <span
+        v-if="health"
+        class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium"
+        :class="{
+          'bg-slate-100 text-slate-700': health.status === 'never_probed',
+          'bg-emerald-100 text-emerald-700': health.status === 'healthy',
+          'bg-amber-100 text-amber-700': health.status === 'degraded',
+          'bg-rose-100 text-rose-700': health.status === 'offline',
+        }"
+        :title="health.last_heartbeat_at
+          ? new Date(health.last_heartbeat_at).toLocaleString('es-ES')
+          : 'Nunca se ha probado esta cámara'"
+      >
+        <span class="h-2 w-2 rounded-full" :class="{
+          'bg-slate-400': health.status === 'never_probed',
+          'bg-emerald-500': health.status === 'healthy',
+          'bg-amber-500': health.status === 'degraded',
+          'bg-rose-500': health.status === 'offline',
+        }" />
+        <template v-if="health.status === 'never_probed'">Nunca probada</template>
+        <template v-else-if="health.status === 'healthy'">En línea</template>
+        <template v-else-if="health.status === 'degraded'">Sin actualización reciente</template>
+        <template v-else>Cámara caída</template>
+        <span v-if="health.consecutive_failures > 0" class="text-rose-700">
+          · {{ health.consecutive_failures }} fallo(s)
+        </span>
+      </span>
     </div>
 
     <div v-if="loading" class="text-sm text-slate-500">Cargando…</div>

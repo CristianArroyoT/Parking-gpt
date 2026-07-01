@@ -25,6 +25,7 @@ Casos cubiertos:
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import create_engine
@@ -385,3 +386,49 @@ def test_probe_heartbeats_empty_camera_list(heartbeat_env) -> None:
     from app.workers import tasks as tasks_mod
     result = tasks_mod.probe_heartbeats()
     assert result == {"probed": 0, "skipped": 0, "ok": 0, "failed": 0}
+
+
+# ── Persistencia de health fields (sprint Camera Health 2026-07-01) ──
+def test_probe_heartbeats_persists_last_heartbeat_ok(heartbeat_env) -> None:
+    """Tras un probe exitoso, la cámara tiene last_heartbeat_at y last_ok=True."""
+    from app.workers import tasks as tasks_mod
+    db, _fake_redis, _sent, fake_cap = heartbeat_env
+    cam = _seed_camera(db, code="CAM-ALIVE", url="rtsp://real/alive")
+
+    # Forzar probe OK.
+    fake_cap.opened_default = True
+    fake_cap.grab_ok_default = True
+
+    tasks_mod.probe_heartbeats()
+
+    # Re-leer la cámara con la sesión de la fixture (mismo motor StaticPool).
+    db.expire_all()
+    refreshed = db.get(Camera, cam.id)
+    assert refreshed is not None
+    assert refreshed.last_heartbeat_at is not None
+    assert refreshed.last_heartbeat_ok is True
+    # last_heartbeat_at debe ser reciente (hace < 5 s). SQLite devuelve
+    # datetimes naive; Postgres los devuelve tz-aware. Normalizamos a naive
+    # en ambos casos con ``.replace(tzinfo=None)`` (no-op si ya es naive).
+    last_at_naive = refreshed.last_heartbeat_at.replace(tzinfo=None)
+    age = (datetime.now() - last_at_naive).total_seconds()
+    assert 0 <= age < 5, f"last_heartbeat_at demasiado antiguo: {age}s"
+
+
+def test_probe_heartbeats_persists_last_heartbeat_ok_false(heartbeat_env) -> None:
+    """Tras un probe fallido, la cámara tiene last_heartbeat_at y last_ok=False."""
+    from app.workers import tasks as tasks_mod
+    db, _fake_redis, _sent, fake_cap = heartbeat_env
+    cam = _seed_camera(db, code="CAM-DEAD", url="rtsp://real/dead")
+
+    # Forzar probe FALLIDO.
+    fake_cap.opened_default = False
+    fake_cap.grab_ok_default = False
+
+    tasks_mod.probe_heartbeats()
+
+    db.expire_all()
+    refreshed = db.get(Camera, cam.id)
+    assert refreshed is not None
+    assert refreshed.last_heartbeat_at is not None
+    assert refreshed.last_heartbeat_ok is False

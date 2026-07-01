@@ -52,6 +52,14 @@ class Settings(BaseSettings):
     heartbeat_skip_url_prefixes: list[str] = Field(
         default=["rtsp://demo.invalid"], alias="HEARTBEAT_SKIP_URL_PREFIXES"
     )
+    # Sprint Camera Health: ventana máxima (segundos) entre probe y "now"
+    # para que el estado sea "healthy". Si ``now - last_heartbeat_at``
+    # supera este umbral, el endpoint marca "degraded" (cámara viva pero
+    # sin actualización reciente). Recomendado: ≥ 2× el schedule del
+    # beat (60 s) → 120 s absorbe un probe lento sin falsos degraded.
+    camera_health_stale_threshold_seconds: int = Field(
+        default=120, alias="CAMERA_HEALTH_STALE_THRESHOLD_SECONDS"
+    )
     # URL del servicio OCR separado (PaddleOCR en su propio contenedor).
     # Si el servicio no responde, el cliente devuelve [] y el caller
     # decide qué hacer. NO usar en tests salvo que se inyecte MockTransport.
