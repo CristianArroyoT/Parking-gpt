@@ -26,6 +26,8 @@ dependencies = [
     "pillow>=10.0,<11.0",
     "opencv-python-headless>=4.10,<5.0",
     "pytest>=8.0,<10.0",
+    # Sprint Fase 3A: logger JSON estructurado para Loki.
+    "python-json-logger>=2.0,<3.0",
 ]
 
 [project.optional-dependencies]

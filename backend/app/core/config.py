@@ -70,6 +70,19 @@ class Settings(BaseSettings):
         default=4.0, alias="OCR_SERVICE_TIMEOUT"
     )
 
+    # Sprint Fase 3A (2026-07-01): observabilidad y auditoría.
+    # ``log_format=plain`` por defecto para que ``docker compose logs backend``
+    # siga legible en dev. ``json`` activa ``python-json-logger`` en
+    # ``app/core/logging.py`` (escribirá a stdout + archivo rotado en
+    # ``/var/log/solidapp/backend.log`` que Promtail scrapea → Loki).
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    log_format: Literal["json", "plain"] = Field(default="plain", alias="LOG_FORMAT")
+    loki_url: str = Field(default="http://loki:3100", alias="LOKI_URL")
+    # Retención del histórico de audit_logs (1 año por defecto, alineado
+    # con la política del producto documentada en memoria). La rotación
+    # automática entra en el sprint 3D; este setting es la fuente de verdad.
+    audit_log_retention_days: int = Field(default=365, alias="AUDIT_LOG_RETENTION_DAYS")
+
     smtp_host: str = Field(default="localhost", alias="SMTP_HOST")
     smtp_port: int = Field(default=1025, alias="SMTP_PORT")
     smtp_user: str = Field(default="", alias="SMTP_USER")

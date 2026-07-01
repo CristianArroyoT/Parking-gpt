@@ -32,6 +32,18 @@ class AuditLog(Base, TimestampMixin):
     payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    # Sprint Fase 3A (2026-07-01): 4 columnas para correlación forense y
+    # filtrado por sucursal. Registros históricos (anteriores a esta
+    # migración) quedan con NULL en estos campos.
+    parking_id: Mapped[int | None] = mapped_column(
+        ForeignKey("parkings.id", ondelete="SET NULL"), index=True, nullable=True,
+    )
+    result: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, index=True,
+    )
+
     user: Mapped["User | None"] = relationship()
 
 

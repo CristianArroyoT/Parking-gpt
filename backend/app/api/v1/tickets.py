@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Query as SAQuery
 from sqlalchemy.orm import Session
 
+from app.core.audit import audited
 from app.core.db import get_db
 from app.core.deps import get_current_user, parking_context, require_role
 from app.models.enums import TicketStatus, UserRole
@@ -50,8 +51,10 @@ def list_tickets(
 
 
 @router.post("", response_model=TicketRead, status_code=status.HTTP_201_CREATED)
+@audited("create_ticket")
 def create_ticket(
     payload: TicketCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Ticket:
@@ -108,9 +111,11 @@ def get_ticket(
 
 
 @router.post("/{ticket_id}/close", response_model=TicketRead)
+@audited("close_ticket", resource_arg="ticket_id")
 def close_ticket(
     ticket_id: int,
     payload: TicketClose,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Ticket:

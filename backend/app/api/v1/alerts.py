@@ -18,10 +18,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
+from app.core.audit import audited
 from app.core.db import get_db
 from app.core.deps import get_current_user, parking_context
 from app.models.audit import Alert
@@ -68,9 +69,11 @@ def list_parking_alerts(
 
 
 @router.post("/{alert_id}/acknowledge", response_model=AlertRead)
+@audited("acknowledge_alert", resource_arg="alert_id")
 def acknowledge_alert(
     parking_id: int,
     alert_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Alert:

@@ -18,6 +18,11 @@ class AuditLogCreate(ORMModel):
     resource: Optional[str] = None
     payload: Optional[dict[str, Any]] = None
     confidence: Optional[float] = None
+    # Sprint Fase 3A (2026-07-01): 4 campos para correlación forense.
+    parking_id: Optional[int] = None
+    result: Optional[str] = Field(default=None, max_length=16)
+    duration_ms: Optional[int] = None
+    correlation_id: Optional[str] = Field(default=None, max_length=36)
 
 
 class AuditLogRead(AuditLogCreate, TimestampMixinSchema):

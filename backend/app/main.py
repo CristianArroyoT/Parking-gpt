@@ -9,11 +9,15 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import api_router
 from app.core.config import get_settings
+from app.core.logging import configure_logging
+from app.core.middleware import AuditMiddleware
 from app.schemas import HealthResponse
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    # Sprint Fase 3A: logger JSON / file rotado ANTES de aceptar tráfico.
+    configure_logging()
     yield
 
 
@@ -25,6 +29,9 @@ def create_app() -> FastAPI:
         description="Backend de gestión de parkings con OCR (MVP Fase 1).",
         lifespan=lifespan,
     )
+    # Sprint Fase 3A: extrae user_id/ip/correlation_id en cada request
+    # y los persiste en request.state.audit para los handlers.
+    app.add_middleware(AuditMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,

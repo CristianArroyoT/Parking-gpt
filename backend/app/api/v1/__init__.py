@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    admin,
     alerts,
     auth,
     cameras,
@@ -30,5 +31,7 @@ api_router.include_router(tickets.router)
 api_router.include_router(plates.router)
 api_router.include_router(alerts.router)
 api_router.include_router(incidents.router)
+# Sprint Fase 3A: endpoint admin-only de lectura de audit_logs.
+api_router.include_router(admin.router)
 
 __all__ = ["api_router"]
