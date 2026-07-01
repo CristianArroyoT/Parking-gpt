@@ -59,7 +59,7 @@ def create_tariff(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="valid_to debe ser posterior a valid_from",
         )
-    tariff = Tariff(parking_id=parking_id, **payload.model_dump())
+    tariff = Tariff(**payload.model_dump())
     db.add(tariff)
     db.commit()
     db.refresh(tariff)

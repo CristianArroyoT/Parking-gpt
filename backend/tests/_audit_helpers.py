@@ -5,9 +5,14 @@ Provee:
   - ``_login(client, email, password)``: wrapper sobre POST /auth/login.
   - ``_seed_admin(db)``: crea un admin con password conocido.
   - ``_seed_gestor(db)``: crea un gestor con password conocido.
-  - ``assert_audit_log(db, *, action, ...)``: asserts sobre la tabla
-    ``audit_logs`` con visibilidad reforzada (db.commit() para sortear
-    el problema de visibilidad cross-session con SQLite StaticPool).
+  - ``_seed_operador(db)``: crea un operador con password conocido.
+  - ``_seed_cliente(db)``: crea un cliente con password conocido.
+  - ``_seed_parking(db)``: crea una Parking de prueba.
+  - ``_seed_membership(db, user, parking)``: añade membresía gestor→parking.
+  - ``assert_audit_log(db, *, action, ...)``: asserts sobre ``audit_logs``.
+  - ``assert_no_audit_log(db, *, action)``: asegura que NO se creó audit.
+  - ``monkeypatch_tasks_session(monkeypatch, db_session)``: hace que
+    ``app.workers.tasks.SessionLocal`` apunte a la sesión de prueba.
 
 Los helpers se importan explícitamente desde los tests (``from tests
 import _audit_helpers`` o ``from tests._audit_helpers import _login``).
@@ -18,13 +23,13 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
 from app.models.audit import AuditLog
 from app.models.enums import UserRole
-from app.models.user import ParkingMembership, User
 from app.models.parking import Parking as ParkingModel
-from sqlalchemy.orm import Session
+from app.models.user import ParkingMembership, User
 
 
 def _login(client: TestClient, email: str, password: str) -> str:
@@ -59,9 +64,29 @@ def _seed_gestor(db: Session, *, email: str = "gestor@test.es",
     return gestor
 
 
+def _seed_cliente(db: Session, *, email: str = "cliente@test.es",
+                  password: str = "cliente1234") -> User:
+    cliente = User(
+        email=email, full_name="Cliente",
+        role=UserRole.CLIENTE, hashed_password=hash_password(password),
+    )
+    db.add(cliente); db.commit(); db.refresh(cliente)
+    return cliente
+
+
+def _seed_operador(db: Session, *, email: str = "operador@test.es",
+                   password: str = "oper12345") -> User:
+    operador = User(
+        email=email, full_name="Operador",
+        role=UserRole.OPERADOR, hashed_password=hash_password(password),
+    )
+    db.add(operador); db.commit(); db.refresh(operador)
+    return operador
+
+
 def _seed_parking(db: Session, *, code: str = "P-T") -> ParkingModel:
     parking = ParkingModel(code=code, name=f"Test {code}",
-                           address="x", city="y")
+                           address="Calle Test 1", city="Madrid")
     db.add(parking); db.commit(); db.refresh(parking)
     return parking
 
@@ -112,8 +137,29 @@ def assert_no_audit_log(db: Session, *, action: str) -> None:
     assert len(rows) == 0, f"Expected 0 audit_logs with action={action!r}, got {len(rows)}"
 
 
+def monkeypatch_tasks_session(monkeypatch, db_session: Session) -> None:
+    """Hace que ``app.workers.tasks.SessionLocal`` devuelva la sesión de prueba.
+
+    El patrón es el mismo que usa ``conftest.py`` para
+    ``manual_tickets.SessionLocal``, ``ingest_service.SessionLocal`` e
+    ``incidents.SessionLocal``. Sin esto, los workers verían una sesión
+    separada contra el motor de producción y los audit_logs NO
+    aparecerían en ``db_session``.
+
+    Uso::
+
+        def test_algo(monkeypatch, db_session):
+            monkeypatch_tasks_session(monkeypatch, db_session)
+            ...
+    """
+    from app.workers import tasks as tasks_mod
+    monkeypatch.setattr(tasks_mod, "SessionLocal", lambda: db_session)
+
+
 __all__ = [
     "_login", "_login_headers",
-    "_seed_admin", "_seed_gestor", "_seed_parking", "_seed_membership",
+    "_seed_admin", "_seed_gestor", "_seed_cliente", "_seed_operador",
+    "_seed_parking", "_seed_membership",
     "assert_audit_log", "assert_no_audit_log",
+    "monkeypatch_tasks_session",
 ]
