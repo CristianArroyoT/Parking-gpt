@@ -38,6 +38,12 @@ COPY --from=builder /install /install
 COPY --from=builder /app/app ./app
 
 USER app
+
+# Sprint Fase 3A: directorio donde el RotatingFileHandler escribe
+# /var/log/solidapp/backend.log (scrapeado por Promtail → Loki).
+RUN mkdir -p /var/log/solidapp && chown -R app:app /var/log/solidapp
+VOLUME ["/var/log/solidapp"]
+
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

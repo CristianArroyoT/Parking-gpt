@@ -187,6 +187,8 @@ def create_manual_ticket(
             user_id=current_user.id,
             ip=ip,
             resource=f"ticket:{ticket.id}",
+            parking_id=payload.parking_id,
+            result="success",
             payload={
                 "plate": plate,
                 "reason": payload.reason.value

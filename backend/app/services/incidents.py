@@ -90,6 +90,8 @@ def create_incident(
                 ip=ip,
                 resource=f"space:{space.id}",
                 payload={"reason": "already broken"},
+                parking_id=parking_id,
+                result="success",
             )
             db.commit()
             return None
@@ -101,6 +103,8 @@ def create_incident(
                 ip=ip,
                 resource=f"space:{space.id}",
                 payload={"reason": "already healthy"},
+                parking_id=parking_id,
+                result="success",
             )
             db.commit()
             return None
@@ -157,6 +161,8 @@ def create_incident(
                 "severity": alert.severity.value,
                 "context": context,
             },
+            parking_id=parking_id,
+            result="success",
         )
         db.commit()
         db.refresh(alert)
