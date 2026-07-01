@@ -147,6 +147,47 @@ def update_geofence(
     return fence
 
 
+@router.delete(
+    "/{camera_id}/geofences/{fence_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+@audited("delete_geofence", resource_arg="fence_id")
+def delete_geofence(
+    parking_id: int,
+    camera_id: int,
+    fence_id: int,
+    db: Session = Depends(get_db),
+) -> None:
+    """Elimina una geocerca. Validamos que la cámara pertenece al
+    ``parking_id`` del path (defensa contra IDs cruzados).
+
+    Sprint Fase 4 (2026-07-01): antes la única forma de "modificar" una
+    geocerca era ``PATCH /geofences/{id}`` con un payload nuevo — no
+    había forma de borrarla. Con este endpoint, el operador puede
+    limpiar geocercas obsoletas desde ``CalibrateView.vue``.
+    """
+    fence = (
+        db.query(CameraGeofence)
+        .filter(
+            CameraGeofence.id == fence_id, CameraGeofence.camera_id == camera_id
+        )
+        .one_or_none()
+    )
+    if not fence:
+        raise HTTPException(status_code=404, detail="Geocerca no encontrada")
+    # Validación cruzada camera↔parking.
+    camera = (
+        db.query(Camera)
+        .filter(Camera.id == camera_id, Camera.parking_id == parking_id)
+        .one_or_none()
+    )
+    if not camera:
+        raise HTTPException(status_code=404, detail="Cámara no encontrada")
+    db.delete(fence)
+    db.commit()
+    return None
+
+
 # ── Camera Health (sprint 2026-07-01) ──────────────────────────────
 @router.get("/{camera_id}/health", response_model=CameraHealthRead)
 def camera_health(

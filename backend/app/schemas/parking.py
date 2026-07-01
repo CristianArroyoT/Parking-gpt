@@ -7,7 +7,7 @@ from typing import Literal, Optional
 
 from pydantic import Field
 
-from app.models.enums import GeofenceDirection
+from app.models.enums import CameraKind, GeofenceDirection
 from app.schemas import ORMModel, TimestampMixinSchema
 
 
@@ -66,6 +66,10 @@ class CameraCreate(ORMModel):
     rtsp_url: str = Field(min_length=8, max_length=1024)
     lane_hint: Optional[str] = None
     fps: int = 10
+    # Sprint Fase 4 (2026-07-01): default ``surveillance`` (back-compat
+    # con cámaras creadas antes de esta migración). ``gate`` se usa
+    # para cámaras de portería dedicadas (entrada/salida manual).
+    kind: CameraKind = CameraKind.SURVEILLANCE
 
 
 class CameraUpdate(ORMModel):
@@ -74,6 +78,7 @@ class CameraUpdate(ORMModel):
     lane_hint: Optional[str] = None
     fps: Optional[int] = None
     is_active: Optional[bool] = None
+    kind: Optional[CameraKind] = None
 
 
 class CameraRead(TimestampMixinSchema):
@@ -85,6 +90,7 @@ class CameraRead(TimestampMixinSchema):
     lane_hint: Optional[str]
     fps: int
     is_active: bool
+    kind: CameraKind
 
 
 class GeofenceCreate(ORMModel):

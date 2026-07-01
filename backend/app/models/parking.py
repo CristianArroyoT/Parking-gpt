@@ -5,11 +5,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 from app.models.base import TimestampMixin
+from app.models.enums import CameraKind
 
 if TYPE_CHECKING:
     from app.models.user import ParkingMembership
@@ -72,6 +73,16 @@ class Camera(Base, TimestampMixin):
     lane_hint: Mapped[str | None] = mapped_column(String(8), nullable=True)
     fps: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Sprint Fase 4 (2026-07-01): distingue cámaras de fiscalización
+    # (``surveillance``) vs cámaras de portería (``gate``). Default
+    # ``surveillance`` para mantener back-compat con cámaras existentes.
+    kind: Mapped[CameraKind] = mapped_column(
+        Enum(CameraKind, name="camerakind"),
+        default=CameraKind.SURVEILLANCE,
+        server_default=CameraKind.SURVEILLANCE.value,
+        nullable=False,
+        index=True,
+    )
     # Sprint Camera Health (2026-07-01): el último probe_heartbeats() deja
     # aquí su resultado. NULL hasta el primer probe (estado "nunca probada").
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(

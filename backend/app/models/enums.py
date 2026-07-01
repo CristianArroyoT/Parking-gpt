@@ -66,3 +66,23 @@ class GeofenceDirection(str, enum.Enum):
 
     ENTRY = "entry"
     EXIT = "exit"
+
+
+class CameraKind(str, enum.Enum):
+    """Tipo de cámara en la sucursal.
+
+    ``SURVEILLANCE``: cámaras de fiscalización que observan el parking
+    continuamente y disparan ingestas por OCR cuando un vehículo entra
+    o sale del frame. Es el comportamiento por defecto.
+
+    ``GATE``: cámaras de "portería" dedicadas a una única transacción
+    (entrada o salida) en barrera. El operador las usa para emitir
+    tickets manualmente desde el stream RTSP cuando el OCR falla.
+
+    Sprint Fase 4 (2026-07-01): introduce esta distinción para que la UI
+    pueda filtrar/segmentar cámaras según rol, y para que un futuro
+    worker pueda aplicar heurísticas distintas por kind.
+    """
+
+    SURVEILLANCE = "surveillance"
+    GATE = "gate"
