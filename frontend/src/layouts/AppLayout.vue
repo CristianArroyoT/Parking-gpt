@@ -25,6 +25,10 @@ const NAV_BY_ROLE: Record<string, NavItem[]> = {
     { name: 'operador-manual', label: 'Alta manual', to: '/operador/alta-manual' },
   ],
   gestor: [
+    // Sprint Fase 4 (2026-07-01): dashboard mínimo para el gestor.
+    // El redirect principal sigue yendo a /mapa para no romper el flujo,
+    // pero el gestor tiene aquí una vista agregada con KPIs de su parking.
+    { name: 'gestor-dashboard', label: 'Dashboard', to: '/dashboard/gestor' },
     { name: 'gestor-map', label: 'Mapa', to: '/mapa' },
     { name: 'gestor-cameras', label: 'Cámaras', to: '/cameras' },
     { name: 'operador-live', label: 'En vivo', to: '/vivo' },

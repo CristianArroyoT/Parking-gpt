@@ -13,12 +13,33 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/LoginView.vue'),
     meta: { public: true, layout: 'blank' },
   },
-  { path: '/', redirect: () => ({ name: 'dashboard' }) },
+  // Sprint Fase 4 (2026-07-01): redirect por rol en vez de llevar
+  // siempre a /dashboard (admin-only → "Acceso denegado" para gestor/
+  // operador/cliente).
+  {
+    path: '/',
+    redirect: () => {
+      const auth = useAuthStore()
+      switch (auth.role) {
+        case 'admin':    return { name: 'dashboard' }
+        case 'gestor':   return { name: 'gestor-map' }
+        case 'operador': return { name: 'operador-live' }
+        case 'cliente':  return { name: 'cliente-tickets' }
+        default:         return { name: 'login' }
+      }
+    },
+  },
   {
     path: '/dashboard',
     name: 'dashboard',
     component: () => import('@/views/admin/DashboardView.vue'),
     meta: { roles: ['admin'] },
+  },
+  {
+    path: '/dashboard/gestor',
+    name: 'gestor-dashboard',
+    component: () => import('@/views/gestor/DashboardGestor.vue'),
+    meta: { roles: ['admin', 'gestor'] },
   },
   {
     path: '/admin/parkings',
