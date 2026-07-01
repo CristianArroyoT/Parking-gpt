@@ -43,7 +43,7 @@ function fillDemo(role: 'admin' | 'gestor' | 'operador' | 'cliente'): void {
         <img
           src="/logo-solidapp.png?v=2"
           alt="solidAPP"
-          class="h-20 w-20 rounded-2xl bg-white p-2 shadow-sm"
+          class="max-h-14 max-w-full rounded bg-white"
         />
         <div class="text-xs text-slate-500">Gestión de parkings</div>
       </div>

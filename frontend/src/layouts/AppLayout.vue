@@ -73,7 +73,7 @@ async function onLogout(): Promise<void> {
         <img
           src="/logo-solidapp.png?v=2"
           alt="solidAPP"
-          class="max-h-14 max-w-full bg-white"
+          class="max-h-14 max-w-full bg-white rounded"
         />
       </div>
 
