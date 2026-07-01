@@ -28,6 +28,7 @@ from typing import Any
 
 from app.core.config import get_settings
 from app.core.db import SessionLocal
+from app.models.audit import AuditLog
 from app.models.parking import Camera
 from app.models.plates_detected import PlatesDetected
 from app.services.alerts import (
@@ -36,7 +37,10 @@ from app.services.alerts import (
     reset_camera_offline,
     reset_ocr_failure,
 )
-from app.services.audit import record_audit_worker
+from app.services.audit import (
+    make_worker_correlation_id,
+    record_audit_worker,
+)
 from app.services.cameras.capture import grab_frame
 from app.services.cameras.heartbeat import probe_camera
 from app.services.ingest_service import process_plate_hits
@@ -80,12 +84,22 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
     del seed apuntan a `demo.invalid` a propósito). En cualquier caso,
     el frame se envía a `ocr:8800/recognize` y los hits se persisten
     en `plates_detected`. Si OCR tampoco responde, `plates_found=0`.
+
+    Sprint Fase 3C (2026-07-01): un único ``correlation_id`` por
+    invocación se pasa a TODOS los ``record_audit_worker`` y a todos
+    los ``log.warning/info`` (vía ``extra=``). Permite correlación
+    end-to-end entre ``audit_logs`` y logs estructurados (Loki).
     """
+    cid = make_worker_correlation_id()
     db = SessionLocal()
     try:
         cam = db.get(Camera, camera_id)
         if cam is None:
-            log.warning("ping_camera: cámara %s no encontrada", camera_id)
+            log.warning(
+                "ping_camera: cámara %s no encontrada",
+                camera_id,
+                extra={"correlation_id": cid, "camera_id": camera_id},
+            )
             return {"status": "missing"}
 
         frame = asyncio.run(grab_frame(cam))
@@ -104,6 +118,7 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
                     resource=f"cameras/{cam.id}",
                     payload={"code": cam.code},
                     result="failure",
+                    correlation_id=cid,
                 )
                 db.commit()
             except Exception as exc:
@@ -116,6 +131,11 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
                 "ping_camera: id=%s code=%s CAMERA_OFFLINE (frame=None)",
                 cam.id,
                 cam.code,
+                extra={
+                    "correlation_id": cid,
+                    "camera_id": cam.id,
+                    "camera_code": cam.code,
+                },
             )
             return {
                 "status": "camera_offline",
@@ -132,7 +152,10 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
         except Exception as exc:  # noqa: BLE001
             # OcrClient no debería lanzar, pero blindamos la tarea
             # igualmente: un fallo del worker no debe romper el beat.
-            log.warning("ping_camera: OCR no disponible: %s", exc)
+            log.warning(
+                "ping_camera: OCR no disponible: %s", exc,
+                extra={"correlation_id": cid, "camera_id": cam.id},
+            )
             hits = []
 
         if not hits:
@@ -161,6 +184,7 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
                             ).get("consecutive_fails"),
                         },
                         result="failure",
+                        correlation_id=cid,
                     )
                     db.commit()
                 except Exception as exc:
@@ -174,6 +198,7 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
                 "ping_camera: id=%s code=%s source=rtsp plates_found=0",
                 cam.id,
                 cam.code,
+                extra={"correlation_id": cid, "camera_id": cam.id},
             )
             return {
                 "status": "ok",
@@ -209,7 +234,10 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
         try:
             ingest_results = process_plate_hits(hits, cam)
         except Exception as exc:  # noqa: BLE001 — defensiva
-            log.warning("ping_camera: error en ingest_service: %s", exc)
+            log.warning(
+                "ping_camera: error en ingest_service: %s", exc,
+                extra={"correlation_id": cid, "camera_id": cam.id},
+            )
             ingest_results = []
 
         created = sum(1 for r in ingest_results if r.status == "ticket_created")
@@ -222,6 +250,12 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
                 len(hits),
                 created,
                 closed,
+                extra={
+                    "correlation_id": cid,
+                    "camera_id": cam.id,
+                    "created": created,
+                    "closed": closed,
+                },
             )
         else:
             log.info(
@@ -229,6 +263,7 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
                 cam.id,
                 cam.code,
                 len(hits),
+                extra={"correlation_id": cid, "camera_id": cam.id},
             )
         return {
             "status": "ok",
@@ -270,6 +305,50 @@ def cleanup_failed_frames() -> dict[str, int]:
     return {"deleted": deleted, "kept": kept}
 
 
+@celery_app.task(name="solidapp.purge_audit_logs")
+def purge_audit_logs(retention_days: int | None = None) -> dict[str, Any]:
+    """Borra ``audit_logs`` con ``created_at < now - retention_days``.
+
+    Sprint Fase 3C (2026-07-01). Defensivo: ``db.commit()`` envuelto en
+    try/except, NUNCA propaga. Idempotente: si no hay nada que borrar
+    devuelve ``{deleted: 0}``. Necesita el índice ``ix_audit_logs_created_at``
+    añadido en migración 0008.
+
+    Si ``retention_days`` es ``None`` usa ``settings.audit_log_retention_days``
+    (default 365). Aceptar el kwarg permite pasar valores distintos en
+    tests sin tocar settings.
+    """
+    settings = get_settings()
+    days = retention_days if retention_days is not None else settings.audit_log_retention_days
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    db = SessionLocal()
+    try:
+        deleted = db.query(AuditLog).filter(
+            AuditLog.created_at < cutoff,
+        ).delete(synchronize_session=False)
+        db.commit()
+        log.info(
+            "purge_audit_logs: days=%s cutoff=%s deleted=%s",
+            days, cutoff.isoformat(), deleted,
+        )
+        return {
+            "deleted": deleted,
+            "retention_days": days,
+            "cutoff": cutoff.isoformat(),
+        }
+    except Exception as exc:  # noqa: BLE001 — defensiva
+        log.warning("purge_audit_logs: error (%s)", exc)
+        db.rollback()
+        return {
+            "deleted": 0,
+            "retention_days": days,
+            "cutoff": cutoff.isoformat(),
+            "error": str(exc),
+        }
+    finally:
+        db.close()
+
+
 @celery_app.task(name="solidapp.probe_heartbeats")
 def probe_heartbeats() -> dict[str, Any]:
     """Heartbeat batch: sondea todas las cámaras activas cada 60 s.
@@ -293,7 +372,12 @@ def probe_heartbeats() -> dict[str, Any]:
     ``ping_camera`` sigue corriendo en paralelo con ``kind="frame"``;
     ambos comparten el lock de 1 h de CAMERA_OFFLINE, así que sólo
     se crea UNA alerta cuando hay caída real (no doble).
+
+    Sprint Fase 3C (2026-07-01): un único ``correlation_id`` por
+    invocación se propaga a TODOS los audit_logs + logs estructurados
+    de esta ronda (coherente con ``ping_camera``).
     """
+    cid = make_worker_correlation_id()
     settings = get_settings()
     skip_prefixes: tuple[str, ...] = tuple(
         settings.heartbeat_skip_url_prefixes or ()
@@ -352,11 +436,13 @@ def probe_heartbeats() -> dict[str, Any]:
                         resource=f"cameras/{cam.id}",
                         payload={"code": cam.code},
                         result="failure",
+                        correlation_id=cid,
                     )
                 except Exception as exc:
                     log.warning(
                         "probe_heartbeats: audit no persistido camera=%s: %s",
                         cam.id, exc,
+                        extra={"correlation_id": cid, "camera_id": cam.id},
                     )
 
         # Commit batch de los health fields. Si falla, se hace rollback
@@ -378,5 +464,11 @@ def probe_heartbeats() -> dict[str, Any]:
         "probe_heartbeats: probed=%s skipped=%s ok=%s failed=%s threshold=%s health_updates=%s",
         probed, skipped, ok, failed, settings.heartbeat_failures_before_alert,
         health_updates,
+        extra={
+            "correlation_id": cid,
+            "probed": probed,
+            "ok": ok,
+            "failed": failed,
+        },
     )
     return {"probed": probed, "skipped": skipped, "ok": ok, "failed": failed}

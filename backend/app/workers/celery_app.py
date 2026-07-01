@@ -56,4 +56,12 @@ celery_app.conf.beat_schedule = {
         "task": "solidapp.probe_heartbeats",
         "schedule": 60.0,  # cada 60 segundos exactos
     },
+    # Sprint Fase 3C: rotación de audit_logs (sprint 2026-07-01).
+    # Borra ``audit_logs`` con ``created_at < now - audit_log_retention_days``
+    # (default 365). Necesita el índice ``ix_audit_logs_created_at``
+    # añadido en migración 0008 para no hacer seq scan.
+    "purge-audit-logs-daily": {
+        "task": "solidapp.purge_audit_logs",
+        "schedule": crontab(minute=0, hour=3),  # 3 AM hora valle.
+    },
 }

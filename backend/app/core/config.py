@@ -79,9 +79,31 @@ class Settings(BaseSettings):
     log_format: Literal["json", "plain"] = Field(default="plain", alias="LOG_FORMAT")
     loki_url: str = Field(default="http://loki:3100", alias="LOKI_URL")
     # Retención del histórico de audit_logs (1 año por defecto, alineado
-    # con la política del producto documentada en memoria). La rotación
-    # automática entra en el sprint 3D; este setting es la fuente de verdad.
+    # con la política del producto documentada en memoria). Usada por la
+    # task ``solidapp.purge_audit_logs`` (sprint Fase 3C 2026-07-01)
+    # que borra filas con ``created_at < now - retention_days``.
     audit_log_retention_days: int = Field(default=365, alias="AUDIT_LOG_RETENTION_DAYS")
+
+    # Sprint Fase 3C (2026-07-01): rate-limit en ``POST /auth/login``.
+    # El ``LoginRateLimiter`` usa 2 buckets Redis (IP + email). Si
+    # CUALQUIER bucket supera ``max_attempts`` en ``window_seconds`` →
+    # 429 Too Many Requests y audit_logs con ``action=rate_limited_login``.
+    login_rate_limit_window_seconds: int = Field(
+        default=300, alias="LOGIN_RATE_LIMIT_WINDOW_SECONDS",
+    )
+    login_rate_limit_max_attempts: int = Field(
+        default=10, alias="LOGIN_RATE_LIMIT_MAX_ATTEMPTS",
+    )
+    # CIDR de proxies en los que se confía para parsear ``X-Forwarded-For``.
+    # Por defecto: rangos Docker (172.16.0.0/12, 10.0.0.0/8). En producción
+    # con Nginx/Cloudflare el admin debe añadir las IPs del proxy
+    # explícitamente vía env (TRUSTED_PROXIES="172.16.0.0/12,10.0.0.0/8,...").
+    # Si el ``client.host`` NO está en esta lista, el helper ignora XFF
+    # (defensa contra spoofing).
+    trusted_proxies: list[str] = Field(
+        default_factory=lambda: ["172.16.0.0/12", "10.0.0.0/8"],
+        alias="TRUSTED_PROXIES",
+    )
 
     smtp_host: str = Field(default="localhost", alias="SMTP_HOST")
     smtp_port: int = Field(default=1025, alias="SMTP_PORT")

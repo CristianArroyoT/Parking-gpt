@@ -268,3 +268,134 @@ def test_ping_camera_no_ocr_audit_below_threshold(
 
     assert result["plates_found"] == 0
     assert_no_audit_log(db_session, action="ocr_failure_consecutive")
+
+
+# ── Sprint Fase 3C — correlación end-to-end ────────────────────────────
+#
+# Cada invocación de ``ping_camera`` / ``probe_heartbeats`` genera UN
+# ``correlation_id`` (uuid hex de 36 chars) que se propaga a:
+#
+#   - todos los ``record_audit_worker`` que emita esa invocación, y
+#   - todos los ``log.warning`` / ``log.info`` vía ``extra=``.
+#
+# Estos 3 tests verifican el contrato: 1) formato del cid, 2) presencia
+# en el audit persistido, 3) presencia en el log estructurado (Loki).
+
+import re as _re
+from app.models.audit import AuditLog as _AuditLog
+_HEX_36 = _re.compile(r"^[0-9a-f]{36}$")
+
+
+def test_ping_camera_audit_has_correlation_id_36hex(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session: Session,
+) -> None:
+    """El audit creado por ping_camera lleva correlation_id formato hex 36."""
+    monkeypatch_tasks_session(monkeypatch, db_session)
+    parking = _seed_parking(db_session, code="P-W6")
+    cam = _seed_camera(db_session, parking, code="CAM-W6")
+
+    from app.workers import tasks as tasks_mod
+
+    async def _fake_grab(_cam):
+        return None
+
+    monkeypatch.setattr(tasks_mod, "grab_frame", _fake_grab)
+    monkeypatch.setattr(tasks_mod, "asyncio", _SafeAsyncio())
+    monkeypatch.setattr(tasks_mod, "reset_ocr_failure", lambda *_a, **_kw: None)
+    monkeypatch.setattr(tasks_mod, "reset_camera_offline", lambda *_a, **_kw: None)
+
+    tasks_mod.ping_camera(cam.id)
+
+    row = db_session.query(_AuditLog).filter(
+        _AuditLog.action == "camera_offline_frame",
+    ).one()
+    assert row.correlation_id is not None
+    assert _HEX_36.match(row.correlation_id), (
+        f"correlation_id no tiene formato hex 36: {row.correlation_id!r}"
+    )
+
+
+def test_probe_heartbeats_audit_has_correlation_id_36hex(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session: Session,
+) -> None:
+    """El audit de probe_heartbeats lleva correlation_id formato hex 36."""
+    monkeypatch_tasks_session(monkeypatch, db_session)
+    parking = _seed_parking(db_session, code="P-W7")
+    cam = _seed_camera(
+        db_session, parking,
+        code="CAM-W7",
+        url="rtsp://real-probe.invalid/stream",
+    )
+
+    from app.workers import tasks as tasks_mod
+
+    async def _fake_probe(_cam):
+        return False
+
+    monkeypatch.setattr(tasks_mod, "probe_camera", _fake_probe)
+    monkeypatch.setattr(tasks_mod, "asyncio", _SafeAsyncio())
+    monkeypatch.setattr(
+        tasks_mod, "record_camera_offline",
+        lambda *_a, **_kw: None,
+    )
+    monkeypatch.setattr(tasks_mod, "reset_camera_offline", lambda *_a, **_kw: None)
+
+    tasks_mod.probe_heartbeats()
+
+    row = db_session.query(_AuditLog).filter(
+        _AuditLog.action == "camera_offline_heartbeat",
+    ).one()
+    assert row.correlation_id is not None
+    assert _HEX_36.match(row.correlation_id), (
+        f"correlation_id no tiene formato hex 36: {row.correlation_id!r}"
+    )
+
+
+def test_ping_camera_correlation_id_in_log_extra(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session: Session,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Los ``log.warning`` de ping_camera llevan correlation_id en ``extra``."""
+    monkeypatch_tasks_session(monkeypatch, db_session)
+    parking = _seed_parking(db_session, code="P-W8")
+    cam = _seed_camera(db_session, parking, code="CAM-W8")
+
+    from app.workers import tasks as tasks_mod
+
+    async def _fake_grab(_cam):
+        return None
+
+    monkeypatch.setattr(tasks_mod, "grab_frame", _fake_grab)
+    monkeypatch.setattr(tasks_mod, "asyncio", _SafeAsyncio())
+    monkeypatch.setattr(tasks_mod, "reset_ocr_failure", lambda *_a, **_kw: None)
+    monkeypatch.setattr(tasks_mod, "reset_camera_offline", lambda *_a, **_kw: None)
+
+    with caplog.at_level("WARNING", logger="app.workers.tasks"):
+        tasks_mod.ping_camera(cam.id)
+
+    # El log.warning final de CAMERA_OFFLINE debe llevar correlation_id.
+    cam_offline_records = [
+        r for r in caplog.records
+        if "CAMERA_OFFLINE" in r.getMessage()
+    ]
+    assert cam_offline_records, "no se encontró log de CAMERA_OFFLINE en caplog"
+    rec = cam_offline_records[0]
+    # ``extra={"correlation_id": cid}`` se expone como atributo del record.
+    assert hasattr(rec, "correlation_id"), (
+        f"el record no tiene atributo correlation_id: {rec.__dict__}"
+    )
+    assert _HEX_36.match(rec.correlation_id), (
+        f"correlation_id del log no tiene formato hex 36: {rec.correlation_id!r}"
+    )
+
+    # Y debe COINCIDIR con el correlation_id del audit persistido.
+    audit = db_session.query(_AuditLog).filter(
+        _AuditLog.action == "camera_offline_frame",
+    ).one()
+    assert rec.correlation_id == audit.correlation_id, (
+        f"correlation_id inconsistente entre log ({rec.correlation_id}) "
+        f"y audit ({audit.correlation_id})"
+    )

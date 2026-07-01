@@ -82,6 +82,11 @@ def _clean_redis_counters():
                 _consecutive_key(cam_id), _lock_key(cam_id),
                 _consecutive_offline_key(cam_id), _offline_lock_key(cam_id),
             )
+        # Sprint Fase 3C: rate-limit de login. Las claves usan como
+        # sufijo la IP y el email (no el cam_id), pero las borramos
+        # también con un SCAN para no contaminar entre tests.
+        for key in client.scan_iter("rl:login:*"):
+            client.delete(key)
     except Exception:
         pass
     yield

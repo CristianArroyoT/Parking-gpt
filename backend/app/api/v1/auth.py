@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.db import get_db
+from app.core.ip import get_real_ip
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -17,6 +18,7 @@ from app.core.security import (
 from app.models.user import User
 from app.schemas import LoginRequest, MessageResponse, TokenPair
 from app.services.audit import record_audit_from_request
+from app.services.rate_limit import rate_limiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -39,6 +41,31 @@ def login_json(
     request: Request,
     db: Session = Depends(get_db),
 ) -> TokenPair:
+    # Sprint Fase 3C: rate-limit por IP + email (Redis INCR + EXPIRE).
+    # Si CUALQUIER bucket supera ``login_rate_limit_max_attempts`` en
+    # ``login_rate_limit_window_seconds`` → 429 Too Many Requests y
+    # audit con ``action=rate_limited_login``. Fail-open si Redis cae.
+    client_ip = get_real_ip(request)
+    allowed, bucket, count = rate_limiter.check(
+        ip=client_ip, email=payload.email,
+    )
+    if not allowed:
+        record_audit_from_request(
+            request, db,
+            action="rate_limited_login",
+            payload={
+                "email": payload.email,
+                "ip": client_ip,
+                "bucket": bucket,
+                "count": count,
+            },
+            result="failure",
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demasiados intentos. Intenta más tarde.",
+        )
     user = db.query(User).filter(User.email == payload.email).one_or_none()
     if not user or not verify_password(payload.password, user.hashed_password):
         # Sprint Fase 3A: audit de intento fallido (sin password).

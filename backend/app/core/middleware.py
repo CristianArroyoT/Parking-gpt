@@ -26,6 +26,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from app.core.ip import get_real_ip
 from app.core.security import decode_token
 
 
@@ -52,8 +53,9 @@ class AuditMiddleware(BaseHTTPMiddleware):
             except (ValueError, TypeError, KeyError):
                 pass
 
-        # 3. ip del cliente.
-        ip: str | None = request.client.host if request.client else None
+        # 3. ip del cliente real (parsea X-Forwarded-For si el proxy
+        # está en settings.trusted_proxies; ver ``app.core.ip``).
+        ip: str | None = get_real_ip(request)
 
         # 4. Persistir en request.state para los handlers.
         request.state.audit = {
