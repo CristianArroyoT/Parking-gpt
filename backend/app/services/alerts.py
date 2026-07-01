@@ -272,14 +272,28 @@ def _offline_lock_key(camera_id: int) -> str:
     return f"camera:{camera_id}:offline_alert_lock"
 
 
-def record_camera_offline(camera: Camera) -> Alert | None:
+def record_camera_offline(camera: Camera, *, kind: str = "frame") -> Alert | None:
     """Incrementa el contador de capturas fallidas y, si llega al umbral,
     crea una alerta ``CAMERA_OFFLINE`` (severidad CRITICAL) con email al
     admin. Distinto de ``record_ocr_failure`` porque la cámara caída
     requiere soporte técnico, no recalibración de geocercas.
+
+    Args:
+        camera: modelo Camera de la que se sospecha caída.
+        kind: ``"frame"`` cuando lo dispara ``ping_camera`` con
+            ``grab_frame()`` devolviendo ``None``; ``"heartbeat"`` cuando
+            lo dispara ``probe_heartbeats`` con ``probe_camera()`` fallando.
+            El kind se persiste en ``alert.context.kind`` para diagnóstico.
+            El umbral de fallos consecutivos depende del kind:
+            ``"heartbeat"`` → ``settings.heartbeat_failures_before_alert``;
+            ``"frame"`` → ``settings.ocr_frames_before_fail``.
     """
     settings = get_settings()
-    threshold = settings.ocr_frames_before_fail
+    threshold = (
+        settings.heartbeat_failures_before_alert
+        if kind == "heartbeat"
+        else settings.ocr_frames_before_fail
+    )
     if threshold <= 0:
         return None
 
@@ -337,6 +351,7 @@ def record_camera_offline(camera: Camera) -> Alert | None:
                 "camera_code": camera.code,
                 "consecutive_fails": count,
                 "threshold": threshold,
+                "kind": kind,
             }
             alert = Alert(
                 parking_id=camera.parking_id,

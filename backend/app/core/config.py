@@ -39,6 +39,19 @@ class Settings(BaseSettings):
     ocr_lang: str = Field(default="es", alias="OCR_LANG")
     ocr_confidence_threshold: float = Field(default=0.85, alias="OCR_CONFIDENCE_THRESHOLD")
     ocr_frames_before_fail: int = Field(default=5, alias="OCR_FRAMES_BEFORE_FAIL")
+
+    # Heartbeat real (sprint CAMERA_OFFLINE v2): probe ligero cada 60s.
+    # Si falla N heartbeats consecutivos → alerta CAMERA_OFFLINE con
+    # context.kind="heartbeat". Distinto de ocr_frames_before_fail
+    # (semánticamente: frames vs heartbeats).
+    heartbeat_failures_before_alert: int = Field(
+        default=3, alias="HEARTBEAT_FAILURES_BEFORE_ALERT"
+    )
+    # URLs que el heartbeat skipea (seed local, entornos de prueba).
+    # Lista separada por comas en env, e.g. HEARTBEAT_SKIP_URL_PREFIXES="rtsp://demo.invalid,rtsp://test.local".
+    heartbeat_skip_url_prefixes: list[str] = Field(
+        default=["rtsp://demo.invalid"], alias="HEARTBEAT_SKIP_URL_PREFIXES"
+    )
     # URL del servicio OCR separado (PaddleOCR en su propio contenedor).
     # Si el servicio no responde, el cliente devuelve [] y el caller
     # decide qué hacer. NO usar en tests salvo que se inyecte MockTransport.

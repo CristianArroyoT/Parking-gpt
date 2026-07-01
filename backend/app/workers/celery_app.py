@@ -47,4 +47,13 @@ celery_app.conf.beat_schedule = {
         "task": "solidapp.cleanup_failed_frames",
         "schedule": crontab(minute="0", hour="*/6"),
     },
+    # Heartbeat real (sprint CAMERA_OFFLINE v2): sondea cada cámara
+    # con ``cv2.VideoCapture.open() + grab()`` (sin decodificar).
+    # Tras N fallos consecutivos (``heartbeat_failures_before_alert``)
+    # crea alerta CAMERA_OFFLINE con ``context.kind="heartbeat"``.
+    # Comparte lock de 1 h con el detector de ``frame`` para no duplicar.
+    "probe-heartbeats-every-minute": {
+        "task": "solidapp.probe_heartbeats",
+        "schedule": 60.0,  # cada 60 segundos exactos
+    },
 }

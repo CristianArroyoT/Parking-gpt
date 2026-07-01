@@ -26,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from app.core.config import get_settings
 from app.core.db import SessionLocal
 from app.models.parking import Camera
 from app.models.plates_detected import PlatesDetected
@@ -36,6 +37,7 @@ from app.services.alerts import (
     reset_ocr_failure,
 )
 from app.services.cameras.capture import grab_frame
+from app.services.cameras.heartbeat import probe_camera
 from app.services.ingest_service import process_plate_hits
 from app.services.ocr.client import get_ocr_client
 from app.workers.celery_app import celery_app
@@ -91,7 +93,7 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
             # Sprint CAMERA_OFFLINE: NO enviamos a OCR — el placeholder
             # contaminaría el detector de OCR_FAILED. Distinguimos:
             # cámara caída = CRITICAL al admin; OCR vacío = WARN al gestor.
-            record_camera_offline(cam)
+            record_camera_offline(cam, kind="frame")
             # Resetear OCR counter: este fallo NO es de OCR.
             reset_ocr_failure(cam.id)
             log.warning(
@@ -220,3 +222,72 @@ def cleanup_failed_frames() -> dict[str, int]:
             kept += 1
     log.info("cleanup_failed_frames: deleted=%s kept=%s", deleted, kept)
     return {"deleted": deleted, "kept": kept}
+
+
+@celery_app.task(name="solidapp.probe_heartbeats")
+def probe_heartbeats() -> dict[str, Any]:
+    """Heartbeat batch: sondea todas las cámaras activas cada 60 s.
+
+    Para cada cámara:
+      - Skipea si su ``rtsp_url`` empieza por algún prefijo de
+        ``settings.heartbeat_skip_url_prefixes`` (típicamente
+        ``rtsp://demo.invalid`` del seed local).
+      - Si ``probe_camera(cam)`` pasa → ``reset_camera_offline(cam.id)``.
+      - Si falla → ``record_camera_offline(cam, kind="heartbeat")``,
+        que incrementa el contador Redis y crea alerta CRITICAL al
+        admin tras ``settings.heartbeat_failures_before_alert`` fallos.
+
+    Una sola tarea batch (no una por cámara). Si el sistema tiene
+    50 cámaras y cada probe tarda ~1 s, la ronda tarda ~50 s. Está
+    bien: el threshold mide fallos consecutivos, no ventana de tiempo.
+
+    ``ping_camera`` sigue corriendo en paralelo con ``kind="frame"``;
+    ambos comparten el lock de 1 h de CAMERA_OFFLINE, así que sólo
+    se crea UNA alerta cuando hay caída real (no doble).
+    """
+    settings = get_settings()
+    skip_prefixes: tuple[str, ...] = tuple(
+        settings.heartbeat_skip_url_prefixes or ()
+    )
+
+    db = SessionLocal()
+    try:
+        cams = (
+            db.query(Camera)
+            .filter(Camera.is_active.is_(True))
+            .order_by(Camera.id)
+            .all()
+        )
+    finally:
+        db.close()
+
+    probed = skipped = ok = failed = 0
+    for cam in cams:
+        if any(cam.rtsp_url.startswith(p) for p in skip_prefixes):
+            skipped += 1
+            continue
+        probed += 1
+        try:
+            is_alive = asyncio.run(probe_camera(cam))
+        except Exception as exc:  # noqa: BLE001 — defensiva
+            log.warning(
+                "probe_heartbeats: probe lanzó excepción camera=%s: %s",
+                cam.id, exc,
+            )
+            is_alive = False
+
+        if is_alive:
+            ok += 1
+            reset_camera_offline(cam.id)
+        else:
+            failed += 1
+            # ``record_camera_offline`` incrementa el contador y crea la
+            # alerta CRITICAL sólo si supera el threshold. Si el lock de
+            # 1 h está tomado (porque ``ping_camera`` ya disparó), omite.
+            record_camera_offline(cam, kind="heartbeat")
+
+    log.info(
+        "probe_heartbeats: probed=%s skipped=%s ok=%s failed=%s threshold=%s",
+        probed, skipped, ok, failed, settings.heartbeat_failures_before_alert,
+    )
+    return {"probed": probed, "skipped": skipped, "ok": ok, "failed": failed}
