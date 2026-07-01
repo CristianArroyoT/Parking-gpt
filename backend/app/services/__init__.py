@@ -3,6 +3,16 @@ a ``app.services.audit`` con API extendida)."""
 
 from __future__ import annotations
 
-from app.services.audit import record_audit
+from app.services.audit import (
+    make_worker_correlation_id,
+    record_audit,
+    record_audit_from_request,
+    record_audit_worker,
+)
 
-__all__ = ["record_audit"]
+__all__ = [
+    "record_audit",
+    "record_audit_from_request",
+    "record_audit_worker",
+    "make_worker_correlation_id",
+]

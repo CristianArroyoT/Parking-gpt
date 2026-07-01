@@ -50,6 +50,48 @@ def db_session(monkeypatch):
         engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def _clean_redis_counters():
+    """Limpia todas las claves de Redis usadas por ``app.services.alerts``.
+
+    Sin esto, los contadores
+
+    - ``camera:{id}:consecutive_fails`` y ``camera:{id}:ocr_alert_lock``
+      (escritos por ``record_ocr_failure`` / ``reset_ocr_failure``),
+    - ``camera:{id}:consecutive_offline`` y ``camera:{id}:offline_lock``
+      (escritos por ``record_camera_offline`` / ``reset_camera_offline``),
+
+    se acumulan entre tests porque la BD usa StaticPool (los IDs se
+    reinician) pero Redis NO se resetea. Un test que cree cámara id=1
+    después de otro que tocó cámara id=1 hereda su contador.
+
+    Sólo barremos IDs 1..200 porque los tests crean cámaras con IDs
+    bajos en la práctica. Si Redis no responde, ignoramos: el resto
+    de la suite sigue funcionando y los tests que tocan Redis son
+    tolerantes a fallos del broker.
+    """
+    try:
+        from app.services.alerts import (
+            _consecutive_key, _lock_key,
+            _consecutive_offline_key, _offline_lock_key,
+            _redis_client,
+        )
+        client = _redis_client()
+        for cam_id in range(1, 200):
+            client.delete(
+                _consecutive_key(cam_id), _lock_key(cam_id),
+                _consecutive_offline_key(cam_id), _offline_lock_key(cam_id),
+            )
+        # Sprint Fase 3C: rate-limit de login. Las claves usan como
+        # sufijo la IP y el email (no el cam_id), pero las borramos
+        # también con un SCAN para no contaminar entre tests.
+        for key in client.scan_iter("rl:login:*"):
+            client.delete(key)
+    except Exception:
+        pass
+    yield
+
+
 @pytest.fixture()
 def client(db_session):
     app = create_app()

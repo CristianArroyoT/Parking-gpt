@@ -1,13 +1,14 @@
-"""Configuración mínima de Loki 2.9.0 para solidAPP.
-
-Sprint Fase 3A (2026-07-01).
-
-Almacenamiento local en /loki (volumen loki-data). Schema v13 con TSDB.
-Retención 31 días (``retention_period: 744h``) — ajustable en producción.
-
-Si en producción se escala, este config se reemplaza por uno con S3/GCS
-y replication_factor=3. Para MVP, single-instance + filesystem.
-"""
+# Configuración mínima de Loki 2.9.0 para solidAPP.
+#
+# Sprint Fase 3A (2026-07-01). Ajustes de Fase 3B-parte-2 (2026-07-01):
+# docstring inicial convertido a comentarios ``#`` porque YAML parsea
+# el ``"""…"""`` como string vacío y falla con
+# "cannot unmarshal !!str `` into loki.ConfigWrapper".
+#
+# Almacenamiento local en /loki (volumen loki-data). Schema v13 con TSDB.
+# Retención 31 días (``retention_period: 744h``) — ajustable en producción.
+# Si en producción se escala, este config se reemplaza por uno con S3/GCS
+# y replication_factor=3. Para MVP, single-instance + filesystem.
 auth_enabled: false
 
 server:

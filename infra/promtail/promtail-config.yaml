@@ -1,15 +1,17 @@
-"""Configuración de Promtail 2.9.0 para solidAPP.
-
-Sprint Fase 3A (2026-07-01).
-
-Scrapea los logs estructurados (JSON) que el backend escribe en
-``/var/log/solidapp/*.log`` (volumen compartido ``app_logs`` en
-docker-compose). Los reenvía a Loki en lotes.
-
-Diseño Windows-friendly: NO scrape del socket Docker (problemático en
-Docker Desktop). Sólo lee el directorio compartido. Esto cubre backend,
-celery-worker y celery-beat (todos escriben al mismo volumen).
-"""
+# Configuración de Promtail 2.9.0 para solidAPP.
+#
+# Sprint Fase 3A (2026-07-01). Ajustes de Fase 3B-parte-2 (2026-07-01):
+# docstring inicial convertido a comentarios ``#`` por la misma razón
+# que ``infra/loki/loki-config.yaml`` (YAML no acepta ``"""…"""`` como
+# bloque inicial).
+#
+# Scrapea los logs estructurados (JSON) que el backend escribe en
+# ``/var/log/solidapp/*.log`` (volumen compartido ``app_logs`` en
+# docker-compose). Los reenvía a Loki en lotes.
+#
+# Diseño Windows-friendly: NO scrape del socket Docker (problemático en
+# Docker Desktop). Sólo lee el directorio compartido. Esto cubre backend,
+# celery-worker y celery-beat (todos escriben al mismo volumen).
 server:
   http_listen_port: 9080
   log_level: warn

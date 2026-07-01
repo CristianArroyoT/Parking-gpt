@@ -111,8 +111,32 @@ def record_audit_worker(
         payload=payload,
         parking_id=parking_id,
         result=result,
-        correlation_id=correlation_id or uuid.uuid4().hex[:36],
+        correlation_id=correlation_id or uuid.uuid4().hex + uuid.uuid4().hex[:4],
     )
 
 
-__all__ = ["record_audit", "record_audit_from_request", "record_audit_worker"]
+__all__ = [
+    "record_audit",
+    "record_audit_from_request",
+    "record_audit_worker",
+    "make_worker_correlation_id",
+]
+
+
+def make_worker_correlation_id() -> str:
+    """Genera correlation_id de 36 chars hex para una invocación de task.
+
+    Sprint Fase 3C (2026-07-01). Cada invocación de una task Celery
+    (``ping_camera``, ``probe_heartbeats``, etc.) genera UN solo
+    correlation_id al inicio y lo pasa explícito a TODOS los
+    ``record_audit_worker(correlation_id=cid)`` Y a todos los
+    ``log.warning/info(extra={"correlation_id": cid, ...})`` de esa
+    invocación. Esto da correlación real con Loki, no sólo con
+    ``audit_logs``.
+
+    UUID v4 hex mide 32 chars; añadimos 4 chars hex adicionales de otro
+    UUID para llegar exactamente a 36 (límite del String(36) de la
+    columna ``audit_logs.correlation_id``). Formato compatible con el
+    header ``X-Request-ID`` que el middleware HTTP ya emite.
+    """
+    return uuid.uuid4().hex + uuid.uuid4().hex[:4]
