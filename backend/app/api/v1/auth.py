@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
+from redis.exceptions import RedisError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -19,6 +22,9 @@ from app.models.user import User
 from app.schemas import LoginRequest, MessageResponse, TokenPair
 from app.services.audit import record_audit_from_request
 from app.services.rate_limit import rate_limiter
+from app.services.token_blacklist import token_blacklist
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -186,18 +192,48 @@ def refresh(
 
 @router.post("/logout", response_model=MessageResponse)
 def logout(request: Request, db: Session = Depends(get_db)) -> MessageResponse:
-    """Sprint Fase 3A: registra logout_success con user_id desde el JWT.
+    """Logout real: blacklistea el ``jti`` del token actual en Redis.
 
-    La invalidación real del token queda fuera de scope de este sprint
-    (lista negra Redis). El frontend debe borrar el token de sessionStorage
-    para que el siguiente request falle con 401.
+    Sprint Fase 3D (2026-07-01). Antes (Fase 3A) sólo registraba audit.
+    Ahora: añade el ``jti`` del JWT actual al blacklist con TTL
+    ``(exp - now) + grace_seconds``, de forma que el ``AuditMiddleware``
+    rechace cualquier request subsecuente con el mismo token.
+
+    Si el token no tiene ``jti`` (legacy pre-Fase 3D), auditamos
+    ``logout_success`` con ``jti_blacklisted=False`` y respondemos 200
+    igualmente (degradación graceful — el sistema sigue funcionando, sólo
+    que ese token concreto no puede ser invalidado).
+
+    Si Redis cae durante el blacklist → 503 ``Servicio de autenticación
+    no disponible``. Fail-CLOSED: preferible un logout fallido antes
+    que un token comprometido circulando.
     """
     audit = getattr(request.state, "audit", None) or {}
     user_id = audit.get("user_id")
+    jti = audit.get("jti")
+    exp = audit.get("exp")
+
+    jti_blacklisted = False
+    if jti is not None and exp is not None:
+        try:
+            token_blacklist.add(jti=jti, exp_epoch=int(exp))
+            jti_blacklisted = True
+        except RedisError as exc:
+            db.rollback()
+            log.warning(
+                "logout: Redis caído, no se pudo blacklistear jti=%s (%s)",
+                jti, exc,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Servicio de autenticación no disponible",
+            )
+
     record_audit_from_request(
         request, db,
         action="logout_success",
         resource=f"users/{user_id}" if user_id else None,
+        payload={"jti_blacklisted": jti_blacklisted},
         result="success",
     )
     db.commit()

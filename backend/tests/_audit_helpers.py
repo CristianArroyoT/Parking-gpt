@@ -44,6 +44,18 @@ def _login_headers(client: TestClient, email: str, password: str) -> dict[str, s
     return {"Authorization": f"Bearer {_login(client, email, password)}"}
 
 
+def _logout(client: TestClient, headers: dict[str, str]) -> int:
+    """Llama a ``POST /auth/logout`` con los headers dados y devuelve status.
+
+    Helper para tests de blacklist (Sprint Fase 3D): tras logout el token
+    queda en Redis y cualquier re-request con los mismos headers debe
+    devolver 401. No limpia headers (eso lo hace el caller si quiere
+    reusar el cliente).
+    """
+    r = client.post("/api/v1/auth/logout", headers=headers)
+    return r.status_code
+
+
 def _seed_admin(db: Session, *, email: str = "admin@test.es",
                 password: str = "admin12345") -> User:
     admin = User(
@@ -157,7 +169,7 @@ def monkeypatch_tasks_session(monkeypatch, db_session: Session) -> None:
 
 
 __all__ = [
-    "_login", "_login_headers",
+    "_login", "_login_headers", "_logout",
     "_seed_admin", "_seed_gestor", "_seed_cliente", "_seed_operador",
     "_seed_parking", "_seed_membership",
     "assert_audit_log", "assert_no_audit_log",

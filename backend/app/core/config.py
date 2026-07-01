@@ -105,6 +105,34 @@ class Settings(BaseSettings):
         alias="TRUSTED_PROXIES",
     )
 
+    # Sprint Fase 3D (2026-07-01): token blacklist (logout invalida JWT).
+    # ``jwt_blacklist_key_prefix`` + ``jti`` (UUID v4 hex añadido al token
+    # en ``create_access_token``/``create_refresh_token``). El TTL del
+    # key en Redis se calcula como ``(exp - now) + grace_seconds``, así
+    # se auto-limpia cuando el JWT ya estaba expirado de forma natural.
+    # Fail-CLOSED: si Redis cae, ``is_blocked`` re-lanza ``RedisError`` y
+    # el ``AuditMiddleware`` aborta con 401 (no deja pasar requests no
+    # validados contra blacklist).
+    jwt_blacklist_key_prefix: str = Field(
+        default="jwt:blacklist:", alias="JWT_BLACKLIST_KEY_PREFIX",
+    )
+    jwt_blacklist_ttl_grace_seconds: int = Field(
+        default=60, alias="JWT_BLACKLIST_TTL_GRACE_SECONDS",
+    )
+
+    # Sprint Fase 3D (2026-07-01): rate-limit genérico para CRUDs
+    # autenticados (``POST /users``, ``PATCH /users/{id}``,
+    # ``POST /vehicles``, ``PATCH /vehicles/{id}``). Más permisivo que
+    # login (30 vs 10) porque el CRUD legítimo hace ráfagas razonables
+    # (carga inicial de datos, scripts de seed). Mismo patrón fail-OPEN
+    # que ``LoginRateLimiter``: si Redis cae, deja pasar.
+    endpoint_rate_limit_max_attempts: int = Field(
+        default=30, alias="ENDPOINT_RATE_LIMIT_MAX_ATTEMPTS",
+    )
+    endpoint_rate_limit_window_seconds: int = Field(
+        default=60, alias="ENDPOINT_RATE_LIMIT_WINDOW_SECONDS",
+    )
+
     smtp_host: str = Field(default="localhost", alias="SMTP_HOST")
     smtp_port: int = Field(default=1025, alias="SMTP_PORT")
     smtp_user: str = Field(default="", alias="SMTP_USER")
