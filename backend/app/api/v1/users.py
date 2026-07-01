@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.audit import audited
 from app.core.db import get_db
 from app.core.deps import get_current_user, require_role
 from app.core.security import hash_password
@@ -37,8 +38,10 @@ def list_users(
 
 
 @router.post("", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+@audited("create_user")
 def create_user(
     payload: UserCreate,
+    request: Request,
     db: Session = Depends(get_db),
     _admin: User = Depends(require_role(UserRole.ADMIN.value)),
 ) -> User:
@@ -75,9 +78,11 @@ def get_user(
 
 
 @router.patch("/{user_id}", response_model=UserRead)
+@audited("update_user", resource_arg="user_id")
 def update_user(
     user_id: int,
     payload: UserUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     _admin: User = Depends(require_role(UserRole.ADMIN.value)),
 ) -> User:
@@ -97,8 +102,10 @@ def update_user(
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@audited("delete_user", resource_arg="user_id")
 def delete_user(
     user_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     _admin: User = Depends(require_role(UserRole.ADMIN.value)),
 ) -> None:
@@ -114,9 +121,16 @@ def delete_user(
     response_model=MembershipRead,
     status_code=status.HTTP_201_CREATED,
 )
+@router.post(
+    "/{user_id}/memberships",
+    response_model=MembershipRead,
+    status_code=status.HTTP_201_CREATED,
+)
+@audited("create_membership", resource_arg="user_id")
 def add_membership(
     user_id: int,
     payload: MembershipCreate,
+    request: Request,
     db: Session = Depends(get_db),
     _admin: User = Depends(require_role(UserRole.ADMIN.value)),
 ) -> ParkingMembership:

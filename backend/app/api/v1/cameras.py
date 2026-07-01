@@ -6,10 +6,11 @@ import logging
 from datetime import datetime, timezone
 
 import redis
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from redis.exceptions import RedisError
 from sqlalchemy.orm import Session
 
+from app.core.audit import audited
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.deps import parking_context
@@ -45,9 +46,11 @@ def list_cameras(parking_id: int, db: Session = Depends(get_db)) -> list[Camera]
 
 
 @router.post("", response_model=CameraRead, status_code=status.HTTP_201_CREATED)
+@audited("create_camera")
 def create_camera(
     parking_id: int,
     payload: CameraCreate,
+    request: Request,
     db: Session = Depends(get_db),
 ) -> Camera:
     if not db.get(Parking, parking_id):
@@ -60,10 +63,12 @@ def create_camera(
 
 
 @router.patch("/{camera_id}", response_model=CameraRead)
+@audited("update_camera", resource_arg="camera_id")
 def update_camera(
     parking_id: int,
     camera_id: int,
     payload: CameraUpdate,
+    request: Request,
     db: Session = Depends(get_db),
 ) -> Camera:
     camera = (

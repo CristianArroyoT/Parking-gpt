@@ -7,9 +7,10 @@ Eliminar está restringido a admin para no perder histórico de tickets.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
+from app.core.audit import audited
 from app.core.db import get_db
 from app.core.deps import get_current_user, parking_context, require_role
 from app.models.enums import UserRole

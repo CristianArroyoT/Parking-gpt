@@ -5,6 +5,9 @@ API principal:
     caller decide, igual que el legacy de Fase 1).
   - ``record_audit_from_request``: helper que lee el contexto del
     ``AuditMiddleware`` (request.state.audit) y llama a ``record_audit``.
+  - ``record_audit_worker`` (Fase 3B): variante para workers Celery que
+    no tienen ``Request``. Genera correlation_id propio, fija
+    ``user_id=None`` y ``ip="worker"``.
 
 Back-compat: ``app.services.__init__.record_audit`` re-exporta esta
 función para no romper los 4 callers de Fase 1/2 (``incidents.py``,
@@ -12,6 +15,7 @@ función para no romper los 4 callers de Fase 1/2 (``incidents.py``,
 """
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from fastapi import Request
@@ -80,4 +84,35 @@ def record_audit_from_request(
     )
 
 
-__all__ = ["record_audit", "record_audit_from_request"]
+def record_audit_worker(
+    db: Session,
+    *,
+    action: str,
+    parking_id: int | None = None,
+    resource: str | None = None,
+    payload: dict[str, Any] | None = None,
+    result: str | None = None,
+    correlation_id: str | None = None,
+) -> None:
+    """Variante para workers Celery (sin Request HTTP).
+
+    Fija ``user_id=None`` y ``ip="worker"``. Si no se pasa
+    ``correlation_id`` se genera un UUID hex de 36 chars (uno por
+    invocación del worker).
+
+    NO hace commit — el caller decide, igual que el resto.
+    """
+    record_audit(
+        db,
+        action=action,
+        user_id=None,
+        ip="worker",
+        resource=resource,
+        payload=payload,
+        parking_id=parking_id,
+        result=result,
+        correlation_id=correlation_id or uuid.uuid4().hex[:36],
+    )
+
+
+__all__ = ["record_audit", "record_audit_from_request", "record_audit_worker"]

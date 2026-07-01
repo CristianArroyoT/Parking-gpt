@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.audit import audited
 from app.core.db import get_db
 from app.core.deps import get_current_user, parking_context, require_role
 from app.models.enums import UserRole
@@ -31,8 +32,10 @@ def list_parkings(
 
 
 @router.post("", response_model=ParkingRead, status_code=status.HTTP_201_CREATED)
+@audited("create_parking")
 def create_parking(
     payload: ParkingCreate,
+    request: Request,
     db: Session = Depends(get_db),
     _admin: User = Depends(require_role(UserRole.ADMIN.value)),
 ) -> Parking:
@@ -62,9 +65,11 @@ def get_parking(
 
 
 @router.patch("/{parking_id}", response_model=ParkingRead)
+@audited("update_parking", resource_arg="parking_id")
 def update_parking(
     parking_id: int,
     payload: ParkingUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(parking_context),
 ) -> Parking:
@@ -84,8 +89,10 @@ def update_parking(
 
 
 @router.delete("/{parking_id}", status_code=status.HTTP_204_NO_CONTENT)
+@audited("delete_parking", resource_arg="parking_id")
 def delete_parking(
     parking_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     _admin: User = Depends(require_role(UserRole.ADMIN.value)),
 ) -> None:

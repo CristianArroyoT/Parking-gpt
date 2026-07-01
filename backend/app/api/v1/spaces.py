@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
+from app.core.audit import audited
 from app.core.db import get_db
 from app.core.deps import parking_context
 from app.models.parking import Parking, ParkingSpace
@@ -32,9 +33,11 @@ def list_spaces(parking_id: int, db: Session = Depends(get_db)) -> list[ParkingS
 
 
 @router.post("", response_model=ParkingSpaceRead, status_code=status.HTTP_201_CREATED)
+@audited("create_space")
 def create_space(
     parking_id: int,
     payload: ParkingSpaceCreate,
+    request: Request,
     db: Session = Depends(get_db),
 ) -> ParkingSpace:
     if not db.get(Parking, parking_id):
@@ -47,10 +50,12 @@ def create_space(
 
 
 @router.patch("/{space_id}", response_model=ParkingSpaceRead)
+@audited("update_space", resource_arg="space_id")
 def update_space(
     parking_id: int,
     space_id: int,
     payload: ParkingSpaceUpdate,
+    request: Request,
     db: Session = Depends(get_db),
 ) -> ParkingSpace:
     space = (

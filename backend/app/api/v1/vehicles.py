@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.audit import audited
 from app.core.db import get_db
 from app.core.deps import require_role
 from app.models.enums import UserRole, VehicleRole
@@ -39,8 +40,10 @@ def list_vehicles(
 
 
 @router.post("", response_model=VehicleRead, status_code=status.HTTP_201_CREATED)
+@audited("create_vehicle")
 def create_vehicle(
     payload: VehicleCreate,
+    request: Request,
     db: Session = Depends(get_db),
     _user: User = Depends(require_role(*_STAFF)),
 ) -> Vehicle:
@@ -58,9 +61,11 @@ def create_vehicle(
 
 
 @router.patch("/{vehicle_id}", response_model=VehicleRead)
+@audited("update_vehicle", resource_arg="vehicle_id")
 def update_vehicle(
     vehicle_id: int,
     payload: VehicleUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     _user: User = Depends(require_role(*_STAFF)),
 ) -> Vehicle:
@@ -79,9 +84,16 @@ def update_vehicle(
     response_model=VehicleUserRead,
     status_code=status.HTTP_201_CREATED,
 )
+@router.post(
+    "/{vehicle_id}/users",
+    response_model=VehicleUserRead,
+    status_code=status.HTTP_201_CREATED,
+)
+@audited("add_vehicle_user", resource_arg="vehicle_id")
 def add_vehicle_user(
     vehicle_id: int,
     payload: VehicleUserCreate,
+    request: Request,
     db: Session = Depends(get_db),
     _user: User = Depends(require_role(*_STAFF)),
 ) -> VehicleUser:
