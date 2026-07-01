@@ -24,6 +24,18 @@ con 401 ``WWW-Authenticate: Bearer error="invalid_token"``. Si Redis
 cae durante el check, FAIL-CLOSED: 401 con "Servicio de autenticación
 no disponible". Persiste ``jti`` y ``exp`` en ``request.state.audit``
 para que ``logout`` pueda blacklistear.
+
+Push security review (2026-07-01) — 2 hallazgos aplicados:
+
+  1. ``type`` (claim ``access``/``refresh``) se persiste en
+     ``request.state.audit`` para que ``logout`` distinga qué tipo
+     de token llevó el cliente. Si llega un ``refresh`` a ``/logout``
+     ya no se asume silenciosamente que es un ``access``.
+  2. ``decode_error`` se persiste en ``request.state.audit`` cuando
+     la decodificación JWT lanza ``ValueError/TypeError/KeyError``.
+     Antes se descartaba con ``except: pass`` silencioso, dando un
+     canal lateral a atacantes (oracle). Ahora los handlers pueden
+     detectar el fallo y rechazar con 401 explícito.
 """
 from __future__ import annotations
 
@@ -57,6 +69,8 @@ class AuditMiddleware(BaseHTTPMiddleware):
         user_id: int | None = None
         jti: str | None = None
         exp_epoch: int | None = None
+        token_type: str | None = None
+        decode_error: bool = False
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header.split(None, 1)[1].strip()
@@ -66,11 +80,21 @@ class AuditMiddleware(BaseHTTPMiddleware):
                 if sub is not None:
                     user_id = int(sub)
                 jti = payload.get("jti")
+                token_type = payload.get("type")
                 exp_val = payload.get("exp")
                 if isinstance(exp_val, (int, float)):
                     exp_epoch = int(exp_val)
-            except (ValueError, TypeError, KeyError):
-                pass
+            except (ValueError, TypeError, KeyError) as exc:
+                # Sprint Fase 3D (push security review 2026-07-01):
+                # registramos el fallo en audit para que handlers como
+                # ``logout`` puedan detectar tokens malformados y
+                # rechazar con 401 explícito (cierra el canal lateral
+                # "oracle" que devolvía 200 con tokens sin jti).
+                decode_error = True
+                log.debug(
+                    "AuditMiddleware: decode JWT falló (%s)", exc,
+                    extra={"correlation_id": correlation_id},
+                )
 
         # 2b. Sprint Fase 3D: check blacklist si el token tiene jti y
         # no ha expirado. Fail-CLOSED: si Redis cae, abort con 401.
@@ -120,6 +144,8 @@ class AuditMiddleware(BaseHTTPMiddleware):
             "started_at": time.monotonic(),
             "jti": jti,
             "exp": exp_epoch,
+            "type": token_type,
+            "decode_error": decode_error,
         }
 
         response = await call_next(request)
