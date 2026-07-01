@@ -1,11 +1,13 @@
-"""Provisioning del datasource Loki en Grafana.
-
-Sprint Fase 3A (2026-07-01).
-
-Grafana monta ``infra/grafana/provisioning:/etc/grafana/provisioning:ro``
-y auto-configura este datasource al arrancar (sin clicks en UI).
-URL ``http://loki:3100`` apunta al servicio ``loki`` del compose.
-"""
+# Provisioning del datasource Loki en Grafana.
+#
+# Sprint Fase 3A (2026-07-01). Ajustes de Fase 3B-parte-2 (2026-07-01):
+# docstring inicial convertido a comentarios ``#`` por la misma razón
+# que ``infra/loki/loki-config.yaml`` y ``infra/promtail/promtail-config.yaml``
+# (YAML no acepta ``"""…"""`` como bloque inicial).
+#
+# Grafana monta ``infra/grafana/provisioning:/etc/grafana/provisioning:ro``
+# y auto-configura este datasource al arrancar (sin clicks en UI).
+# URL ``http://loki:3100`` apunta al servicio ``loki`` del compose.
 apiVersion: 1
 
 datasources:
