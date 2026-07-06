@@ -11,6 +11,7 @@ from app.api.v1 import (
     cameras,
     costs,
     dashboard,
+    events,
     incidents,
     logout_all,
     parkings,
@@ -46,5 +47,7 @@ api_router.include_router(costs.router)
 api_router.include_router(reports.router)
 # Sprint UI Costes + Dashboard KPIs: KPIs agregados (admin-only).
 api_router.include_router(dashboard.router)
+# Sprint O2 (2026-07-06): stream SSE por sucursal para refresco live de MapView.
+api_router.include_router(events.router)
 
 __all__ = ["api_router"]

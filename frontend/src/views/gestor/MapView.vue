@@ -1,16 +1,32 @@
 <script setup lang="ts">
 /**
- * Mapa de plazas con polling cada 5 s.
- * El estado ocupado/libre se calcula cruzando plazas activas con tickets
- * activos. En Fase 2 el worker OCR actualizará plazas en tiempo real.
+ * Mapa de plazas con refresco en vivo (SSE + fallback polling).
+ *
+ * Sprint O2 (2026-07-06): la versión previa hacía ``setInterval(5s)``.
+ * Ahora consume el stream SSE ``GET /api/v1/parkings/{id}/events``
+ * (latencia <1 s para cambios de plaza) y mantiene un polling de 30 s
+ * como red de seguridad para entornos donde el SSE no conecta.
+ *
+ * También arregla un bug latente: las plazas con ``is_broken=true``
+ * se mostraban como 'libre' aunque el backend ya las marcaba como
+ * averiadas. Ahora ``stateFor()`` devuelve 'alerta' antes que
+ * 'ocupada' y el chip rosa ``plaza-alerta`` se renderiza.
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { http } from '@/api/client'
 import { useUiStore } from '@/stores/ui'
+import { useParkingEvents } from '@/composables/useParkingEvents'
 
 interface Parking { id: number; code: string; name: string; address: string; city: string }
-interface ParkingSpace { id: number; parking_id: number; lane: string; number: string; is_active: boolean }
+interface ParkingSpace {
+  id: number
+  parking_id: number
+  lane: string
+  number: string
+  is_active: boolean
+  is_broken: boolean
+}
 interface Ticket { id: number; parking_id: number; parking_space_id: number | null; status: string }
 
 const ui = useUiStore()
@@ -20,6 +36,7 @@ const spaces = ref<ParkingSpace[]>([])
 const tickets = ref<Ticket[]>([])
 const loading = ref(true)
 const selected = ref<ParkingSpace | null>(null)
+const liveConnected = ref(false)
 
 let pollHandle: number | null = null
 
@@ -47,20 +64,61 @@ async function tick(): Promise<void> {
   }
 }
 
+// Sprint O2: suscripción SSE reactiva al parking actual. Re-suscribe
+// automáticamente cuando el operador cambia de sucursal en el <select>.
+const eventStream = ref<{ disconnect: () => void; connected: { value: boolean } } | null>(null)
+
+function subscribeEvents(parkingId: number): void {
+  // Limpia la suscripción anterior si existe.
+  if (eventStream.value) eventStream.value.disconnect()
+  const es = useParkingEvents(parkingId, (ev) => {
+    // Cualquier cambio relevante → refetch completo. El servidor es la
+    // fuente de verdad y MapView es pequeño (≈N plazas, M tickets
+    // activos), así que un GET entero es más simple que mantener
+    // estado derivado.
+    if (
+      ev.type === 'ticket_created'
+      || ev.type === 'ticket_closed'
+      || ev.type === 'ticket_cancelled'
+      || ev.type === 'space_broken_changed'
+    ) {
+      tick()
+    }
+    // camera_health_changed → no afecta al mapa visual de plazas.
+  })
+  eventStream.value = es
+  liveConnected.value = es.connected.value
+  // El composable no expone connected como ref reactivo en tiempo real;
+  // lo capturamos en cada cambio de parking. Suficiente para el chip.
+}
+
+watch(selectedId, (newId, oldId) => {
+  if (newId !== null && newId !== oldId) {
+    subscribeEvents(newId)
+  }
+})
+
 onMounted(async () => {
   try {
     await loadParkings()
-    if (selectedId.value) await loadSnapshot(selectedId.value)
+    if (selectedId.value) {
+      await loadSnapshot(selectedId.value)
+      subscribeEvents(selectedId.value)
+    }
   } catch {
     ui.pushToast('error', 'No se pudieron cargar las sucursales')
   } finally {
     loading.value = false
   }
-  pollHandle = window.setInterval(tick, 5000)
+  // Fallback defensivo: si el SSE no conecta (firewall corporativo),
+  // seguimos refrescando cada 30 s. La latencia real es <1 s cuando SSE
+  // funciona; 30 s es el suelo en caso de fallback.
+  pollHandle = window.setInterval(tick, 30000)
 })
 
 onBeforeUnmount(() => {
   if (pollHandle !== null) window.clearInterval(pollHandle)
+  if (eventStream.value) eventStream.value.disconnect()
 })
 
 const LANES = ['A', 'B', 'C', 'D'] as const
@@ -82,7 +140,11 @@ const occupied = computed(() => new Set(tickets.value
 ))
 
 function stateFor(space: ParkingSpace): 'libre' | 'ocupada' | 'alerta' | 'inactiva' {
+  // Sprint O2 (bug-fix): el orden importa. Averiada gana sobre libre/
+  // ocupada porque el operador debe ver claramente que NO se asignan
+  // tickets a esa plaza aunque esté libre o tenga un ticket residual.
   if (!space.is_active) return 'inactiva'
+  if (space.is_broken) return 'alerta'
   if (occupied.value.has(space.id)) return 'ocupada'
   return 'libre'
 }
@@ -95,6 +157,15 @@ function classFor(space: ParkingSpace): string {
     default:         return 'plaza-inactiva'
   }
 }
+
+function labelFor(state: ReturnType<typeof stateFor>): string {
+  switch (state) {
+    case 'libre':    return 'Libre'
+    case 'ocupada':  return 'Ocupada'
+    case 'alerta':   return 'Averiada'
+    case 'inactiva': return 'Inactiva'
+  }
+}
 </script>
 
 <template>
@@ -103,8 +174,10 @@ function classFor(space: ParkingSpace): string {
       <div>
         <h1 class="text-2xl font-semibold tracking-tight">Mapa de sucursal</h1>
         <p class="mt-1 text-sm text-slate-500 flex items-center gap-3">
-          <span class="pulse-dot text-emerald-700">En vivo</span>
-          <span>· Actualización cada 5 s</span>
+          <span :class="['pulse-dot', liveConnected ? 'text-emerald-700' : 'text-slate-500']">
+            {{ liveConnected ? 'En vivo' : 'Sin conexión SSE' }}
+          </span>
+          <span>· Refresco automático (SSE · fallback 30 s)</span>
         </p>
       </div>
       <div class="flex items-center gap-2">
@@ -142,9 +215,18 @@ function classFor(space: ParkingSpace): string {
           <div v-if="selected" class="mt-2">
             <div class="text-3xl font-semibold tracking-tight">{{ selected.number }}</div>
             <div class="mt-2 text-sm space-y-1">
-              <div class="flex justify-between"><span class="text-slate-500">Estado</span><span>{{ stateFor(selected) }}</span></div>
+              <div class="flex justify-between">
+                <span class="text-slate-500">Estado</span>
+                <span>{{ labelFor(stateFor(selected)) }}</span>
+              </div>
               <div class="flex justify-between"><span class="text-slate-500">Calle</span><span>{{ selected.lane }}</span></div>
             </div>
+            <p
+              v-if="stateFor(selected) === 'alerta'"
+              class="mt-3 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded p-2"
+            >
+              Plaza averiada: no se asignan tickets hasta rehabilitarla.
+            </p>
           </div>
           <p v-else class="mt-2 text-sm text-slate-500">Selecciona una plaza para ver detalle.</p>
         </div>

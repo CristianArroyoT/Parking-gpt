@@ -54,6 +54,7 @@ from app.models.vehicle import Vehicle
 from app.schemas.plate import PlateHit
 from app.services.pdf import save_ticket_pdf
 from app.services.pricing import PricingError, calculate_ticket_total
+from app.services.event_bus import EventType, publish as publish_event
 
 log = logging.getLogger(__name__)
 
@@ -387,6 +388,17 @@ def _process_in_tx(
         vehicle.id,
         ticket.parking_space_id,
     )
+    # Sprint O2 (2026-07-06): notificar al bus SSE para refresco live
+    # de MapView. Fire-and-forget: un fallo de Redis no afecta la tx.
+    publish_event(
+        camera.parking_id,
+        EventType.TICKET_CREATED,
+        {
+            "ticket_id": ticket.id,
+            "plate": vehicle.plate,
+            "parking_space_id": ticket.parking_space_id,
+        },
+    )
     return IngestResult(
         plate=hit.plate,
         camera_id=camera.id,
@@ -423,6 +435,13 @@ def _close_ticket_for_exit(db, ticket: Ticket, *, exit_at: datetime) -> Ticket:
     ticket.status = TicketStatus.CERRADO
     db.commit()
     db.refresh(ticket)
+    # Sprint O2 (2026-07-06): notificar al bus SSE para refresco live
+    # de MapView (plaza vuelve a libre).
+    publish_event(
+        ticket.parking_id,
+        EventType.TICKET_CLOSED,
+        {"ticket_id": ticket.id, "total": ticket.total},
+    )
 
     # PDF en commit aparte; un fallo aquí no rompe el cierre.
     try:

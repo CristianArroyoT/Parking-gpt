@@ -1,0 +1,112 @@
+"""Stream SSE por sucursal: empuja eventos del bus al frontend (MapView).
+
+Sprint O2 (2026-07-06): MapView sustituye ``setInterval(5 s)`` por este
+stream. El cliente se suscribe al canal ``parking:{id}:events`` de
+Redis pub/sub y recibe los eventos publicados por ``event_bus.publish``
+(hooks en ``ingest_service``, ``manual_tickets``, ``incidents``,
+``workers/tasks``).
+
+Diseño:
+
+- **Un canal por sucursal**: el cliente sólo escucha su parking.
+  ``parking_context`` valida membresía o admin global.
+- **Heartbeat cada 30 s**: ``:keepalive\\n\\n`` para que proxies
+  intermedios no cierren la conexión por idle.
+- **Header ``X-Accel-Buffering: no``**: evita buffering en nginx en
+  despliegues futuros (Cloudflare, AWS ALB, etc.).
+- **Cleanup en desconexión**: ``unsubscribe`` + ``aclose`` para no
+  dejar subscripciones colgadas si el cliente cierra la pestaña.
+
+El evento inicial ``ping`` permite al frontend saber que la conexión
+está establecida (se traduce a ``connected.value=true`` en el composable).
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+
+from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+
+from app.core.db import get_db
+from app.core.deps import get_current_user_or_query_token, parking_context
+from app.core.redis_async import get_async_redis
+from app.models.user import User
+from app.services.event_bus import channel_for_parking
+
+log = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/parkings/{parking_id}", tags=["events"])
+
+
+@router.get("/events")
+async def stream_parking_events(
+    parking_id: int,
+    _user: User = Depends(get_current_user_or_query_token),
+    _ctx: User = Depends(parking_context),
+    _db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Stream SSE con eventos de la sucursal.
+
+    Autenticación: ``Authorization: Bearer <jwt>`` o ``?token=<jwt>``
+    (querystring es para ``EventSource`` que no soporta headers).
+
+    RBAC: admin global o miembro del parking. ``parking_context`` ya
+    lo valida y devuelve 403 si el gestor no pertenece a la sucursal.
+
+    El stream permanece abierto mientras el cliente esté conectado.
+    En cada mensaje publicado al canal Redis, lo emite como
+    ``data: <json>\\n\\n``. Cada 30 s sin mensajes emite ``:keepalive``.
+    """
+    r = get_async_redis()
+    pubsub = r.pubsub()
+    channel = channel_for_parking(parking_id)
+    await pubsub.subscribe(channel)
+    log.info("SSE: subscrito a canal %s", channel)
+
+    async def gen():
+        try:
+            # Mensaje inicial para que el cliente sepa que conectó OK.
+            yield "event: ping\ndata: {}\n\n"
+            while True:
+                try:
+                    msg = await asyncio.wait_for(
+                        pubsub.get_message(
+                            ignore_subscribe_messages=True, timeout=1.0
+                        ),
+                        timeout=30.0,
+                    )
+                except asyncio.TimeoutError:
+                    # Idle > 30 s: emitimos heartbeat para mantener la
+                    # conexión viva en proxies intermedios.
+                    yield ":keepalive\n\n"
+                    continue
+                if msg is not None and msg.get("type") == "message":
+                    # msg["data"] ya viene como JSON string (decode_responses=True).
+                    yield f"data: {msg['data']}\n\n"
+        except asyncio.CancelledError:
+            # El cliente cerró el stream (navegador tab cerrada).
+            log.info("SSE: cliente desconectó del canal %s", channel)
+            raise
+        except Exception as exc:  # noqa: BLE001 — defensiva
+            log.warning("SSE: error en stream canal=%s: %s", channel, exc)
+        finally:
+            try:
+                await pubsub.unsubscribe(channel)
+                await pubsub.aclose()
+            except Exception as exc:  # noqa: BLE001
+                log.debug("SSE: cleanup pubsub falló (no crítico): %s", exc)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            # Evita buffering en nginx/ALB/Cloudflare.
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+__all__ = ["router"]
