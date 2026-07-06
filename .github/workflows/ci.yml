@@ -30,6 +30,11 @@ jobs:
         options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 5
 
     env:
+      # Sprint Fase 4 CI fix (2026-07-06): GH Actions deprecó Node 20 en
+      # 2025-09-19 y fuerza Node 24. Las acciones @v4/@v5 targetean Node 20
+      # → conflicto en cache de dependencias. Esta env var autoriza a las
+      # acciones deprecadas a seguir corriendo en su versión original.
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
       DATABASE_URL: postgresql+psycopg://parking:parking@localhost:5432/parking_test
       ASYNC_DATABASE_URL: postgresql+asyncpg://parking:parking@localhost:5432/parking_test
       REDIS_URL: redis://localhost:6379/0
@@ -69,6 +74,11 @@ jobs:
   frontend:
     name: Frontend (vue-tsc, build)
     runs-on: ubuntu-latest
+
+    env:
+      # Mismo workaround que backend: GH Actions deprecó Node 20 y la
+      # acción @v4 de setup-node entra en conflicto con el runner Node 24.
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
 
     defaults:
       run:
