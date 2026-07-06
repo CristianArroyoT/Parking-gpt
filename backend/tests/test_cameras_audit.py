@@ -113,3 +113,91 @@ def test_create_camera_cliente_403_no_audit_log(
     )
     assert response.status_code == 403, response.text
     assert_no_audit_log(db_session, action="create_camera")
+
+
+# ── Sprint Fase 4: Camera.kind (surveillance | gate) ─────────────────
+
+def test_create_camera_default_kind_is_surveillance(
+    client: TestClient, db_session: Session,
+) -> None:
+    """Crear cámara sin ``kind`` explícito → la respuesta trae
+    ``kind="surveillance"`` (back-compat con cámaras pre-Fase 4)."""
+    admin = _seed_admin(db_session)
+    parking = _seed_parking(db_session, code="P-KIND-DEF")
+    headers = _login_headers(client, admin.email, "admin12345")
+
+    r = client.post(
+        f"/api/v1/parkings/{parking.id}/cameras",
+        json={
+            "code": "CAM-DEF",
+            "name": "Cámara por defecto",
+            "rtsp_url": "rtsp://test.invalid/default",
+            "fps": 10,
+        },
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["kind"] == "surveillance"
+
+
+def test_create_camera_with_kind_gate(
+    client: TestClient, db_session: Session,
+) -> None:
+    """Crear cámara con ``kind=gate`` (portería) → la respuesta lo refleja."""
+    admin = _seed_admin(db_session)
+    parking = _seed_parking(db_session, code="P-KIND-GATE")
+    headers = _login_headers(client, admin.email, "admin12345")
+
+    r = client.post(
+        f"/api/v1/parkings/{parking.id}/cameras",
+        json={
+            "code": "CAM-GATE-1",
+            "name": "Cámara portería entrada",
+            "rtsp_url": "rtsp://test.invalid/gate-in",
+            "fps": 15,
+            "kind": "gate",
+        },
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["kind"] == "gate"
+
+    # GET lista también expone el kind.
+    r2 = client.get(
+        f"/api/v1/parkings/{parking.id}/cameras",
+        headers=headers,
+    )
+    assert r2.status_code == 200
+    cameras = r2.json()
+    assert any(c["code"] == "CAM-GATE-1" and c["kind"] == "gate" for c in cameras)
+
+
+def test_update_camera_kind(
+    client: TestClient, db_session: Session,
+) -> None:
+    """PATCH de cámara cambiando ``surveillance`` → ``gate``."""
+    admin = _seed_admin(db_session)
+    parking = _seed_parking(db_session, code="P-KIND-UPD")
+    headers = _login_headers(client, admin.email, "admin12345")
+
+    r = client.post(
+        f"/api/v1/parkings/{parking.id}/cameras",
+        json={
+            "code": "CAM-UPD-K",
+            "name": "Cámara a recategorizar",
+            "rtsp_url": "rtsp://test.invalid/recategorize",
+            "fps": 10,
+        },
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    camera_id = r.json()["id"]
+    assert r.json()["kind"] == "surveillance"
+
+    r2 = client.patch(
+        f"/api/v1/parkings/{parking.id}/cameras/{camera_id}",
+        json={"kind": "gate"},
+        headers=headers,
+    )
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["kind"] == "gate"

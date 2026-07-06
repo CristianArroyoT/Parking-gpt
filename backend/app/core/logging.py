@@ -51,7 +51,6 @@ def configure_logging() -> None:
     # test ("ValueError: Unable to configure handler 'file'"). El logger
     # por defecto de pytest mantiene la salida limpia sin que nosotros
     # configuremos nada.
-    import os
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return
 

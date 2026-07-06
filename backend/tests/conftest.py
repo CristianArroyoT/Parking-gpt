@@ -87,9 +87,20 @@ def _clean_redis_counters():
         # también con un SCAN para no contaminar entre tests.
         for key in client.scan_iter("rl:login:*"):
             client.delete(key)
+        # Sprint Fase 3D: token blacklist + rate-limit de endpoints.
+        # - ``jwt:blacklist:*``: jti de tokens invalidados en logout.
+        # - ``rl:{scope}:*``: buckets genéricos del ``EndpointRateLimiter``
+        #   (``users_create``, ``users_update``, ``vehicles_create``,
+        #   ``vehicles_update``, ...).
+        for key in client.scan_iter("jwt:blacklist:*"):
+            client.delete(key)
+        for key in client.scan_iter("rl:users_*"):
+            client.delete(key)
+        for key in client.scan_iter("rl:vehicles_*"):
+            client.delete(key)
     except Exception:
         pass
-    yield
+    return
 
 
 @pytest.fixture()

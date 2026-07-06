@@ -44,6 +44,14 @@
     @apply rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-800
       text-sm font-medium px-3 py-1.5 transition;
   }
+  .btn-danger {
+    /* Sprint Fase 4 (2026-07-01): acciones destructivas (eliminar
+    geocerca, cerrar sesión). Color contrastado para que el operador
+    identifique el riesgo visualmente. */
+    @apply rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm
+      font-semibold px-3 py-1.5 transition disabled:opacity-50
+      disabled:cursor-not-allowed;
+  }
   .plaza-libre    { @apply plaza bg-park-libre; }
   .plaza-ocupada  { @apply plaza bg-park-ocupado; }
   .plaza-alerta   { @apply plaza bg-park-alerta; }

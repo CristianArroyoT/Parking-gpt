@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Generic, TypeVar
+from typing import Generic, Optional, TypeVar
 
 from pydantic import BaseModel, ConfigDict, EmailStr
 
@@ -44,3 +44,19 @@ class TokenPair(ORMModel):
     token_type: str = "bearer"
     expires_in: int
     refresh_token: str
+
+
+class LogoutRequest(ORMModel):
+    """Body opcional de ``POST /auth/logout``.
+
+    Sprint Fase 3D (push security review 2026-07-01): si el cliente
+    envía ``refresh_token``, ``logout`` lo blacklistea también —
+    cerrando el bypass en el que el ``refresh`` seguía vivo tras
+    logout y permitía rotar ``access`` nuevos durante 7 días.
+
+    Si NO se envía, sólo se blacklistea el ``access`` (el comportamiento
+    previo) — útil para clientes que ya invalidaron el refresh por su
+    cuenta (p. ej. SPA que descarta ambos en memoria).
+    """
+
+    refresh_token: Optional[str] = None

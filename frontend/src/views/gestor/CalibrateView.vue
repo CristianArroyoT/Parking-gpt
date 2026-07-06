@@ -6,7 +6,8 @@
  *   GET    /parkings/{parking_id}/cameras/{camera_id}/geofences
  *   POST   /parkings/{parking_id}/cameras/{camera_id}/geofences
  *   PATCH  /parkings/{parking_id}/cameras/{camera_id}/geofences/{fence_id}
- * (sin DELETE en MVP — la reasignación de plaza obliga a crear otra).
+ *   DELETE /parkings/{parking_id}/cameras/{camera_id}/geofences/{fence_id}
+ * (Sprint Fase 4, 2026-07-01).
  *
  * Interacción: en modo "Crear", el usuario hace click-drag sobre el SVG
  * para dibujar un rectángulo; al soltar se abre el formulario lateral
@@ -232,6 +233,21 @@ async function updateDirection(fence: Geofence, value: Direction): Promise<void>
     ui.pushToast('error', extractError(err, 'No se pudo actualizar la dirección'))
   }
 }
+async function deleteFence(fence: Geofence): Promise<void> {
+  // Confirmación nativa — flujo destructivo sin undo.
+  const label = fenceLabel(fence)
+  if (!window.confirm(`¿Eliminar la geocerca de la plaza ${label}?`)) return
+  try {
+    await http.delete(
+      `/parkings/${parkingId.value}/cameras/${cameraId.value}/geofences/${fence.id}`,
+    )
+    ui.pushToast('success', `Geocerca ${label} eliminada`)
+    selectedId.value = null
+    await loadGeofences()
+  } catch (err: unknown) {
+    ui.pushToast('error', extractError(err, 'No se pudo eliminar la geocerca'))
+  }
+}
 
 function extractError(err: unknown, fallback: string): string {
   if (typeof err === 'object' && err !== null) {
@@ -437,9 +453,6 @@ function fenceLabel(g: Geofence): string {
               <div v-if="g.id === selectedId">
                 <div class="text-xs text-slate-500 mb-1">Plaza asignada</div>
                 <div class="font-medium">{{ fenceLabel(g) }}</div>
-                <div class="text-xs text-slate-500 mt-1">
-                  (re-asignar requiere borrar y volver a crear — sin DELETE en MVP)
-                </div>
                 <div class="mt-3">
                   <label class="block text-slate-700 font-medium mb-1">Umbral de confianza</label>
                   <div class="flex items-center gap-3">
@@ -462,6 +475,15 @@ function fenceLabel(g: Geofence): string {
                     <option value="entry">Entrada (vehículos entran)</option>
                     <option value="exit">Salida (vehículos salen)</option>
                   </select>
+                </div>
+                <!-- Sprint Fase 4 (2026-07-01): botón eliminar. Antes había
+                que dejar la geocerca huérfana o reasignar plaza indirectamente. -->
+                <div class="mt-4 pt-3 border-t border-slate-200">
+                  <button
+                    type="button"
+                    class="btn-danger w-full"
+                    @click="deleteFence(g)"
+                  >Eliminar geocerca</button>
                 </div>
               </div>
             </template>

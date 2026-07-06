@@ -17,8 +17,6 @@ sin ``time.sleep``.
 """
 from __future__ import annotations
 
-import time
-from unittest.mock import patch
 
 import pytest
 import redis
@@ -26,8 +24,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.services.rate_limit import LoginRateLimiter, rate_limiter
-from tests._audit_helpers import assert_audit_log, assert_no_audit_log
+from tests._audit_helpers import assert_audit_log
 
 
 # ── helpers ────────────────────────────────────────────────────────────

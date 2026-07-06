@@ -11,7 +11,6 @@ plaza ya estaba en el estado deseado).
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request, Response
-from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db

@@ -15,8 +15,10 @@ from app.core.deps import get_current_user, parking_context, require_role
 from app.models.enums import TicketStatus, UserRole
 from app.models.ticket import Ticket
 from app.models.user import ParkingMembership, User
+from app.models.vehicle import Vehicle
 from app.schemas.ticket import TicketClose, TicketCreate, TicketManualCreate, TicketRead
 from app.services.manual_tickets import create_manual_ticket as _create_manual_ticket
+from app.services.pdf import save_ticket_pdf
 from app.services.pricing import PricingError, calculate_ticket_total
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])

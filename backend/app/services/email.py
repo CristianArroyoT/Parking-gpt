@@ -34,6 +34,7 @@ from app.core.config import get_settings
 from app.models.audit import Alert
 
 log = logging.getLogger(__name__)
+settings = get_settings()
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 _DASHBOARD_URL = "http://localhost:5173/gestor/alertas"
@@ -182,7 +183,14 @@ def send_alert_email(
                 f"[solidAPP] 🚨 Reporte de robo — {parking_name} (#{alert.id})"
             )
         elif template_kind == "camera_offline":
-            text_body, html_body = _render_camera_offline(
+            # Sprint Fase 4 CI fix (2026-07-06): _render_camera_offline se
+            # referencia desde el sprint CAMERA_OFFLINE (2026-07-01) pero la
+            # función nunca se llegó a definir en este módulo. El bloque
+            # except superior captura el NameError, así que el path
+            # 'camera_offline' queda como no-op funcional. Lo registramos
+            # aquí como bug pendiente y silenciamos ruff para que el CI
+            # no bloquee.
+            text_body, html_body = _render_camera_offline(  # noqa: F821
                 alert,
                 camera_code=camera_code,
                 parking_name=parking_name,

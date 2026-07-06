@@ -19,8 +19,37 @@ from app.schemas.user import (
     UserRead,
     UserUpdate,
 )
+from app.services.audit import record_audit_from_request
+from app.services.endpoint_rate_limit import endpoint_rate_limiter
 
 router = APIRouter(prefix="/users", tags=["usuarios"])
+
+
+def _enforce_endpoint_rate_limit(
+    request: Request, db: Session, *, scope: str, actor_id: int,
+) -> None:
+    """Aplica ``endpoint_rate_limiter.check`` y emite audit + 429 si bloquea.
+
+    Helper compartido por ``create_user`` y ``update_user``. Lanza 429
+    si el bucket del actor supera el umbral. El audit se persiste con
+    ``action="rate_limited_endpoint"`` y el scope concreto (e.g.
+    ``users_create``) para correlación operativa.
+    """
+    allowed, bucket, count = endpoint_rate_limiter.check(
+        scope=scope, identifiers={"actor": str(actor_id)},
+    )
+    if not allowed:
+        record_audit_from_request(
+            request, db,
+            action="rate_limited_endpoint",
+            payload={"scope": scope, "bucket": bucket, "count": count},
+            result="failure",
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demasiadas operaciones. Intenta más tarde.",
+        )
 
 
 @router.get("/me", response_model=UserRead)
@@ -45,6 +74,13 @@ def create_user(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_role(UserRole.ADMIN.value)),
 ) -> User:
+    # Sprint Fase 3D (2026-07-01): rate-limit por actor (admin).
+    audit = getattr(request.state, "audit", None) or {}
+    actor_id = audit.get("user_id")
+    if actor_id is not None:
+        _enforce_endpoint_rate_limit(
+            request, db, scope="users_create", actor_id=actor_id,
+        )
     user = User(
         email=payload.email,
         full_name=payload.full_name,
@@ -86,6 +122,13 @@ def update_user(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_role(UserRole.ADMIN.value)),
 ) -> User:
+    # Sprint Fase 3D: rate-limit por actor (admin) en updates también.
+    audit = getattr(request.state, "audit", None) or {}
+    actor_id = audit.get("user_id")
+    if actor_id is not None:
+        _enforce_endpoint_rate_limit(
+            request, db, scope="users_update", actor_id=actor_id,
+        )
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")

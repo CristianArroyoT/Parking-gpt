@@ -27,9 +27,8 @@ from sqlalchemy.pool import StaticPool
 import app.models  # noqa: F401 — fuerza el registro de tablas en Base.metadata
 from app.core.db import Base
 from app.models.audit import Alert
-from app.models.enums import AlertSeverity, AlertType, UserRole
+from app.models.enums import AlertSeverity, AlertType
 from app.models.parking import Camera, Parking
-from app.models.user import ParkingMembership, User
 from app.services import alerts as alerts_mod
 
 

@@ -21,10 +21,38 @@ from app.schemas.vehicle import (
     VehicleUserCreate,
     VehicleUserRead,
 )
+from app.services.audit import record_audit_from_request
+from app.services.endpoint_rate_limit import endpoint_rate_limiter
 
 router = APIRouter(prefix="/vehicles", tags=["vehículos"])
 
 _STAFF = (UserRole.ADMIN.value, UserRole.GESTOR.value, UserRole.OPERADOR.value)
+
+
+def _enforce_endpoint_rate_limit(
+    request: Request, db: Session, *, scope: str, actor_id: int,
+) -> None:
+    """Aplica ``endpoint_rate_limiter.check`` y emite audit + 429 si bloquea.
+
+    Helper compartido por ``create_vehicle`` y ``update_vehicle``. Lanza
+    429 si el bucket del actor supera el umbral. El audit se persiste
+    con ``action="rate_limited_endpoint"`` y el scope concreto.
+    """
+    allowed, bucket, count = endpoint_rate_limiter.check(
+        scope=scope, identifiers={"actor": str(actor_id)},
+    )
+    if not allowed:
+        record_audit_from_request(
+            request, db,
+            action="rate_limited_endpoint",
+            payload={"scope": scope, "bucket": bucket, "count": count},
+            result="failure",
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demasiadas operaciones. Intenta más tarde.",
+        )
 
 
 @router.get("", response_model=list[VehicleRead])
@@ -47,6 +75,13 @@ def create_vehicle(
     db: Session = Depends(get_db),
     _user: User = Depends(require_role(*_STAFF)),
 ) -> Vehicle:
+    # Sprint Fase 3D: rate-limit por actor (staff autenticado).
+    audit = getattr(request.state, "audit", None) or {}
+    actor_id = audit.get("user_id")
+    if actor_id is not None:
+        _enforce_endpoint_rate_limit(
+            request, db, scope="vehicles_create", actor_id=actor_id,
+        )
     vehicle = Vehicle(**payload.model_dump())
     db.add(vehicle)
     try:
@@ -69,6 +104,13 @@ def update_vehicle(
     db: Session = Depends(get_db),
     _user: User = Depends(require_role(*_STAFF)),
 ) -> Vehicle:
+    # Sprint Fase 3D: rate-limit por actor en updates también.
+    audit = getattr(request.state, "audit", None) or {}
+    actor_id = audit.get("user_id")
+    if actor_id is not None:
+        _enforce_endpoint_rate_limit(
+            request, db, scope="vehicles_update", actor_id=actor_id,
+        )
     vehicle = db.get(Vehicle, vehicle_id)
     if not vehicle:
         raise HTTPException(status_code=404, detail="Vehículo no encontrado")

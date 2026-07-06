@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+import logging
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
+from redis.exceptions import RedisError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -16,9 +19,12 @@ from app.core.security import (
     verify_password,
 )
 from app.models.user import User
-from app.schemas import LoginRequest, MessageResponse, TokenPair
+from app.schemas import LoginRequest, LogoutRequest, MessageResponse, TokenPair
 from app.services.audit import record_audit_from_request
 from app.services.rate_limit import rate_limiter
+from app.services.token_blacklist import token_blacklist
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -162,6 +168,35 @@ def refresh(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Token de refresco requerido"
         )
+    # Sprint Fase 3D (push security review 2026-07-01): si el refresh
+    # ya está blacklisteado (p. ej. tras logout con body refresh_token),
+    # rechazamos con 401. Sin este check, el bypass de 7 días del refresh
+    # sigue abierto aunque el cliente haya enviado el refresh al logout.
+    ref_jti = data.get("jti")
+    if ref_jti is not None:
+        try:
+            if token_blacklist.is_blocked(ref_jti):
+                record_audit_from_request(
+                    request, db,
+                    action="refresh_failure",
+                    payload={"reason": "blacklisted", "jti": ref_jti},
+                    result="failure",
+                )
+                db.commit()
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token de refresco revocado",
+                    headers={"WWW-Authenticate": 'Bearer error="invalid_token"'},
+                )
+        except RedisError as exc:
+            log.warning(
+                "refresh: Redis caído, fail-closed (%s)", exc,
+            )
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Servicio de autenticación no disponible",
+            ) from exc
     user = db.get(User, int(data["sub"]))
     if not user or not user.is_active:
         record_audit_from_request(
@@ -185,19 +220,128 @@ def refresh(
 
 
 @router.post("/logout", response_model=MessageResponse)
-def logout(request: Request, db: Session = Depends(get_db)) -> MessageResponse:
-    """Sprint Fase 3A: registra logout_success con user_id desde el JWT.
+def logout(
+    request: Request,
+    payload: LogoutRequest = Body(default_factory=LogoutRequest),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    """Logout real: blacklistea access + refresh (si viene) en Redis.
 
-    La invalidación real del token queda fuera de scope de este sprint
-    (lista negra Redis). El frontend debe borrar el token de sessionStorage
-    para que el siguiente request falle con 401.
+    Sprint Fase 3D (2026-07-01). Antes (Fase 3A) sólo registraba audit.
+    Sprint Fase 3D push security review (2026-07-01) — 2 hallazgos:
+
+      1. **Logout-bypass fix**: añade el ``jti`` del access token al
+         blacklist con TTL ``(exp - now) + grace_seconds``. Si el
+         cliente envía ``refresh_token`` en el body, también lo
+         decodifica y blacklistea su ``jti`` — cerrando el bypass que
+         dejaba el refresh vivo durante 7 días.
+
+      2. **Legacy-token-ORACLE fix**: rechaza con 401 si el token no
+         tiene ``jti`` o el decode JWT falló (antes respondía 200
+         ``jti_blacklisted=False`` — canal lateral para atacantes).
+
+    Si Redis cae durante el blacklist → 503 ``Servicio de autenticación
+    no disponible``. Fail-CLOSED: preferible un logout fallido antes
+    que un token comprometido circulando.
     """
     audit = getattr(request.state, "audit", None) or {}
     user_id = audit.get("user_id")
+    jti = audit.get("jti")
+    exp = audit.get("exp")
+    token_type = audit.get("type")
+    decode_error = audit.get("decode_error", False)
+
+    # Hard-fail si el token no se pudo decodificar o no es un access
+    # válido con jti + exp. Cierra el oracle que devolvía 200 con
+    # tokens malformados.
+    if decode_error or jti is None or exp is None or token_type != "access":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token no soportado para logout. Vuelve a iniciar sesión.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # 1) Blacklist del access.
+    try:
+        token_blacklist.add(jti=jti, exp_epoch=int(exp))
+    except RedisError as exc:
+        db.rollback()
+        log.warning(
+            "logout: Redis caído, no se pudo blacklistear access jti=%s (%s)",
+            jti, exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Servicio de autenticación no disponible",
+        ) from exc
+
+    # 2) Blacklist del refresh si el cliente lo envía en el body.
+    refresh_blacklisted = False
+    if payload.refresh_token:
+        try:
+            ref_payload = decode_token(payload.refresh_token)
+        except ValueError as exc:
+            # El access ya está blacklisteado — devolvemos 401 pero
+            # dejamos el audit con refresh_blacklisted=False para que
+            # el operador vea que el refresh enviado era inválido.
+            record_audit_from_request(
+                request, db,
+                action="logout_partial",
+                resource=f"users/{user_id}" if user_id else None,
+                payload={
+                    "jti_blacklisted": True,
+                    "refresh_jti_blacklisted": False,
+                    "refresh_reason": f"decode_error: {exc}",
+                },
+                result="failure",
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token inválido.",
+            ) from exc
+        ref_jti = ref_payload.get("jti")
+        ref_exp = ref_payload.get("exp")
+        ref_type = ref_payload.get("type")
+        if ref_jti is None or ref_exp is None or ref_type != "refresh":
+            record_audit_from_request(
+                request, db,
+                action="logout_partial",
+                resource=f"users/{user_id}" if user_id else None,
+                payload={
+                    "jti_blacklisted": True,
+                    "refresh_jti_blacklisted": False,
+                    "refresh_reason": "missing_jti_or_wrong_type",
+                },
+                result="failure",
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token no soportado.",
+            )
+        try:
+            token_blacklist.add(jti=ref_jti, exp_epoch=int(ref_exp))
+            refresh_blacklisted = True
+        except RedisError as exc:
+            db.rollback()
+            log.warning(
+                "logout: Redis cayó blacklisteando refresh jti=%s (%s)",
+                ref_jti, exc,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Servicio de autenticación no disponible",
+            ) from exc
+
     record_audit_from_request(
         request, db,
         action="logout_success",
         resource=f"users/{user_id}" if user_id else None,
+        payload={
+            "jti_blacklisted": True,
+            "refresh_jti_blacklisted": refresh_blacklisted,
+        },
         result="success",
     )
     db.commit()
