@@ -27,6 +27,12 @@ class User(Base, TimestampMixin):
         String(32), default=UserRole.CLIENTE, nullable=False, index=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Sprint hardening R6 (2026-07-06): service accounts (p.ej. cronjobs
+    # de carga inicial de datos) pueden saltarse el rate-limit de CRUDs
+    # sin tener que cambiar settings globales. Default False.
+    no_rate_limit: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false",
+    )
 
     memberships: Mapped[list["ParkingMembership"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
