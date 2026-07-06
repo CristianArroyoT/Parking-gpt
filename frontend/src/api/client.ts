@@ -151,3 +151,22 @@ export interface IncidentCreatePayload {
   notes?: string | null
   photos?: string[]
 }
+
+// ── Resumen operativo de tickets (Sprint Fase 4-parte-2) ─────────────
+// Espejo de app/schemas/ticket_summary.py::TicketSummaryRead.
+export interface TicketSummary {
+  total_tickets_24h: number
+  active_tickets_now: number
+  closed_tickets_24h: number
+  cancelled_tickets_24h: number
+  total_revenue_24h: number | null
+  average_duration_minutes: number | null
+  window_hours: number
+}
+
+export async function getTicketSummary(parkingId: number): Promise<TicketSummary> {
+  const r = await http.get<TicketSummary>(
+    `/parkings/${parkingId}/tickets/summary`,
+  )
+  return r.data
+}

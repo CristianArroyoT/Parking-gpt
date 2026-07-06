@@ -14,6 +14,7 @@ from app.api.v1 import (
     plates,
     spaces,
     tariffs,
+    ticket_summary,
     tickets,
     users,
     vehicles,
@@ -28,6 +29,8 @@ api_router.include_router(cameras.router)
 api_router.include_router(vehicles.router)
 api_router.include_router(tariffs.router)
 api_router.include_router(tickets.router)
+# Sprint Fase 4-parte-2: resumen operativo de tickets por sucursal (24 h).
+api_router.include_router(ticket_summary.router)
 api_router.include_router(plates.router)
 api_router.include_router(alerts.router)
 api_router.include_router(incidents.router)

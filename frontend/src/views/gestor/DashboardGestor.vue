@@ -11,15 +11,14 @@
  * Endpoints consumidos:
  *   - GET /parkings                              (lista de sucursales).
  *   - GET /parkings/{id}/cameras                 (cámaras del parking).
- *   - GET /tickets?parking_id=...                (no existe aún; usamos
- *     placeholder hasta Fase 4-parte-2 con endpoint de resumen).
+ *   - GET /parkings/{id}/tickets/summary         (KPIs 24 h — Fase 4-parte-2).
  *
  * Patrón idéntico al ``admin/DashboardView.vue``: AppLayout + http +
  * useUiStore, sin estado global de Pinia.
  */
 import { computed, onMounted, ref } from 'vue'
 import AppLayout from '@/layouts/AppLayout.vue'
-import { http } from '@/api/client'
+import { http, getTicketSummary, type TicketSummary } from '@/api/client'
 import { useUiStore } from '@/stores/ui'
 
 interface Parking { id: number; name: string; code: string; is_active: boolean }
@@ -35,6 +34,7 @@ const ui = useUiStore()
 
 const parkings = ref<Parking[]>([])
 const cameras = ref<Camera[]>([])
+const summary = ref<TicketSummary | null>(null)
 const loading = ref(true)
 
 const selectedParkingId = ref<number | null>(null)
@@ -63,10 +63,12 @@ async function load(): Promise<void> {
       selectedParkingId.value = ps[0].id
     }
     if (selectedParkingId.value) {
-      const { data: cs } = await http.get<Camera[]>(
-        `/parkings/${selectedParkingId.value}/cameras`,
-      )
+      const [{ data: cs }, sum] = await Promise.all([
+        http.get<Camera[]>(`/parkings/${selectedParkingId.value}/cameras`),
+        getTicketSummary(selectedParkingId.value).catch(() => null),
+      ])
       cameras.value = cs
+      summary.value = sum
     }
   } catch {
     ui.pushToast('error', 'No se pudo cargar el dashboard')
@@ -206,19 +208,68 @@ function healthClass(c: Camera): string {
         </table>
       </div>
 
-      <!-- Aviso: el resumen de tickets por parking se conectará en
-      Sprint Fase 4-parte-2 cuando el backend exponga un endpoint
-      /parkings/{id}/tickets/summary. -->
-      <div class="mt-8 bg-white rounded-xl shadow-card">
-        <div class="px-5 py-4 border-b border-slate-200">
-          <h2 class="font-semibold">Tickets (24 h)</h2>
+      <!-- Sprint Fase 4-parte-2 (2026-07-06): KPIs de tickets en 24 h.
+      Fuente: GET /parkings/{parking_id}/tickets/summary. -->
+      <section class="mt-8 grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-white rounded-xl shadow-card p-5">
+          <div class="text-xs uppercase tracking-wide text-slate-500">
+            Tickets totales (24 h)
+          </div>
+          <div class="mt-2 text-3xl font-semibold text-slate-900">
+            {{ summary?.total_tickets_24h ?? '—' }}
+          </div>
         </div>
-        <p class="px-5 py-6 text-sm text-slate-500">
-          Resumen de tickets de las últimas 24 h. Disponible cuando el
-          endpoint <code>/parkings/{id}/tickets/summary</code> entre en
-          producción (Sprint Fase 4-parte-2).
-        </p>
-      </div>
+        <div class="bg-white rounded-xl shadow-card p-5">
+          <div class="text-xs uppercase tracking-wide text-slate-500">
+            Activos ahora
+          </div>
+          <div class="mt-2 text-3xl font-semibold text-emerald-700">
+            {{ summary?.active_tickets_now ?? '—' }}
+          </div>
+        </div>
+        <div class="bg-white rounded-xl shadow-card p-5">
+          <div class="text-xs uppercase tracking-wide text-slate-500">
+            Cerrados (24 h)
+          </div>
+          <div class="mt-2 text-3xl font-semibold text-slate-700">
+            {{ summary?.closed_tickets_24h ?? '—' }}
+          </div>
+        </div>
+        <div class="bg-white rounded-xl shadow-card p-5">
+          <div class="text-xs uppercase tracking-wide text-slate-500">
+            Anulados (24 h)
+          </div>
+          <div class="mt-2 text-3xl font-semibold text-rose-700">
+            {{ summary?.cancelled_tickets_24h ?? '—' }}
+          </div>
+        </div>
+      </section>
+      <section class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl shadow-card p-5">
+          <div class="text-xs uppercase tracking-wide text-slate-500">
+            Ingresos (24 h)
+          </div>
+          <div class="mt-2 text-2xl font-semibold text-slate-900">
+            {{
+              summary?.total_revenue_24h === null || summary === null
+                ? '—'
+                : `${summary.total_revenue_24h.toFixed(2)} €`
+            }}
+          </div>
+        </div>
+        <div class="bg-white rounded-xl shadow-card p-5">
+          <div class="text-xs uppercase tracking-wide text-slate-500">
+            Duración media
+          </div>
+          <div class="mt-2 text-2xl font-semibold text-slate-900">
+            {{
+              summary?.average_duration_minutes === null || summary === null
+                ? '—'
+                : `${summary.average_duration_minutes.toFixed(1)} min`
+            }}
+          </div>
+        </div>
+      </section>
     </template>
   </AppLayout>
 </template>
