@@ -200,6 +200,7 @@ def delete_geofence(
     parking_id: int,
     camera_id: int,
     fence_id: int,
+    request: Request,
     db: Session = Depends(get_db),
 ) -> None:
     """Elimina una geocerca. Validamos que la cámara pertenece al
@@ -209,7 +210,18 @@ def delete_geofence(
     geocerca era ``PATCH /geofences/{id}`` con un payload nuevo — no
     había forma de borrarla. Con este endpoint, el operador puede
     limpiar geocercas obsoletas desde ``CalibrateView.vue``.
+
+    Sprint R5 (follow-up): paridad con POST/PATCH — un bucle de borrados
+    de geocercas degrada la operación igual que un bucle de parches.
     """
+    # Rate-limit por actor (gestor/admin). El router ya exige
+    # ``parking_context`` como dep, así que el actor siempre existe.
+    audit = getattr(request.state, "audit", None) or {}
+    actor_id = audit.get("user_id")
+    if actor_id is not None:
+        _enforce_endpoint_rate_limit(
+            request, db, scope="geofences_delete", actor_id=actor_id,
+        )
     fence = (
         db.query(CameraGeofence)
         .filter(

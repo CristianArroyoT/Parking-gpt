@@ -134,6 +134,14 @@ def delete_parking(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_role(UserRole.ADMIN.value)),
 ) -> None:
+    # Sprint R5 (follow-up): paridad con POST/PATCH. Un bucle de borrados
+    # de sucursales es destructivamente equivalente a uno de parches.
+    audit = getattr(request.state, "audit", None) or {}
+    actor_id = audit.get("user_id")
+    if actor_id is not None:
+        _enforce_endpoint_rate_limit(
+            request, db, scope="parkings_delete", actor_id=actor_id,
+        )
     parking = db.get(Parking, parking_id)
     if not parking:
         raise HTTPException(status_code=404, detail="Sucursal no encontrada")

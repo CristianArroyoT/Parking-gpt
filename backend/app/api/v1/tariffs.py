@@ -137,6 +137,13 @@ def delete_tariff(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_role(UserRole.ADMIN.value)),
 ) -> None:
+    # Sprint R5 (follow-up): paridad con POST/PATCH.
+    audit = getattr(request.state, "audit", None) or {}
+    actor_id = audit.get("user_id")
+    if actor_id is not None:
+        _enforce_endpoint_rate_limit(
+            request, db, scope="tariffs_delete", actor_id=actor_id,
+        )
     tariff = (
         db.query(Tariff)
         .filter(Tariff.id == tariff_id, Tariff.parking_id == parking_id)

@@ -16,12 +16,32 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.models.parking import Parking
 from tests._audit_helpers import (
     _login_headers,
     _seed_admin,
     _seed_parking,
     assert_audit_log,
 )
+
+
+def _seed_parkings(db: Session, codes: list[str]) -> list[int]:
+    """Sembrar N parkings directamente en BD.
+
+    Se usa en los tests de DELETE para evitar que las siembras POST
+    disparen el rate-limit del scope ``parkings_create`` (cada test
+    ya parchea ``max_attempts=2``; sembrar vía POST necesitaría un
+    parche más laxo para no chocar con el bucket).
+    """
+    ids: list[int] = []
+    for code in codes:
+        p = Parking(code=code, name=f"Test {code}",
+                    address="Calle Test 1", city="Madrid")
+        db.add(p)
+        db.commit()
+        db.refresh(p)
+        ids.append(p.id)
+    return ids
 
 
 # ── helpers ────────────────────────────────────────────────────────────
@@ -290,3 +310,166 @@ def test_r5_rate_limit_audit_log(
     assert row.payload is not None
     assert row.payload["scope"] == "parkings_create"
     assert row.payload["bucket"].startswith("rl:parkings_create:")
+
+
+# ── DELETE follow-up (2026-07-06) ────────────────────────────────────
+# Push security review encontró que el rate-limit del Sprint R5 sólo
+# cubría POST/PATCH. Aplicamos paridad a los 3 handlers DELETE
+# destructivos del mismo grupo de routers: un bucle de borrados
+# degrada la operación igual que un bucle de parches. Cada test sigue
+# el mismo patrón (max_attempts=2, ``max_attempts + 1`` → 429).
+
+
+def test_delete_parking_blocks_after_max_attempts(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``DELETE /parkings/{id}`` admin: tras N borrados → 429."""
+    _force_endpoint_settings(monkeypatch, max_attempts=2)
+    admin = _seed_admin(db_session)
+    headers = _login_headers(client, admin.email, "admin12345")
+    # Sembrar en BD directa: evita que las siembras POST disparen
+    # el bucket ``parkings_create`` (ya parcheado a max_attempts=2).
+    ids = _seed_parkings(db_session, ["P-R5-DEL-0", "P-R5-DEL-1", "P-R5-DEL-2"])
+
+    for i in range(2):
+        r = client.delete(f"/api/v1/parkings/{ids[i]}", headers=headers)
+        assert r.status_code == 204, f"delete {i}: {r.status_code} {r.text}"
+
+    r = client.delete(f"/api/v1/parkings/{ids[2]}", headers=headers)
+    assert r.status_code == 429, (
+        f"esperaba 429 tras 3 deletes, obtuve {r.status_code}: {r.text}"
+    )
+
+
+def test_delete_tariff_blocks_after_max_attempts(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``DELETE /parkings/{id}/tariffs/{tid}`` admin → 429 tras N."""
+    from app.models.pricing import Tariff
+
+    _force_endpoint_settings(monkeypatch, max_attempts=2)
+    admin = _seed_admin(db_session)
+    parking = _seed_parking(db_session, code="P-R5-TDEL")
+    headers = _login_headers(client, admin.email, "admin12345")
+
+    # Sembrar 3 tarifas en BD directa por la misma razón del test anterior.
+    from datetime import datetime, timedelta, timezone
+    valid_from = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    tariff_ids: list[int] = []
+    for i in range(3):
+        t = Tariff(
+            parking_id=parking.id, name=f"tarifa-{i}",
+            price_per_hour=1.5, price_per_fraction=0.05,
+            valid_from=valid_from + timedelta(minutes=i),
+        )
+        db_session.add(t)
+        db_session.commit()
+        db_session.refresh(t)
+        tariff_ids.append(t.id)
+
+    for i in range(2):
+        r = client.delete(
+            f"/api/v1/parkings/{parking.id}/tariffs/{tariff_ids[i]}",
+            headers=headers,
+        )
+        assert r.status_code == 204, f"delete {i}: {r.status_code} {r.text}"
+
+    r = client.delete(
+        f"/api/v1/parkings/{parking.id}/tariffs/{tariff_ids[2]}",
+        headers=headers,
+    )
+    assert r.status_code == 429, (
+        f"esperaba 429, obtuve {r.status_code}: {r.text}"
+    )
+
+
+def test_delete_geofence_blocks_after_max_attempts(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``DELETE /parkings/{id}/cameras/{cid}/geofences/{fid}`` → 429.
+
+    El scope ``geofences_delete`` tiene bucket independiente de
+    ``geofences_create`` (que no se invoca aquí; creamos las geocercas
+    por BD directamente para mantener el test centrado en el DELETE).
+    """
+    from app.models.geofence import CameraGeofence
+    from app.models.parking import Camera
+    from app.models.user import ParkingMembership
+
+    _force_endpoint_settings(monkeypatch, max_attempts=2)
+    admin = _seed_admin(db_session)
+    parking = _seed_parking(db_session, code="P-R5-GDEL")
+    headers = _login_headers(client, admin.email, "admin12345")
+
+    # Membership admin → parking (admin pasa por parking_context pero
+    # añadimos membresía por uniformidad con el resto de tests).
+    db_session.add(ParkingMembership(
+        user_id=admin.id, parking_id=parking.id,
+    ))
+    db_session.commit()
+
+    # Sembrar plaza + cámara + 3 geocercas en BD. Cada geocerca necesita
+    # su propia ``parking_space_id`` por la UniqueConstraint del modelo.
+    from app.models.parking import ParkingSpace
+    camera = Camera(
+        parking_id=parking.id, code="CAM-R5-GDEL",
+        name="Cámara test", rtsp_url="rtsp://test.invalid/x", fps=10,
+    )
+    db_session.add(camera)
+    db_session.commit()
+    db_session.refresh(camera)
+
+    fence_ids: list[int] = []
+    for i in range(3):
+        sp = ParkingSpace(parking_id=parking.id, lane="A", number=f"{i + 1}",
+                          is_active=True)
+        db_session.add(sp)
+        db_session.commit()
+        db_session.refresh(sp)
+        f = CameraGeofence(
+            camera_id=camera.id, parking_space_id=sp.id,
+            x=0, y=i * 10.0, w=20.0, h=20.0,
+        )
+        db_session.add(f)
+        db_session.commit()
+        db_session.refresh(f)
+        fence_ids.append(f.id)
+
+    for i in range(2):
+        r = client.delete(
+            f"/api/v1/parkings/{parking.id}/cameras/{camera.id}/geofences/{fence_ids[i]}",
+            headers=headers,
+        )
+        assert r.status_code == 204, f"delete {i}: {r.status_code} {r.text}"
+
+    r = client.delete(
+        f"/api/v1/parkings/{parking.id}/cameras/{camera.id}/geofences/{fence_ids[2]}",
+        headers=headers,
+    )
+    assert r.status_code == 429, (
+        f"esperaba 429, obtuve {r.status_code}: {r.text}"
+    )
+
+
+def test_delete_followup_audit_log(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """El bloqueo de DELETE escribe audit con ``payload.scope``
+    correcto (verifica ``parkings_delete``)."""
+    _force_endpoint_settings(monkeypatch, max_attempts=1)
+    admin = _seed_admin(db_session)
+    headers = _login_headers(client, admin.email, "admin12345")
+    ids = _seed_parkings(db_session, ["P-R5-DAUD-0", "P-R5-DAUD-1"])
+
+    # 1º delete OK (count=1 ≤ max_attempts=1), 2º delete (count=2 > 1) → 429.
+    assert client.delete(f"/api/v1/parkings/{ids[0]}", headers=headers).status_code == 204
+    assert client.delete(f"/api/v1/parkings/{ids[1]}", headers=headers).status_code == 429
+
+    row = assert_audit_log(
+        db_session,
+        action="rate_limited_endpoint",
+        user_id=admin.id,
+        result="failure",
+    )
+    assert row.payload["scope"] == "parkings_delete"
+    assert row.payload["bucket"].startswith("rl:parkings_delete:")
