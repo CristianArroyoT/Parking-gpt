@@ -53,7 +53,11 @@ async function load(): Promise<void> {
     parkings.value = data
     if (data.length) selectedId.value = data[0].id
   } catch {
-    ui.pushToast('error', 'No se pudieron cargar las cámaras')
+    // Antes este toast decía "cámaras" pero la llamada es a /parkings,
+    // así que mentía al operador cuando fallaba la lista de sucursales
+    // (típicamente 401 por access token expirado de 15 min). El toast
+    // correcto de cámaras vive en ``loadCameras`` (línea 44).
+    ui.pushToast('error', 'No se pudieron cargar las sucursales')
   } finally {
     loading.value = false
   }

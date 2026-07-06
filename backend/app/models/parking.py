@@ -76,8 +76,20 @@ class Camera(Base, TimestampMixin):
     # Sprint Fase 4 (2026-07-01): distingue cámaras de fiscalización
     # (``surveillance``) vs cámaras de portería (``gate``). Default
     # ``surveillance`` para mantener back-compat con cámaras existentes.
+    #
+    # Importante: ``values_callable=lambda x: [e.value for e in x]`` para
+    # que SQLAlchemy use los **valores** del enum (``surveillance``,
+    # ``gate`` minúsculas) en lugar de los nombres (``SURVEILLANCE``,
+    # ``GATE`` mayúsculas). La migración 0009 creó el tipo Postgres con
+    # los valores en minúscula — sin esto, al leer una fila SQLAlchemy
+    # intenta resolver ``SURVEILLANCE`` contra la columna que contiene
+    # ``surveillance`` y lanza ``LookupError`` → 500 al listar cámaras.
     kind: Mapped[CameraKind] = mapped_column(
-        Enum(CameraKind, name="camerakind"),
+        Enum(
+            CameraKind,
+            name="camerakind",
+            values_callable=lambda obj: [e.value for e in obj],
+        ),
         default=CameraKind.SURVEILLANCE,
         server_default=CameraKind.SURVEILLANCE.value,
         nullable=False,
