@@ -58,6 +58,7 @@ ignore = [
     "UP041",  # TypeAlias import — preexistente
     "UP042",  # str+Enum → StrEnum — preexistente
     "UP045",  # Optional[X] → X | None — preexistente
+    "B008",   # FastAPI Depends() en default argument — patrón estándar
 ]
 
 [tool.mypy]
