@@ -48,6 +48,20 @@ _RECURRING_DAYS: dict[CostPeriod, int] = {
 }
 
 
+def _to_aware_utc(dt: datetime) -> datetime:
+    """Normaliza un datetime a UTC tz-aware.
+
+    SQLite (BD in-memory de pytest) strip el timezone al guardar un
+    ``DateTime(timezone=True)`` y los datetimes vuelven naive. Sin tz
+    son incomparables con los ``report_*`` que llegan en UTC aware,
+    así que todos los ``cost.*`` los pasamos por aquí antes de
+    operar.
+    """
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def _overlap_days(
     cost_start: datetime,
     cost_end: datetime,
@@ -75,17 +89,23 @@ def _cost_applied_to_report(
     report_end: datetime,
 ) -> float:
     """Importe del coste que se imputa al reporte, ya prorrateado."""
+    # Normalizamos: SQLite strip el tz al guardar DateTime(timezone=True),
+    # y los datetimes vuelven naive. Sin tz son incomparables con los
+    # ``report_*`` que llegan en UTC aware.
+    cost_start = _to_aware_utc(cost.period_start)
+    cost_end = (
+        _to_aware_utc(cost.period_end) if cost.period_end is not None else None
+    )
     if cost.periodicity is CostPeriod.PUNTUAL:
-        if cost.period_end is None:
+        if cost_end is None:
             # Defensivo: si llega aquí un PUNTUAL sin period_end es un
             # bug en el validador del schema; no imputamos.
             return 0.0
-        total_days = (cost.period_end - cost.period_start).total_seconds() / 86400.0
+        total_days = (cost_end - cost_start).total_seconds() / 86400.0
         if total_days <= 0:
             return 0.0
         overlap = _overlap_days(
-            cost.period_start, cost.period_end,
-            report_start, report_end,
+            cost_start, cost_end, report_start, report_end,
         )
         return cost.amount * (overlap / total_days)
 
@@ -95,7 +115,7 @@ def _cost_applied_to_report(
     # para que un coste mal dado no nos haga iterar al infinito.
     cycle = _RECURRING_DAYS[cost.periodicity]
     per_day = cost.amount / float(cycle)
-    cursor = cost.period_start
+    cursor = cost_start
     accumulated = 0.0
     for _ in range(3650):
         if cursor >= report_end:
@@ -215,4 +235,9 @@ def compute_margin(
     })
 
 
-__all__ = ["compute_margin", "_cost_applied_to_report", "_RECURRING_DAYS"]
+__all__ = [
+    "compute_margin",
+    "_cost_applied_to_report",
+    "_to_aware_utc",
+    "_RECURRING_DAYS",
+]

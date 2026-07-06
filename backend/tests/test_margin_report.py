@@ -23,8 +23,11 @@ from app.models.enums import (
     CostPeriod,
     TicketOrigin,
     TicketStatus,
+    VehicleRole,
 )
 from app.models.ticket import Ticket
+from app.models.user import User
+from app.models.vehicle import Vehicle
 from app.services.cost import compute_margin
 from tests import _audit_helpers as ah
 
@@ -32,13 +35,31 @@ from tests import _audit_helpers as ah
 UTC = timezone.utc
 
 
+def _mk_vehicle(
+    db: Session, *, plate: str = "0000-ABC",
+) -> Vehicle:
+    """Crea un vehículo + su propietario para usarlo en un ticket. Ticket
+    no tiene campo ``plate`` (sólo ``vehicle_id`` FK)."""
+    user = User(
+        email=f"owner-{plate}@test.es",
+        full_name=f"Owner {plate}",
+        role=VehicleRole.PROPIETARIO,
+        hashed_password="x",
+    )
+    db.add(user); db.commit(); db.refresh(user)
+    vehicle = Vehicle(plate=plate, owner_user_id=user.id, is_active=True)
+    db.add(vehicle); db.commit(); db.refresh(vehicle)
+    return vehicle
+
+
 def _mk_ticket(
     db: Session, *, parking_id: int, entry_at: datetime,
     exit_at: datetime, total: float, status: TicketStatus = TicketStatus.CERRADO,
 ) -> Ticket:
+    vehicle = _mk_vehicle(db)
     t = Ticket(
         parking_id=parking_id,
-        plate="0000-ABC",
+        vehicle_id=vehicle.id,
         entry_at=entry_at,
         exit_at=exit_at,
         total=total,

@@ -50,9 +50,11 @@ def test_create_cost_admin_success(
     assert body["id"] > 0
     assert body["amount"] == 150.0
     assert body["category"] == "mantenimiento"
+    # ``create_cost`` no usa ``resource_arg`` (no hay ``cost_id`` en el
+    # payload POST), así que el audit tiene ``resource=None``. Filtramos
+    # sólo por action + user_id.
     ah.assert_audit_log(
-        db_session, action="create_cost",
-        resource=f"costs/{body['id']}", user_id=admin.id,
+        db_session, action="create_cost", user_id=admin.id,
     )
 
 
