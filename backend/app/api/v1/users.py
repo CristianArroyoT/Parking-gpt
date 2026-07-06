@@ -9,12 +9,13 @@ from sqlalchemy.orm import Session
 from app.core.audit import audited
 from app.core.db import get_db
 from app.core.deps import get_current_user, require_role
-from app.core.security import hash_password
+from app.core.security import hash_password, verify_password
 from app.models.enums import UserRole
 from app.models.user import ParkingMembership, User
 from app.schemas.user import (
     MembershipCreate,
     MembershipRead,
+    PasswordChange,
     UserCreate,
     UserRead,
     UserUpdate,
@@ -56,6 +57,49 @@ def _enforce_endpoint_rate_limit(
 def get_me(current: User = Depends(get_current_user)) -> User:
     """Devuelve el usuario autenticado (usado por el frontend al arrancar)."""
     return current
+
+
+@router.patch("/me/password", status_code=status.HTTP_204_NO_CONTENT)
+def change_my_password(
+    payload: PasswordChange,
+    request: Request,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+) -> None:
+    """Sprint R5-sidebar (2026-07-06): cambio de clave del usuario actual.
+
+    El usuario se identifica a sí mismo con ``current_password`` (un
+    atacante con un JWT robado no podría cambiar la clave sin conocer
+    la actual). Tras el cambio el resto de sesiones del mismo usuario
+    siguen siendo válidas — no invalidamos tokens aquí; el usuario
+    puede usar ``POST /auth/logout/all`` si quiere cerrar todas.
+
+    Audit: ``action=change_my_password`` con ``result=success`` o
+    ``failure`` según el caso (failure → ``reason=current_password_mismatch``
+    para correlación operativa).
+    """
+    if not verify_password(payload.current_password, current.hashed_password):
+        record_audit_from_request(
+            request, db,
+            action="change_my_password",
+            payload={"user_id": current.id, "reason": "current_password_mismatch"},
+            result="failure",
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La contraseña actual no es correcta",
+        )
+    current.hashed_password = hash_password(payload.new_password)
+    db.commit()
+    record_audit_from_request(
+        request, db,
+        action="change_my_password",
+        payload={"user_id": current.id},
+        result="success",
+    )
+    db.commit()
+    return None
 
 
 @router.get("", response_model=list[UserRead])

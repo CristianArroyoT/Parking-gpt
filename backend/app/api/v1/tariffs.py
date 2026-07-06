@@ -18,8 +18,32 @@ from app.models.parking import Parking
 from app.models.pricing import Tariff
 from app.models.user import User
 from app.schemas.pricing import TariffCreate, TariffRead, TariffUpdate
+from app.services.audit import record_audit_from_request
+from app.services.endpoint_rate_limit import endpoint_rate_limiter
 
 router = APIRouter(prefix="/parkings/{parking_id}/tariffs", tags=["tarifas"])
+
+
+def _enforce_endpoint_rate_limit(
+    request: Request, db: Session, *, scope: str, actor_id: int,
+) -> None:
+    """Sprint R5 (2026-07-06): rate-limit por actor para POST/PATCH
+    /tariffs. Misma lógica que ``users``/``cameras``/``parkings``."""
+    allowed, bucket, count = endpoint_rate_limiter.check(
+        scope=scope, identifiers={"actor": str(actor_id)},
+    )
+    if not allowed:
+        record_audit_from_request(
+            request, db,
+            action="rate_limited_endpoint",
+            payload={"scope": scope, "bucket": bucket, "count": count},
+            result="failure",
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demasiadas operaciones. Intenta más tarde.",
+        )
 
 
 @router.get("", response_model=list[TariffRead])
@@ -47,6 +71,13 @@ def create_tariff(
     db: Session = Depends(get_db),
     _current: User = Depends(parking_context),
 ) -> Tariff:
+    # Sprint R5: rate-limit por actor.
+    audit = getattr(request.state, "audit", None) or {}
+    actor_id = audit.get("user_id")
+    if actor_id is not None:
+        _enforce_endpoint_rate_limit(
+            request, db, scope="tariffs_create", actor_id=actor_id,
+        )
     if payload.parking_id != parking_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -76,6 +107,13 @@ def update_tariff(
     db: Session = Depends(get_db),
     _current: User = Depends(parking_context),
 ) -> Tariff:
+    # Sprint R5: rate-limit por actor.
+    audit = getattr(request.state, "audit", None) or {}
+    actor_id = audit.get("user_id")
+    if actor_id is not None:
+        _enforce_endpoint_rate_limit(
+            request, db, scope="tariffs_update", actor_id=actor_id,
+        )
     tariff = (
         db.query(Tariff)
         .filter(Tariff.id == tariff_id, Tariff.parking_id == parking_id)

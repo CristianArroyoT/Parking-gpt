@@ -98,6 +98,10 @@ def _clean_redis_counters():
             client.delete(key)
         for key in client.scan_iter("rl:vehicles_*"):
             client.delete(key)
+        # Sprint R5 (2026-07-06): rate-limit en parkings/tariffs/cameras.
+        for prefix in ("rl:parkings_*", "rl:tariffs_*", "rl:cameras_*"):
+            for key in client.scan_iter(prefix):
+                client.delete(key)
         # Sprint R2-followup: set de jtis activos por usuario que mantiene
         # ``session_tracker`` para que ``POST /auth/logout/all`` pueda
         # invalidarlos. Sin esto, los jtis de tests previos contaminan

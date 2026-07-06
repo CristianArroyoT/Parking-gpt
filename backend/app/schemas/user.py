@@ -33,6 +33,20 @@ class UserRead(UserBase, TimestampMixinSchema):
     id: int
 
 
+class PasswordChange(ORMModel):
+    """Sprint R5-sidebar (2026-07-06): payload para que el usuario
+    autenticado cambie su propia clave desde el dropdown del sidebar.
+
+    ``current_password`` se exige para confirmar identidad: un atacante
+    con un token JWT robado no podría cambiar la clave sin conocer la
+    actual. ``new_password`` cumple la misma política que ``UserCreate``
+    (min_length=8).
+    """
+
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
 class MembershipCreate(ORMModel):
     parking_id: int
     role_in_parking: str = "gestor"

@@ -25,8 +25,38 @@ from app.schemas.parking import (
     GeofenceRead,
     GeofenceUpdate,
 )
+from app.services.audit import record_audit_from_request
+from app.services.endpoint_rate_limit import endpoint_rate_limiter
 
 log = logging.getLogger(__name__)
+
+
+def _enforce_endpoint_rate_limit(
+    request: Request, db: Session, *, scope: str, actor_id: int,
+) -> None:
+    """Aplica ``endpoint_rate_limiter.check`` y emite audit + 429 si bloquea.
+
+    Sprint R5 (2026-07-06): misma lógica que ``users.py`` y
+    ``vehicles.py`` para que ``POST/PATCH /cameras`` no sean abusables
+    por un script autenticado. Bucket por actor (la acción es local al
+    parking, no al admin global).
+    """
+    allowed, bucket, count = endpoint_rate_limiter.check(
+        scope=scope, identifiers={"actor": str(actor_id)},
+    )
+    if not allowed:
+        record_audit_from_request(
+            request, db,
+            action="rate_limited_endpoint",
+            payload={"scope": scope, "bucket": bucket, "count": count},
+            result="failure",
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demasiadas operaciones. Intenta más tarde.",
+        )
+
 
 router = APIRouter(
     prefix="/parkings/{parking_id}/cameras",
@@ -53,6 +83,13 @@ def create_camera(
     request: Request,
     db: Session = Depends(get_db),
 ) -> Camera:
+    # Sprint R5 (2026-07-06): rate-limit por actor.
+    audit = getattr(request.state, "audit", None) or {}
+    actor_id = audit.get("user_id")
+    if actor_id is not None:
+        _enforce_endpoint_rate_limit(
+            request, db, scope="cameras_create", actor_id=actor_id,
+        )
     if not db.get(Parking, parking_id):
         raise HTTPException(status_code=404, detail="Sucursal no encontrada")
     camera = Camera(parking_id=parking_id, **payload.model_dump())
@@ -71,6 +108,13 @@ def update_camera(
     request: Request,
     db: Session = Depends(get_db),
 ) -> Camera:
+    # Sprint R5 (2026-07-06): rate-limit por actor.
+    audit = getattr(request.state, "audit", None) or {}
+    actor_id = audit.get("user_id")
+    if actor_id is not None:
+        _enforce_endpoint_rate_limit(
+            request, db, scope="cameras_update", actor_id=actor_id,
+        )
     camera = (
         db.query(Camera)
         .filter(Camera.id == camera_id, Camera.parking_id == parking_id)
