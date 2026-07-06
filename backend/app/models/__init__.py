@@ -2,9 +2,12 @@
 
 from app.models.audit import Alert, AuditLog
 from app.models.base import TimestampMixin
+from app.models.cost import Cost
 from app.models.enums import (
     AlertSeverity,
     AlertType,
+    CostCategory,
+    CostPeriod,
     ManualEntryReason,
     TicketOrigin,
     TicketStatus,
@@ -26,6 +29,9 @@ __all__ = [
     "AuditLog",
     "Camera",
     "CameraGeofence",
+    "Cost",
+    "CostCategory",
+    "CostPeriod",
     "ManualEntryReason",
     "Parking",
     "ParkingMembership",

@@ -86,3 +86,33 @@ class CameraKind(str, enum.Enum):
 
     SURVEILLANCE = "surveillance"
     GATE = "gate"
+
+
+class CostCategory(str, enum.Enum):
+    """Categoría de costo operativo. Sprint P1 (2026-07-06).
+
+    Hardcoded por ahora (decisión de scope): si crece >5 categorías
+    en producción, migrar a tabla ``cost_categories``.
+    """
+
+    MANTENIMIENTO = "mantenimiento"
+    CAMARAS = "camaras"
+    OPERACION = "operacion"
+    OTROS = "otros"
+
+
+class CostPeriod(str, enum.Enum):
+    """Periodicidad del costo. Sprint P1 (2026-07-06).
+
+    - ``PUNTUAL``: costo one-shot en un periodo delimitado
+      (``period_start`` .. ``period_end``).
+    - Recurrentes (``MENSUAL``/``TRIMESTRAL``/``ANUAL``): ``period_start``
+      marca el inicio del primer ciclo; el servicio ``compute_margin``
+      prorratea el monto según los días que el costo cae dentro del
+      rango del reporte.
+    """
+
+    PUNTUAL = "puntual"
+    MENSUAL = "mensual"
+    TRIMESTRAL = "trimestral"
+    ANUAL = "anual"

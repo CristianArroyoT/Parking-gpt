@@ -170,3 +170,91 @@ export async function getTicketSummary(parkingId: number): Promise<TicketSummary
   )
   return r.data
 }
+
+// ── Costes operativos + reporte de margen (Sprint P1, 2026-07-06) ────
+// Espejo de app/schemas/cost.py y app/schemas/reports.py.
+export type CostCategory = 'mantenimiento' | 'camaras' | 'operacion' | 'otros'
+export type CostPeriod = 'puntual' | 'mensual' | 'trimestral' | 'anual'
+
+export interface Cost {
+  id: number
+  parking_id: number
+  category: CostCategory
+  amount: number
+  periodicity: CostPeriod
+  period_start: string
+  period_end: string | null
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CostCreatePayload {
+  parking_id: number
+  category: CostCategory
+  amount: number
+  periodicity: CostPeriod
+  period_start: string
+  period_end?: string | null
+  description?: string | null
+}
+
+export interface CostBreakdownEntry {
+  category: CostCategory
+  amount: number
+  cost_count: number
+}
+
+export interface MarginReport {
+  parking_id: number
+  parking_name: string
+  from: string
+  to: string
+  total_revenue: number
+  closed_tickets: number
+  total_costs: number
+  margin: number
+  cost_breakdown: CostBreakdownEntry[]
+}
+
+export async function listCosts(params: {
+  parking_id?: number
+  category?: CostCategory
+  periodicity?: CostPeriod
+  from?: string
+  to?: string
+}): Promise<Cost[]> {
+  const r = await http.get<Cost[]>('/admin/costs', { params })
+  return r.data
+}
+
+export async function createCost(payload: CostCreatePayload): Promise<Cost> {
+  const r = await http.post<Cost>('/admin/costs', payload)
+  return r.data
+}
+
+export async function deleteCost(id: number): Promise<void> {
+  await http.delete(`/admin/costs/${id}`)
+}
+
+export async function getMarginReport(params: {
+  parking_id: number
+  from: string
+  to: string
+}): Promise<MarginReport> {
+  const r = await http.get<MarginReport>('/admin/reports/margins', { params })
+  return r.data
+}
+
+export function downloadMarginReportCsv(params: {
+  parking_id: number
+  from: string
+  to: string
+}): string {
+  // Construye la URL para descargar como ``Blob`` (el interceptor
+  // añade el Authorization Bearer).
+  const qs = new URLSearchParams(
+    Object.entries(params).map(([k, v]) => [k, String(v)]),
+  ).toString()
+  return `${baseURL}/admin/reports/margins.csv?${qs}`
+}

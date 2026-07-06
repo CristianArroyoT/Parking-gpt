@@ -9,9 +9,11 @@ from app.api.v1 import (
     alerts,
     auth,
     cameras,
+    costs,
     incidents,
     parkings,
     plates,
+    reports,
     spaces,
     tariffs,
     ticket_summary,
@@ -36,5 +38,8 @@ api_router.include_router(alerts.router)
 api_router.include_router(incidents.router)
 # Sprint Fase 3A: endpoint admin-only de lectura de audit_logs.
 api_router.include_router(admin.router)
+# Sprint P1: CRUD de costes operativos + reporte de margen (admin/gestor).
+api_router.include_router(costs.router)
+api_router.include_router(reports.router)
 
 __all__ = ["api_router"]
