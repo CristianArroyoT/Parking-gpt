@@ -15,6 +15,7 @@ función para no romper los 4 callers de Fase 1/2 (``incidents.py``,
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
@@ -22,6 +23,8 @@ from fastapi import Request
 from sqlalchemy.orm import Session
 
 from app.models.audit import AuditLog
+
+log = logging.getLogger(__name__)
 
 
 def record_audit(
@@ -67,21 +70,51 @@ def record_audit_from_request(
     result: str | None = None,
     duration_ms: int | None = None,
 ) -> None:
-    """Helper que extrae user_id/ip/correlation_id de ``request.state.audit``."""
+    """Helper que extrae user_id/ip/correlation_id de ``request.state.audit``.
+
+    Sprint O1 (2026-07-06): además de persistir en ``audit_logs``, emite
+    un ``log.info(...)`` con ``extra={"action", "result", "user_id", ...}``
+    para que Promtail/Loki reciba el evento y los dashboards Grafana
+    puedan graficarlo. NO loggeamos el ``payload`` (puede contener
+    emails/IPs — corre por canal separado en la fila de ``audit_logs``).
+    """
     audit = getattr(request.state, "audit", None) or {}
+    user_id_value = audit.get("user_id")
+    ip_value = audit.get("ip")
+    correlation_id_value = audit.get("correlation_id")
+
     record_audit(
         db,
         action=action,
-        user_id=audit.get("user_id"),
-        ip=audit.get("ip"),
+        user_id=user_id_value,
+        ip=ip_value,
         resource=resource,
         payload=payload,
         confidence=confidence,
         parking_id=parking_id,
         result=result,
         duration_ms=duration_ms,
-        correlation_id=audit.get("correlation_id"),
+        correlation_id=correlation_id_value,
     )
+
+    # Telemetría para Loki/Grafana (Sprint O1). Misma correlation_id que
+    # el audit_log permite cruzar ambos canales. Si el logger no tiene
+    # handler configurado (tests con PYTEST_CURRENT_TEST), se ignora.
+    try:
+        log.info(
+            "audit event",
+            extra={
+                "event": "audit",
+                "action": action,
+                "result": result,
+                "user_id": user_id_value,
+                "resource": resource,
+                "parking_id": parking_id,
+                "correlation_id": correlation_id_value,
+            },
+        )
+    except Exception:  # pragma: no cover - logging nunca debe romper audit
+        pass
 
 
 def record_audit_worker(
