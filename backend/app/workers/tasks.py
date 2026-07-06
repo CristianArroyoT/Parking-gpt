@@ -37,6 +37,7 @@ from app.services.alerts import (
     reset_camera_offline,
     reset_ocr_failure,
 )
+from app.services.event_bus import EventType, publish as publish_event
 from app.services.audit import (
     make_worker_correlation_id,
     record_audit_worker,
@@ -387,6 +388,9 @@ def probe_heartbeats() -> dict[str, Any]:
     probed = skipped = ok = failed = 0
     health_updates = 0
     now_utc = datetime.now(timezone.utc)
+    # Sprint O2 (2026-07-06): cambios de health por cámara, publicados
+    # tras el commit. Estructura: list[(parking_id, camera_id, last_ok)].
+    health_changes: list[tuple[int, int, bool]] = []
     try:
         cams = (
             db.query(Camera)
@@ -412,10 +416,15 @@ def probe_heartbeats() -> dict[str, Any]:
             # Persistir último probe en BD (sprint Camera Health).
             # Commit batch al final del bucle para evitar 50 commits/min
             # de churn en el WAL de Postgres.
+            # Sprint O2: capturar el valor previo para detectar cambios.
+            prev_ok = cam.last_heartbeat_ok
             cam.last_heartbeat_at = now_utc
             cam.last_heartbeat_ok = is_alive
             db.add(cam)
             health_updates += 1
+            # Cambio de estado (incluye None → bool): publicar tras commit.
+            if prev_ok != is_alive:
+                health_changes.append((cam.parking_id, cam.id, is_alive))
 
             if is_alive:
                 ok += 1
@@ -459,6 +468,17 @@ def probe_heartbeats() -> dict[str, Any]:
                 db.rollback()
     finally:
         db.close()
+
+    # Sprint O2 (2026-07-06): publicar cambios de health en bus SSE.
+    # Fire-and-forget (publish ya es defensivo: un fallo de Redis no
+    # rompe el worker). FUERA del `try/finally` para no anidar con el
+    # cierre de sesión.
+    for parking_id, camera_id, last_ok in health_changes:
+        publish_event(
+            parking_id,
+            EventType.CAMERA_HEALTH_CHANGED,
+            {"camera_id": camera_id, "last_ok": last_ok},
+        )
 
     log.info(
         "probe_heartbeats: probed=%s skipped=%s ok=%s failed=%s threshold=%s health_updates=%s",

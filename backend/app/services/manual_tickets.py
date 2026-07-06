@@ -34,6 +34,7 @@ from app.models.user import User
 from app.models.vehicle import Vehicle
 from app.schemas.ticket import TicketManualCreate
 from app.services import record_audit
+from app.services.event_bus import EventType, publish as publish_event
 from app.services.pdf import save_ticket_pdf
 from app.services.pricing import PricingError, calculate_ticket_total
 
@@ -204,6 +205,25 @@ def create_manual_ticket(
         )
         db.commit()
         db.refresh(ticket)
+        # Sprint O2 (2026-07-06): publicar en bus SSE para refresco live
+        # de MapView. Tipo según dirección: entry=TICKET_CREATED,
+        # exit=TICKET_CLOSED.
+        if payload.direction == "entry":
+            publish_event(
+                payload.parking_id,
+                EventType.TICKET_CREATED,
+                {
+                    "ticket_id": ticket.id,
+                    "plate": plate,
+                    "parking_space_id": ticket.parking_space_id,
+                },
+            )
+        else:
+            publish_event(
+                payload.parking_id,
+                EventType.TICKET_CLOSED,
+                {"ticket_id": ticket.id, "total": ticket.total},
+            )
         log.info(
             "manual_tickets: %s ticket_id=%s plate=%s reason=%s user_id=%s",
             payload.direction,

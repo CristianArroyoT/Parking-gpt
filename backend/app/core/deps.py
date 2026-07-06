@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
@@ -109,3 +109,63 @@ def parking_context(
 def require_any_role(roles: Iterable[str]) -> str:
     """Helper de tipo: expone un iterable para fastapi.Depends."""
     return ",".join(roles)
+
+
+def get_current_user_or_query_token(
+    request: Request,
+    token: str | None = Query(default=None),
+    bearer_token: str | None = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    """Igual que ``get_current_user`` pero también acepta ``?token=...``.
+
+    Pensado para el endpoint SSE (``GET /parkings/{id}/events``).
+    ``EventSource`` del navegador NO permite setear el header
+    ``Authorization``; por eso permitimos pasar el JWT en query
+    string como fallback. Riesgo: el token queda en logs de proxies
+    intermedios. Mitigado por ``ACCESS_TOKEN_TTL_MINUTES=15``.
+
+    Si ni header ni query traen token → 401. Si ambos vienen → gana
+    el header (``bearer_token`` no es ``None`` cuando viene el header).
+
+    Sprint O2 (2026-07-06).
+    """
+    raw: str | None = bearer_token or token
+    if not raw:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token de autenticación requerido",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        payload = decode_token(raw)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+    if payload.get("type") != "access":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Tipo de token no válido",
+        )
+
+    user_id_raw = payload.get("sub")
+    if not user_id_raw:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token sin sujeto")
+
+    try:
+        user_id = int(user_id_raw)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Identificador de usuario no válido",
+        ) from exc
+
+    user = db.get(User, user_id)
+    if not user or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario inactivo")
+    return user

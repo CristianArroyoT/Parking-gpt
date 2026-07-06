@@ -258,3 +258,46 @@ export function downloadMarginReportCsv(params: {
   ).toString()
   return `${baseURL}/admin/reports/margins.csv?${qs}`
 }
+
+// ── Dashboard KPIs (Sprint UI Costes + Dashboard KPIs, 2026-07-06) ────
+// Espejo de app/schemas/dashboard_kpis.py.
+// Admin-only. ``parking_id`` ausente = agregado de TODAS las sucursales.
+export interface DashboardSpaces {
+  total: number
+  occupied: number
+  free: number
+  broken: number
+}
+
+export interface DashboardCameras {
+  total: number
+  operational: number
+  alert: number
+  never_probed: number
+}
+
+export interface DashboardMoneyPeriod {
+  day: number | null
+  week: number | null
+  month: number | null
+}
+
+export interface DashboardKpis {
+  parking_id: number | null
+  spaces: DashboardSpaces
+  cameras: DashboardCameras
+  revenue: DashboardMoneyPeriod
+  costs: DashboardMoneyPeriod
+  window_hours_day: number
+  window_hours_week: number
+  window_hours_month: number
+}
+
+export async function getDashboardKpis(
+  parkingId?: number,
+): Promise<DashboardKpis> {
+  const r = await http.get<DashboardKpis>('/admin/dashboard/kpis', {
+    params: parkingId !== undefined ? { parking_id: parkingId } : {},
+  })
+  return r.data
+}

@@ -42,7 +42,16 @@ class Cost(Base, TimestampMixin):
         nullable=False,
     )
     category: Mapped[CostCategory] = mapped_column(
-        Enum(CostCategory, name="costcategory"),
+        Enum(
+            CostCategory,
+            name="costcategory",
+            # Mismo motivo que ``Camera.kind`` (parking.py): la migración
+            # 0010 creó el tipo Postgres con los valores en minúscula
+            # (``mantenimiento``, ``camaras``...). Sin ``values_callable``
+            # SQLAlchemy usaría los nombres mayúsculas del enum y
+            # lanzaría ``LookupError`` al leer cualquier fila de Cost.
+            values_callable=lambda obj: [e.value for e in obj],
+        ),
         nullable=False,
         index=True,
     )
@@ -51,7 +60,11 @@ class Cost(Base, TimestampMixin):
     # marca el inicio del primer ciclo y se itera hacia adelante según
     # ``periodicity``.
     periodicity: Mapped[CostPeriod] = mapped_column(
-        Enum(CostPeriod, name="costperiod"),
+        Enum(
+            CostPeriod,
+            name="costperiod",
+            values_callable=lambda obj: [e.value for e in obj],
+        ),
         nullable=False,
         index=True,
     )

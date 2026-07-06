@@ -59,6 +59,21 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/admin/TariffsView.vue'),
     meta: { roles: ['admin'] },
   },
+  // Sprint UI Costes + Reportería + Dashboard KPIs (2026-07-06):
+  // CRUD de costes operativos y reporte de margen salen del dashboard
+  // y pasan a vistas dedicadas accesibles desde el sidebar.
+  {
+    path: '/admin/costs',
+    name: 'admin-costs',
+    component: () => import('@/views/admin/CostsView.vue'),
+    meta: { roles: ['admin'] },
+  },
+  {
+    path: '/admin/reports',
+    name: 'admin-reports',
+    component: () => import('@/views/admin/ReportsView.vue'),
+    meta: { roles: ['admin'] },
+  },
   {
     path: '/mapa',
     name: 'gestor-map',

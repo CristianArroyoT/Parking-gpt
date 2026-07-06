@@ -32,6 +32,7 @@ from app.schemas.audit import IncidentCreate, IncidentKind
 from app.services import email as email_module
 from app.services import record_audit
 from app.services.alerts import _resolve_manager_email
+from app.services.event_bus import EventType, publish as publish_event
 
 log = logging.getLogger(__name__)
 
@@ -171,6 +172,21 @@ def create_incident(
             "incidents: %s alert_id=%s parking_id=%s user_id=%s",
             kind.value, alert.id, parking_id, current_user.id,
         )
+
+        # Sprint O2 (2026-07-06): publicar cambio de estado de plaza
+        # averiada en el bus SSE para refresco live de MapView. Sólo
+        # para SPACE_BROKEN/SPACE_UNBROKEN (ROBERY_REPORTED no afecta al
+        # mapa). Idempotente: el caller ya filtró los noops antes de
+        # llegar aquí (alert no es None).
+        if kind in (IncidentKind.SPACE_BROKEN, IncidentKind.SPACE_UNBROKEN) and space is not None:
+            publish_event(
+                parking_id,
+                EventType.SPACE_BROKEN_CHANGED,
+                {
+                    "parking_space_id": space.id,
+                    "is_broken": space.is_broken,
+                },
+            )
 
         if kind == IncidentKind.ROBERY_REPORTED:
             try:
