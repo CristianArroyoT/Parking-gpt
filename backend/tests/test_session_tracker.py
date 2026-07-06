@@ -59,7 +59,11 @@ class _FakeRedis:
 @pytest.fixture
 def fake_redis(monkeypatch: pytest.MonkeyPatch) -> _FakeRedis:
     fake = _FakeRedis()
+    # Parchea AMBOS clientes Redis: session_tracker Y token_blacklist
+    # (revoke_all llama a token_blacklist.add → su _r().set()).
     monkeypatch.setattr(session_tracker, "_r", lambda: fake)
+    from app.services.token_blacklist import token_blacklist
+    monkeypatch.setattr(token_blacklist, "_r", lambda: fake)
     return fake
 
 
