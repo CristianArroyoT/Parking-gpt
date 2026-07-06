@@ -25,7 +25,7 @@ Casos cubiertos:
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime
 
 import pytest
 from sqlalchemy import create_engine

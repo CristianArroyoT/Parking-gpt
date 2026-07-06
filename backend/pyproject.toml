@@ -59,6 +59,11 @@ ignore = [
     "UP042",  # str+Enum → StrEnum — preexistente
     "UP045",  # Optional[X] → X | None — preexistente
     "B008",   # FastAPI Depends() en default argument — patrón estándar
+    # Tests preexistentes (ignora convención de pytest fixtures / mocks de API externa / aliasing):
+    "N806",   # `SessionLocal = sessionmaker(...)` - patron pytest fixture / SQLAlchemy
+    "N802",   # `isOpened` imita API OpenCV (`cv2.VideoCapture.isOpened()`) en test_heartbeat.py
+    "F841",   # Variables asignadas pero no usadas - assertion tracking intencional en tests
+    "E402",   # Imports en mitad de archivo (con prefijo `_`) - aliasing intencional para evitar leak
 ]
 
 [tool.mypy]

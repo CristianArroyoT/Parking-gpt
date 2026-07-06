@@ -16,6 +16,7 @@ interface Space {
   parking_id: number
   lane: string
   number: string
+  is_active?: boolean
   is_broken?: boolean
 }
 

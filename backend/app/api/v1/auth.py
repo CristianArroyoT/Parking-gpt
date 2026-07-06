@@ -196,7 +196,7 @@ def refresh(
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Servicio de autenticación no disponible",
-            )
+            ) from exc
     user = db.get(User, int(data["sub"]))
     if not user or not user.is_active:
         record_audit_from_request(
@@ -273,7 +273,7 @@ def logout(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Servicio de autenticación no disponible",
-        )
+        ) from exc
 
     # 2) Blacklist del refresh si el cliente lo envía en el body.
     refresh_blacklisted = False
@@ -299,7 +299,7 @@ def logout(
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Refresh token inválido.",
-            )
+            ) from exc
         ref_jti = ref_payload.get("jti")
         ref_exp = ref_payload.get("exp")
         ref_type = ref_payload.get("type")
@@ -332,7 +332,7 @@ def logout(
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Servicio de autenticación no disponible",
-            )
+            ) from exc
 
     record_audit_from_request(
         request, db,

@@ -100,7 +100,7 @@ def _clean_redis_counters():
             client.delete(key)
     except Exception:
         pass
-    yield
+    return
 
 
 @pytest.fixture()

@@ -25,7 +25,6 @@ from app.schemas.ingest import IngestResultRead
 from app.schemas.plate import (
     PlateDetectedCreate,
     PlateDetectedRead,
-    PlateHit,
 )
 from app.services.ingest_service import process_plate_hits
 
