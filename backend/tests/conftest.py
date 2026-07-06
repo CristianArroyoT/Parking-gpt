@@ -98,6 +98,12 @@ def _clean_redis_counters():
             client.delete(key)
         for key in client.scan_iter("rl:vehicles_*"):
             client.delete(key)
+        # Sprint R2-followup: set de jtis activos por usuario que mantiene
+        # ``session_tracker`` para que ``POST /auth/logout/all`` pueda
+        # invalidarlos. Sin esto, los jtis de tests previos contaminan
+        # el set del user_id usado por otros tests.
+        for key in client.scan_iter("user:*:active_jtis"):
+            client.delete(key)
     except Exception:
         pass
     return

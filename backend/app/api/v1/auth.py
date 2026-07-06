@@ -22,6 +22,7 @@ from app.models.user import User
 from app.schemas import LoginRequest, LogoutRequest, MessageResponse, TokenPair
 from app.services.audit import record_audit_from_request
 from app.services.rate_limit import rate_limiter
+from app.services.session_tracker import session_tracker
 from app.services.token_blacklist import token_blacklist
 
 log = logging.getLogger(__name__)
@@ -34,6 +35,17 @@ def _build_tokens(user: User) -> TokenPair:
     role_value = user.role.value if hasattr(user.role, "value") else str(user.role)
     access = create_access_token(user.id, extra={"role": role_value})
     refresh = create_refresh_token(user.id)
+    # Sprint R2-followup: trackea los jtis (access + refresh) en el set
+    # ``user:{id}:active_jtis`` para que ``POST /auth/logout/all`` pueda
+    # invalidarlos. ``track_session`` es fail-OPEN: si Redis cae, los
+    # tokens se devuelven igualmente (el blacklist por-token vía logout
+    # normal sigue funcionando).
+    session_tracker.track_session(
+        user_id=user.id, jti=decode_token(access)["jti"],
+    )
+    session_tracker.track_session(
+        user_id=user.id, jti=decode_token(refresh)["jti"],
+    )
     return TokenPair(
         access_token=access,
         expires_in=settings.access_token_ttl_minutes * 60,
