@@ -70,6 +70,7 @@ class EndpointRateLimiter:
         identifiers: dict[str, str],
         max_attempts: Optional[int] = None,
         window_seconds: Optional[int] = None,
+        skip: bool = False,
     ) -> tuple[bool, str, int]:
         """Incrementa N buckets y devuelve ``(allowed, bucket_exceeded, max_count)``.
 
@@ -85,6 +86,8 @@ class EndpointRateLimiter:
         settings = get_settings()
         attempts = max_attempts or settings.endpoint_rate_limit_max_attempts
         window = window_seconds or settings.endpoint_rate_limit_window_seconds
+        if skip:
+            return True, "skipped", 0
         r = self._r()
         bucket_exceeded = ""
         max_count = 0
