@@ -139,7 +139,7 @@ class Settings(BaseSettings):
     smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
     smtp_from: str = Field(default="solidAPP <no-reply@solidapp.es>", alias="SMTP_FROM")
 
-    environment: Literal["development", "staging", "production"] = Field(default="development", alias="ENVIRONMENT")
+    environment: Literal["development", "staging", "production", "test"] = Field(default="development", alias="ENVIRONMENT")
 
     @property
     def cors_origins_list(self) -> list[str]:
