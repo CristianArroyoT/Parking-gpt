@@ -27,7 +27,7 @@ from app.models.enums import (
 )
 from app.models.ticket import Ticket
 from app.models.user import User
-from app.models.vehicle import Vehicle
+from app.models.vehicle import Vehicle, VehicleUser
 from app.services.cost import compute_margin
 from tests import _audit_helpers as ah
 
@@ -38,17 +38,22 @@ UTC = timezone.utc
 def _mk_vehicle(
     db: Session, *, plate: str = "0000-ABC",
 ) -> Vehicle:
-    """Crea un vehículo + su propietario para usarlo en un ticket. Ticket
-    no tiene campo ``plate`` (sólo ``vehicle_id`` FK)."""
+    """Crea un vehículo + su propietario (N:M vía ``VehicleUser``) para
+    usarlo en un ticket. ``Ticket`` no tiene campo ``plate`` — sólo
+    ``vehicle_id`` FK, y ``vehicles`` no tiene ``owner_user_id`` directo."""
     user = User(
-        email=f"owner-{plate}@test.es",
+        email=f"owner-{plate}-{id(db)}@test.es",
         full_name=f"Owner {plate}",
         role=VehicleRole.PROPIETARIO,
         hashed_password="x",
     )
     db.add(user); db.commit(); db.refresh(user)
-    vehicle = Vehicle(plate=plate, owner_user_id=user.id, is_active=True)
+    vehicle = Vehicle(plate=plate)
     db.add(vehicle); db.commit(); db.refresh(vehicle)
+    db.add(VehicleUser(
+        vehicle_id=vehicle.id, user_id=user.id, role=VehicleRole.PROPIETARIO,
+    ))
+    db.commit(); db.refresh(vehicle)
     return vehicle
 
 
