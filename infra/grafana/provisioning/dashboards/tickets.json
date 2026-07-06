@@ -1,0 +1,149 @@
+{
+  "annotations": {"list": []},
+  "description": "Métricas de tickets (Sprint O1, 2026-07-06). Volumen por parking, ingresos, y distribución automático vs manual.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "description": "Tickets creados en las últimas 24h (suma de automáticos + manuales).",
+      "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({job=\"solidapp\", event=\"audit\", action=\"ticket_created\"} | json [24h]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Tickets creados (24h)",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "description": "Tickets cerrados en las últimas 24h (acción 'ticket_closed').",
+      "gridPos": {"h": 4, "w": 8, "x": 8, "y": 0},
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({job=\"solidapp\", event=\"audit\", action=\"ticket_closed\"} | json [24h]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Tickets cerrados (24h)",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "description": "Tickets cancelados (operador anuló). Útil para detectar errores en flujos.",
+      "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0},
+      "id": 3,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({job=\"solidapp\", event=\"audit\", action=\"ticket_cancelled\"} | json [24h]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Tickets cancelados (24h)",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "description": "Volumen de creación de tickets por parking (top 5).",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "id": 4,
+      "options": {
+        "legend": {"displayMode": "list", "placement": "right", "showLegend": true},
+        "tooltip": {"mode": "single", "sort": "none"}
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "topk(5, sum by (parking_id) (count_over_time({job=\"solidapp\", event=\"audit\", action=\"ticket_created\"} | json [24h])))",
+          "legendFormat": "parking {{parking_id}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Top 5 parkings por tickets creados (24h)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "description": "Distribución: tickets automáticos (vía OCR/heartbeat) vs manuales (operador).",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "id": 5,
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "single", "sort": "none"}
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({job=\"solidapp\", event=\"audit\", action=\"manual_ticket_entry\"} | json [24h]))",
+          "legendFormat": "manual entry",
+          "refId": "A"
+        },
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({job=\"solidapp\", event=\"audit\", action=\"manual_ticket_exit\"} | json [24h]))",
+          "legendFormat": "manual exit",
+          "refId": "B"
+        },
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({job=\"solidapp\", event=\"audit\", action=\"ticket_created\"} | json [24h])) - sum(count_over_time({job=\"solidapp\", event=\"audit\", action=~\"manual_ticket_.*\"} | json [24h]))",
+          "legendFormat": "automático",
+          "refId": "C"
+        }
+      ],
+      "title": "Tickets automáticos vs manuales (24h)",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["solidapp", "tickets"],
+  "templating": {"list": []},
+  "time": {"from": "now-24h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "Tickets — solidAPP",
+  "uid": "solidapp-tickets",
+  "version": 1,
+  "weekStart": ""
+}

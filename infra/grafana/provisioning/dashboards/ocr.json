@@ -1,0 +1,122 @@
+{
+  "annotations": {"list": []},
+  "description": "Métricas de OCR y geocercas (Sprint O1, 2026-07-06). Frames procesados, errores y hits de geocerca.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "description": "Frames OCR procesados en las últimas 24h.",
+      "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({job=\"solidapp\", event=\"audit\", action=\"ocr_frame_processed\"} | json [24h]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Frames OCR procesados (24h)",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "description": "Frames descartados por confianza insuficiente o error del motor.",
+      "gridPos": {"h": 4, "w": 8, "x": 8, "y": 0},
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({job=\"solidapp\", event=\"audit\", action=~\"ocr_failed|ocr_low_confidence\"} | json [24h]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Frames OCR fallidos (24h)",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "description": "Hits de geocerca (placa detectada dentro del ROI de una cámara).",
+      "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0},
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({job=\"solidapp\", event=\"audit\", action=\"geofence_hit\"} | json [24h]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Geofence hits (24h)",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "description": "Tendencia de frames procesados vs fallidos en la última hora.",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 4},
+      "id": 4,
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "single", "sort": "none"}
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({job=\"solidapp\", event=\"audit\", action=\"ocr_frame_processed\"} | json [5m]))",
+          "legendFormat": "procesados",
+          "refId": "A"
+        },
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({job=\"solidapp\", event=\"audit\", action=~\"ocr_failed|ocr_low_confidence\"} | json [5m]))",
+          "legendFormat": "fallidos",
+          "refId": "B"
+        }
+      ],
+      "title": "Frames OCR procesados vs fallidos (5m buckets)",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["solidapp", "ocr"],
+  "templating": {"list": []},
+  "time": {"from": "now-24h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "OCR — solidAPP",
+  "uid": "solidapp-ocr",
+  "version": 1,
+  "weekStart": ""
+}

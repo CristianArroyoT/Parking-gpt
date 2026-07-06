@@ -1,0 +1,32 @@
+# Provisioning de dashboards Grafana para solidAPP.
+#
+# Sprint O1 (2026-07-06). Grafana monta este directorio en
+# ``/etc/grafana/provisioning/dashboards`` (ver docker-compose) y
+# auto-carga los JSON listados aquí al arrancar — sin clicks en UI.
+#
+# Decisión: ``allowUiUpdates=true`` para que el operador pueda
+# retocar/duplicar paneles desde la UI pero los cambios NO se
+# persistan en el JSON original (un ``GET /api/dashboards/uid/<uid>``
+# siempre devuelve la versión provisionada). Si en el futuro queremos
+# "guardar desde UI", basta con pasar ``allowUiUpdates=false``.
+#
+# Estructura esperada:
+#   infra/grafana/provisioning/dashboards/
+#     dashboards.yaml          ← este archivo
+#     overview.json            ← KPIs operativos
+#     auth.json                ← login/logout/token
+#     tickets.json             ← volumen/ingresos/manual vs auto
+#     ocr.json                 ← frames/confidence/geofence hits
+apiVersion: 1
+
+providers:
+  - name: solidapp
+    orgId: 1
+    folder: solidAPP
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

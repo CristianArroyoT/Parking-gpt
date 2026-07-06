@@ -1,0 +1,121 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "KPIs operativos globales (Sprint O1, 2026-07-06). Eventos derivados del log estructurado que emite record_audit_from_request (backend/app/services/audit.py). Consulta Loki con LogQL — '{job=\"solidapp\"} | json | event=\"audit\"'.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "description": "Total de eventos auditados en las últimas 24h (suma de success+failure).",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({job=\"solidapp\", event=\"audit\"} | json [24h]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Eventos auditados (24h)",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "description": "Top acciones auditadas en las últimas 24h. Útil para detectar picos inusuales (ej. muchos 'login_failure').",
+      "gridPos": {"h": 8, "w": 12, "x": 6, "y": 0},
+      "id": 2,
+      "options": {
+        "legend": {"displayMode": "list", "placement": "right", "showLegend": true},
+        "tooltip": {"mode": "single", "sort": "none"}
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "topk(10, sum by (action) (count_over_time({job=\"solidapp\", event=\"audit\"} | json [24h])))",
+          "legendFormat": "{{action}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Top 10 acciones (24h)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "description": "Intentos fallidos de login (incluye 'credenciales inválidas' y 'usuario inactivo') en 24h.",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 4},
+      "id": 3,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({job=\"solidapp\", event=\"audit\", action=\"login_failure\"} | json [24h]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Login fallidos (24h)",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "description": "Tasa de éxito vs fallo de operaciones auditadas. Calculado sobre el total de eventos.",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 4,
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "single", "sort": "none"}
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({job=\"solidapp\", event=\"audit\", result=\"success\"} | json [1h]))",
+          "legendFormat": "success",
+          "refId": "A"
+        },
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({job=\"solidapp\", event=\"audit\", result=\"failure\"} | json [1h]))",
+          "legendFormat": "failure",
+          "refId": "B"
+        }
+      ],
+      "title": "Eventos success vs failure (última hora)",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["solidapp", "audit"],
+  "templating": {"list": []},
+  "time": {"from": "now-24h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "Overview — solidAPP",
+  "uid": "solidapp-overview",
+  "version": 1,
+  "weekStart": ""
+}
