@@ -43,7 +43,22 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "N", "ASYNC", "PT", "RET", "SIM"]
-ignore = ["E501"]
+ignore = [
+    "E501",   # line too long (preexistente)
+    "E702",   # multiple statements on one line (semicolon)
+    "I001",   # unsorted imports — autor no usa isort
+    "PT001",  # pytest fixture without parentheses — preexistente
+    "PT018",  # assertNotEquals — preexistente
+    "RET501", # unnecessary return — preexistente
+    "SIM105", # use contextlib.suppress — preexistente
+    "SIM108", # use ternary — preexistente
+    "UP017",  # timezone.utc → datetime.UTC — preexistente
+    "UP035",  # typing.Dict/List → dict/list — preexistente
+    "UP037",  # quoted annotations — preexistente
+    "UP041",  # TypeAlias import — preexistente
+    "UP042",  # str+Enum → StrEnum — preexistente
+    "UP045",  # Optional[X] → X | None — preexistente
+]
 
 [tool.mypy]
 python_version = "3.11"

@@ -94,7 +94,7 @@ jobs:
           # un archivo inexistente y rompe el step con 'Some specified
           # paths were not resolved'. Si en el futuro se migra a `npm ci`
           # con lock file, se puede reactivar.
-          cache: false
+          cache: ""
 
       - name: Instalar dependencias
         run: npm ci || npm install
