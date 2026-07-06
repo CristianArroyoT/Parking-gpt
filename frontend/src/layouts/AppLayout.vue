@@ -16,6 +16,11 @@ interface NavItem { name: string; label: string; to: string }
 const NAV_BY_ROLE: Record<string, NavItem[]> = {
   admin: [
     { name: 'dashboard', label: 'Dashboard', to: '/dashboard' },
+    // Sprint UI Costes + Reportería + Dashboard KPIs (2026-07-06):
+    // costes y reportes pasan a vistas propias, el dashboard queda
+    // como solo-lectura de KPIs.
+    { name: 'admin-costs', label: 'Costes', to: '/admin/costs' },
+    { name: 'admin-reports', label: 'Reportería', to: '/admin/reports' },
     { name: 'admin-parkings', label: 'Sucursales', to: '/admin/parkings' },
     { name: 'admin-users', label: 'Usuarios', to: '/admin/users' },
     { name: 'admin-tariffs', label: 'Tarifas', to: '/admin/tariffs' },

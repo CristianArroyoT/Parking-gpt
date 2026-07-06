@@ -10,6 +10,7 @@ from app.api.v1 import (
     auth,
     cameras,
     costs,
+    dashboard,
     incidents,
     logout_all,
     parkings,
@@ -43,5 +44,7 @@ api_router.include_router(admin.router)
 # Sprint P1: CRUD de costes operativos + reporte de margen (admin/gestor).
 api_router.include_router(costs.router)
 api_router.include_router(reports.router)
+# Sprint UI Costes + Dashboard KPIs: KPIs agregados (admin-only).
+api_router.include_router(dashboard.router)
 
 __all__ = ["api_router"]
