@@ -78,9 +78,17 @@ services:
     image: solidapp-vehicle-detector:latest
     environment:
       VD_PORT: "8800"
-      VD_MODEL: "yolov8n.pt"
+      VD_MODEL: "best.pt"
+      # Sprint Vehicle-Detect v2 (2026-07-07): yolov8m fine-tuned en
+      # VisDrone (dronefreak/visdrone-yolov8m en HuggingFace). NO es
+      # un asset oficial de Ultralytics → el servicio lo descarga la
+      # primera vez y lo cachea en el volumen vehicle_models.
+      VD_MODEL_URL: "https://huggingface.co/dronefreak/visdrone-yolov8m/resolve/main/best.pt"
       VD_MODELS_DIR: /models
-      VD_CONFIDENCE_THRESHOLD: "0.35"
+      # Sprint Vehicle-Detect v2: con yolov8m-visdrone subimos de 0.05 → 0.25.
+      # VisDrone discrimina bien vehículos vs fondo, no necesitamos recall
+      # agresivo. Umbral 0.25 = balance precision/recall.
+      VD_CONFIDENCE_THRESHOLD: "0.25"
     volumes:
       - vehicle_models:/models
     ports:

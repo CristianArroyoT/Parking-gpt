@@ -13,6 +13,17 @@ El backend reescala internamente la imagen a 960x540 antes de inferir
 para que el frontend pinte los bboxes directamente sobre el SVG sin
 ninguna transformación de coordenadas.
 
+Sprint Vehicle-Detect v2 (2026-07-07): modelo cambiado de
+``yolov8n.pt`` (COCO) a ``best.pt`` (yolov8m fine-tuned en **VisDrone**,
+dataset aéreo con drones: coches, vans, buses, motos, etc. en vista
+cenital). yolov8n+COCO no detectaba prácticamente nada en capturas
+de parking lot — COCO se entrena con fotos frontales/laterales, no
+con vistas aéreas. VisDrone está específicamente anotado para ese caso.
+
+El modelo NO está en los assets oficiales de Ultralytics; se descarga
+una vez desde HuggingFace (``dronefreak/visdrone-yolov8m``) y se
+cachea en el volumen ``vehicle_models`` para arranques instantáneos.
+
 Si YOLO falla al cargar (modelo no descargado, error de runtime),
 el endpoint /health devuelve 'degraded' pero /detect responde con []
 en lugar de 500 — la app principal prefiere un silencio a un crash.
@@ -22,16 +33,18 @@ Endopints:
   POST /detect    → [{class_name, confidence, bbox}, ...]
 
 Variables de entorno:
-  VD_MODEL=yolov8n.pt       (nombre del modelo o ruta local)
+  VD_MODEL=best.pt                              (nombre del modelo)
+  VD_MODEL_URL=<HF resolve URL>                 (descarga inicial)
   VD_PORT=8800
-  VD_MODELS_DIR=/models     (los modelos se cachean en este dir)
-  VD_CONFIDENCE_THRESHOLD=0.35
+  VD_MODELS_DIR=/models                         (los modelos se cachean aquí)
+  VD_CONFIDENCE_THRESHOLD=0.25                  (umbral pre-flight)
 """
 from __future__ import annotations
 
 import io
 import logging
 import os
+import shutil
 import time
 from typing import Any
 
@@ -42,10 +55,18 @@ from pydantic import BaseModel
 log = logging.getLogger("vehicle-detector")
 logging.basicConfig(level=os.getenv("VD_LOG_LEVEL", "INFO"))
 
-VD_MODEL_NAME = os.getenv("VD_MODEL", "yolov8n.pt")
+VD_MODEL_NAME = os.getenv("VD_MODEL", "best.pt")
+VD_MODEL_URL = os.getenv(
+    "VD_MODEL_URL",
+    "https://huggingface.co/dronefreak/visdrone-yolov8m/resolve/main/best.pt",
+)
 VD_PORT = int(os.getenv("VD_PORT", "8800"))
 VD_MODELS_DIR = os.getenv("VD_MODELS_DIR", "/models")
-VD_CONFIDENCE_THRESHOLD = float(os.getenv("VD_CONFIDENCE_THRESHOLD", "0.35"))
+# Sprint Vehicle-Detect v2 (2026-07-07): con yolov8m-visdrone (que SÍ
+# detecta coches cenitales) subimos de 0.05 → 0.25. El modelo VisDrone
+# ya discrimina bien vehículos vs. fondo, no necesitamos tanto recall
+# agresivo. Umbral 0.25 = balance entre precision/recall.
+VD_CONFIDENCE_THRESHOLD = float(os.getenv("VD_CONFIDENCE_THRESHOLD", "0.25"))
 
 # Resolución fija a la que reescalamos antes de inferir. Coincide con el
 # viewBox del SVG en CalibrateView.vue (frontend/src/views/gestor/CalibrateView.vue).
@@ -54,10 +75,15 @@ VD_CONFIDENCE_THRESHOLD = float(os.getenv("VD_CONFIDENCE_THRESHOLD", "0.35"))
 DETECT_W = 960
 DETECT_H = 540
 
-# Subset COCO que nos interesa para "vehiculo estacionado" (cenital).
-# NO incluimos "person" (peatón) ni "train" (no aplica en parking).
+# Clases VisDrone (10 clases del dataset): pedestrian, people, bicycle,
+# car, van, truck, tricycle, awning-tricycle, bus, motor. Filtramos solo
+# vehículos: bicycle/car/van/truck/tricycle/awning-tricycle/bus/motor.
+# NO incluimos "pedestrian" ni "people" (peatones, no vehículos).
+# ``tricycle`` y ``awning-tricycle`` son vehículos a 3 ruedas (motocarros),
+# cuentan como "vehículos estacionados" en un parking.
 VEHICLE_CLASSES = {
-    "bicycle", "car", "motorcycle", "bus", "truck",
+    "bicycle", "car", "van", "truck", "tricycle",
+    "awning-tricycle", "bus", "motor",
 }
 
 app = FastAPI(title="solidapp-vehicle-detector", version="0.1.0")
@@ -76,34 +102,70 @@ class HealthResponse(BaseModel):
     uptime_s: float
 
 
+# ── Descarga del modelo (la primera vez, cacheamos en volumen) ──────────
+def _ensure_model_local() -> str:
+    """Asegura que el modelo existe en ``VD_MODELS_DIR``. Si no, lo descarga
+    desde ``VD_MODEL_URL`` (HuggingFace por defecto). Devuelve la ruta
+    absoluta al .pt.
+
+    Sprint Vehicle-Detect v2: yolov8m-visdrone NO está en los assets
+    oficiales de Ultralytics, así que ultralytics no puede auto-descargarlo.
+    Esta función es nuestro downloader explícito.
+    """
+    os.makedirs(VD_MODELS_DIR, exist_ok=True)
+    model_path = os.path.join(VD_MODELS_DIR, VD_MODEL_NAME)
+    if os.path.exists(model_path) and os.path.getsize(model_path) > 1_000_000:
+        return model_path
+
+    log.info(
+        "Descargando modelo %s desde %s → %s",
+        VD_MODEL_NAME, VD_MODEL_URL, model_path,
+    )
+    import urllib.request
+
+    tmp_path = f"{model_path}.part"
+    try:
+        with urllib.request.urlopen(VD_MODEL_URL, timeout=120) as resp, \
+             open(tmp_path, "wb") as out:
+            shutil.copyfileobj(resp, out)
+        # Si la descarga falló a medio (archivo < 1 MB), algo fue mal.
+        if os.path.getsize(tmp_path) < 1_000_000:
+            raise RuntimeError(
+                f"Descarga sospechosamente pequeña ({os.path.getsize(tmp_path)} B)"
+            )
+        os.replace(tmp_path, model_path)
+        log.info("Modelo descargado: %s (%.1f MB)",
+                 model_path, os.path.getsize(model_path) / 1024 / 1024)
+    except Exception:
+        if os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+        raise
+    return model_path
+
+
 # ── Carga lazy de YOLO ────────────────────────────────────────────────────
 # La primera petición a /detect instancia el motor. Si falla (memoria,
-# modelo corrupto), _engine queda en None y /detect devuelve [].
+# modelo corrupto, descarga rota), _engine queda en None y /detect
+# devuelve [].
 _engine: Any = None
 _engine_error: str | None = None
 _started_at = time.monotonic()
 
 
 def _get_engine() -> Any:
-    """Instancia YOLO en la primera llamada y lo cachea en proceso.
-
-    YOLO descarga el modelo a ``VD_MODELS_DIR`` la primera vez
-    (~6 MB para yolov8n.pt). Ese volumen se persiste vía compose,
-    así arranques posteriores son instantáneos.
-    """
+    """Instancia YOLO en la primera llamada y lo cachea en proceso."""
     global _engine, _engine_error
     if _engine is not None or _engine_error is not None:
         return _engine
     try:
         from ultralytics import YOLO  # type: ignore[import-untyped]
 
-        # ultralytics respeta YOLO_CONFIG_DIR para el config interno; le
-        # forzamos el dir de modelos. model_path puede ser un nombre
-        # builtin (yolov8n.pt) que descarga automáticamente, o una ruta.
+        # ultralytics respeta YOLO_CONFIG_DIR para el config interno.
         os.environ.setdefault("YOLO_CONFIG_DIR", VD_MODELS_DIR)
-        model_path = VD_MODEL_NAME
-        if not os.path.isabs(model_path):
-            model_path = os.path.join(VD_MODELS_DIR, VD_MODEL_NAME)
+        model_path = _ensure_model_local()
         _engine = YOLO(model_path)
         log.info("YOLO cargado correctamente: %s", model_path)
     except Exception as exc:  # noqa: BLE001
@@ -180,11 +242,14 @@ async def detect(image: UploadFile = File(...)) -> list[VehicleHit]:
 
     # YOLO .predict() es sync. En CPU para 960x540 con yolov8n: ~300-500 ms.
     # verbose=False silencia el log por-frame.
+    # imgsz=960 (NO (DETECT_H, DETECT_W)) → YOLO hace upscaling interno a
+    # 960x960 antes de inferir, lo que mejora DETECT_DE_OBJETOS_PEQUEÑOS
+    # (coches cenitales a veces ocupan <100 px de ancho tras el resize).
     try:
         results = engine.predict(
             img_resized,
             conf=VD_CONFIDENCE_THRESHOLD,
-            imgsz=(DETECT_H, DETECT_W),
+            imgsz=960,
             verbose=False,
         )
     except Exception as exc:  # noqa: BLE001
