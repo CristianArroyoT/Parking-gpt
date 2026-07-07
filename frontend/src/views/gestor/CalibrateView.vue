@@ -477,7 +477,7 @@ async function runVehicleDetection(): Promise<void> {
               type="button"
               class="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 inline-flex items-center gap-1"
               @click="openLivePreview"
-              title="Abrir streaming en vivo de la cámara (10 fps)"
+              title="Abrir streaming en vivo de la cámara (tiempo real)"
             >
               <span aria-hidden="true">▶</span> Ver en vivo
             </button>
@@ -759,7 +759,7 @@ async function runVehicleDetection(): Promise<void> {
             <div class="flex items-center gap-2 text-white">
               <span class="inline-block w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" aria-hidden="true" />
               <span class="font-semibold">En vivo · {{ camera?.name ?? `Cámara ${cameraId}` }}</span>
-              <span class="text-xs text-slate-400">10 fps · MJPEG</span>
+              <span class="text-xs text-slate-400">tiempo real · MJPEG</span>
             </div>
             <button
               type="button"
