@@ -2,7 +2,7 @@
 
 Abre ``cv2.VideoCapture`` sobre el ``rtsp_url`` de la cámara y produce
 un stream ``multipart/x-mixed-replace`` con un JPEG por frame. El
-intervalo entre frames (``FRAME_INTERVAL_S = 0.2`` ≈ 5 fps) es la
+intervalo entre frames (``FRAME_INTERVAL_S = 0.1`` ≈ 10 fps) es la
 decisión del producto (calibración humana, no sustituye al sistema de
 detección automática).
 
