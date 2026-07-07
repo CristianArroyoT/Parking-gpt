@@ -9,6 +9,7 @@ from app.api.v1 import (
     alerts,
     auth,
     cameras,
+    cameras_live,
     costs,
     dashboard,
     events,
@@ -32,6 +33,9 @@ api_router.include_router(users.router)
 api_router.include_router(parkings.router)
 api_router.include_router(spaces.router)
 api_router.include_router(cameras.router)
+# Sprint Live-Preview (2026-07-07): stream MJPEG en vivo, requiere
+# ?token=... porque se consume desde <img> del navegador.
+api_router.include_router(cameras_live.router)
 api_router.include_router(vehicles.router)
 api_router.include_router(tariffs.router)
 api_router.include_router(tickets.router)

@@ -17,7 +17,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppLayout from '@/layouts/AppLayout.vue'
-import { http } from '@/api/client'
+import { getAccessToken, http } from '@/api/client'
 import { useUiStore } from '@/stores/ui'
 
 interface ParkingSpace { id: number; lane: string; number: string; is_active: boolean }
@@ -133,6 +133,46 @@ watch([parkingId, cameraId], async () => {
   } finally {
     loading.value = false
   }
+})
+
+// ── Live preview modal (Sprint 2026-07-07) ───────────────────────────
+// El navegador <img> no puede setear headers → el token va por query.
+// El componente <img> consume el stream MJPEG multipart/x-mixed-replace
+// que produce el backend (5 fps, ver backend/app/services/cameras/stream.py).
+const livePreviewOpen = ref(false)
+const livePreviewUrl = ref<string | null>(null)
+const livePreviewError = ref<string | null>(null)
+
+function openLivePreview(): void {
+  const tok = getAccessToken()
+  if (!tok) {
+    ui.pushToast('error', 'Sesión caducada, vuelve a iniciar sesión')
+    return
+  }
+  livePreviewError.value = null
+  // Construimos el URL manualmente (no vía http.get) porque axios intenta
+  // parsear la respuesta como JSON y el MJPEG es un stream binario.
+  const qs = new URLSearchParams({ token: tok }).toString()
+  livePreviewUrl.value = `/api/v1/parkings/${parkingId.value}/cameras/${cameraId.value}/live?${qs}`
+  livePreviewOpen.value = true
+}
+
+function closeLivePreview(): void {
+  livePreviewOpen.value = false
+  // Al anular el src el navegador corta la conexión y el backend libera
+  // el slot del registry (ver app/services/cameras/live_streams.py).
+  livePreviewUrl.value = null
+  livePreviewError.value = null
+}
+
+function onLivePreviewError(): void {
+  livePreviewError.value =
+    'No se pudo conectar al stream (¿cámara caída o sin permisos?).'
+}
+
+// Si el usuario navega a otra cámara con el modal abierto, cerramos.
+watch([parkingId, cameraId], () => {
+  if (livePreviewOpen.value) closeLivePreview()
 })
 
 // ── Drag-create ───────────────────────────────────────────────────────
@@ -330,6 +370,17 @@ function fenceLabel(g: Geofence): string {
               :class="['px-2 py-1 rounded border', mode === 'select' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white']"
               @click="mode = 'select'"
             >Seleccionar</button>
+            <!-- Sprint Live-Preview (2026-07-07): abre modal con stream MJPEG
+                 en vivo. El token se pasa por query porque <img> no puede
+                 setear headers. -->
+            <button
+              type="button"
+              class="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 inline-flex items-center gap-1"
+              @click="openLivePreview"
+              title="Abrir streaming en vivo de la cámara (5 fps)"
+            >
+              <span aria-hidden="true">▶</span> Ver en vivo
+            </button>
           </div>
         </div>
 
@@ -525,5 +576,49 @@ function fenceLabel(g: Geofence): string {
         </div>
       </aside>
     </div>
+
+    <!-- Modal "Ver en vivo" (Sprint Live-Preview 2026-07-07) -->
+    <Teleport to="body">
+      <div
+        v-if="livePreviewOpen"
+        class="fixed inset-0 z-50 bg-slate-900/70 flex items-center justify-center p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Vista en vivo de la cámara"
+        @click.self="closeLivePreview"
+        @keydown.esc="closeLivePreview"
+      >
+        <div class="bg-slate-950 rounded-xl shadow-2xl max-w-5xl w-full overflow-hidden">
+          <header class="flex items-center justify-between px-4 py-3 border-b border-slate-800">
+            <div class="flex items-center gap-2 text-white">
+              <span class="inline-block w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" aria-hidden="true" />
+              <span class="font-semibold">En vivo · {{ camera?.name ?? `Cámara ${cameraId}` }}</span>
+              <span class="text-xs text-slate-400">5 fps · MJPEG</span>
+            </div>
+            <button
+              type="button"
+              class="text-slate-300 hover:text-white text-xl leading-none"
+              aria-label="Cerrar vista en vivo"
+              @click="closeLivePreview"
+            >×</button>
+          </header>
+          <div class="aspect-video bg-slate-900 flex items-center justify-center">
+            <img
+              v-if="livePreviewUrl"
+              :src="livePreviewUrl"
+              alt="Stream en vivo de la cámara"
+              class="w-full h-full object-contain"
+              @error="onLivePreviewError"
+            />
+            <p v-if="livePreviewError" class="text-rose-300 text-sm px-4 text-center">
+              {{ livePreviewError }}
+            </p>
+          </div>
+          <footer class="px-4 py-2 text-xs text-slate-400 border-t border-slate-800">
+            Cierra esta ventana para liberar el stream. Sólo un cliente a la vez por cámara.
+          </footer>
+        </div>
+      </div>
+    </Teleport>
   </AppLayout>
 </template>
