@@ -76,41 +76,6 @@ def require_role(*roles: str):
     return _checker
 
 
-def parking_context(
-    parking_id: int,
-    current: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> User:
-    """Valida que el usuario (no admin) tenga membresía en la sucursal."""
-    from app.models.user import ParkingMembership
-
-    # El rol se persiste como String(16); tras recargar el ORM puede venir
-    # como enum o como str (depende del flush). Aceptamos ambos casos.
-    role_value = current.role.value if hasattr(current.role, "value") else current.role
-    if role_value == "admin":
-        return current
-
-    membership = (
-        db.query(ParkingMembership)
-        .filter(
-            ParkingMembership.user_id == current.id,
-            ParkingMembership.parking_id == parking_id,
-        )
-        .one_or_none()
-    )
-    if not membership:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tiene acceso a esta sucursal",
-        )
-    return current
-
-
-def require_any_role(roles: Iterable[str]) -> str:
-    """Helper de tipo: expone un iterable para fastapi.Depends."""
-    return ",".join(roles)
-
-
 def get_current_user_or_query_token(
     request: Request,
     token: str | None = Query(default=None),
@@ -119,16 +84,19 @@ def get_current_user_or_query_token(
 ) -> User:
     """Igual que ``get_current_user`` pero también acepta ``?token=...``.
 
-    Pensado para el endpoint SSE (``GET /parkings/{id}/events``).
-    ``EventSource`` del navegador NO permite setear el header
-    ``Authorization``; por eso permitimos pasar el JWT en query
-    string como fallback. Riesgo: el token queda en logs de proxies
-    intermedios. Mitigado por ``ACCESS_TOKEN_TTL_MINUTES=15``.
+    Pensado para endpoints cuyo consumidor no puede setear headers
+    (``EventSource`` del SSE, ``<img>`` del live-preview MJPEG).
+    ``Authorization`` NO permite añadir headers arbitrarios; por eso
+    permitimos pasar el JWT en query string como fallback. Riesgo:
+    el token queda en logs de proxies intermedios. Mitigado por
+    ``ACCESS_TOKEN_TTL_MINUTES=15``.
 
     Si ni header ni query traen token → 401. Si ambos vienen → gana
     el header (``bearer_token`` no es ``None`` cuando viene el header).
 
-    Sprint O2 (2026-07-06).
+    Sprint O2 (2026-07-06). Sprint Live-Preview (2026-07-07): ahora
+    también la usa ``parking_context`` para que ``<img src="?token=...">``
+    atraviese el RBAC de sucursal sin tener que duplicar deps.
     """
     raw: str | None = bearer_token or token
     if not raw:
@@ -169,3 +137,46 @@ def get_current_user_or_query_token(
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario inactivo")
     return user
+
+
+def parking_context(
+    parking_id: int,
+    current: User = Depends(get_current_user_or_query_token),
+    db: Session = Depends(get_db),
+) -> User:
+    """Valida que el usuario (no admin) tenga membresía en la sucursal.
+
+    Sprint Live-Preview (2026-07-07): usa ``get_current_user_or_query_token``
+    en vez de ``get_current_user`` para que ``?token=...`` también funcione
+    en endpoints que dependen de ``parking_context`` (p.ej. ``/cameras/{id}/live``
+    consumido desde ``<img>`` del navegador, que no puede setear headers).
+    Los endpoints REST tradicionales siguen aceptando ``Authorization: Bearer``
+    porque ``get_current_user_or_query_token`` prefiere el header si viene.
+    """
+    from app.models.user import ParkingMembership
+
+    # El rol se persiste como String(16); tras recargar el ORM puede venir
+    # como enum o como str (depende del flush). Aceptamos ambos casos.
+    role_value = current.role.value if hasattr(current.role, "value") else current.role
+    if role_value == "admin":
+        return current
+
+    membership = (
+        db.query(ParkingMembership)
+        .filter(
+            ParkingMembership.user_id == current.id,
+            ParkingMembership.parking_id == parking_id,
+        )
+        .one_or_none()
+    )
+    if not membership:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tiene acceso a esta sucursal",
+        )
+    return current
+
+
+def require_any_role(roles: Iterable[str]) -> str:
+    """Helper de tipo: expone un iterable para fastapi.Depends."""
+    return ",".join(roles)

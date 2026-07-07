@@ -34,6 +34,7 @@ from tests._audit_helpers import (
     _login,
     _login_headers,
     _seed_admin,
+    _seed_gestor,
     _seed_parking,
 )
 
@@ -121,6 +122,52 @@ def test_live_404_when_camera_not_in_parking(
         headers=headers,
     )
     assert r.status_code == 404
+
+
+def test_live_query_token_authenticates_via_parking_context(
+    client: TestClient, db_session: Session,
+) -> None:
+    """Regresión Sprint Live-Preview (2026-07-07): ``?token=...`` debe
+    atravesar tanto ``_user`` como ``_ctx = Depends(parking_context)``.
+
+    Antes, ``parking_context`` usaba ``Depends(get_current_user)`` (sólo
+    header Bearer) y rechazaba con 401 el flujo del ``<img>`` del
+    navegador. Fix: ``parking_context`` ahora usa ``get_current_user_or_query_token``.
+    """
+    admin = _seed_admin(db_session)
+    parking = _seed_parking(db_session, code="P-LIVE-Q")
+    cam = _seed_camera(db_session, parking.id, code="CAM-LIVE-Q")
+    token = _login(client, admin.email, "admin12345")
+
+    # GET ?token= con el <img> del navegador — ningún header Authorization.
+    r = client.get(
+        f"/api/v1/parkings/{parking.id}/cameras/{cam.id}/live?token={token}",
+    )
+    assert r.status_code == 200, (
+        f"esperaba 200 (query token debería atravesar parking_context), "
+        f"obtuve {r.status_code}: {r.text}"
+    )
+    assert "multipart/x-mixed-replace" in r.headers["content-type"]
+
+
+def test_live_query_token_rejects_gestor_without_membership(
+    client: TestClient, db_session: Session,
+) -> None:
+    """``?token=...`` con un gestor SIN membresía en la sucursal → 403.
+
+    Verifica que el cambio en ``parking_context`` mantiene el control de
+    acceso por sucursal cuando el token viaja por query string.
+    """
+    gestor = _seed_gestor(db_session, email="gestor-lv@test.es")
+    parking = _seed_parking(db_session, code="P-LIVE-G")
+    cam = _seed_camera(db_session, parking.id, code="CAM-LIVE-G")
+    token = _login(client, gestor.email, "gestor1234")
+
+    r = client.get(
+        f"/api/v1/parkings/{parking.id}/cameras/{cam.id}/live?token={token}",
+    )
+    assert r.status_code == 403
+    assert "No tiene acceso" in r.text
 
 
 def test_live_409_when_already_active(
