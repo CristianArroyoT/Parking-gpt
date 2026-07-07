@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 from datetime import datetime, timezone
 
@@ -25,8 +26,13 @@ from app.schemas.parking import (
     GeofenceRead,
     GeofenceUpdate,
 )
+from app.schemas.vehicle_detection import (
+    DetectVehiclesRequest,
+    DetectVehiclesResponse,
+)
 from app.services.audit import record_audit_from_request
 from app.services.endpoint_rate_limit import endpoint_rate_limiter
+from app.services.vehicle_detector.client import get_vehicle_detector_client
 
 log = logging.getLogger(__name__)
 
@@ -314,3 +320,58 @@ def camera_health(
         consecutive_failures=consecutive,
         stale_threshold_seconds=stale,
     )
+
+
+@router.post(
+    "/{camera_id}/detect-vehicles",
+    response_model=DetectVehiclesResponse,
+    summary="Detecta vehículos en una imagen capturada (YOLO cenital)",
+)
+async def detect_vehicles_in_frame(
+    parking_id: int,
+    camera_id: int,
+    payload: DetectVehiclesRequest,
+    db: Session = Depends(get_db),
+) -> DetectVehiclesResponse:
+    """Sprint Vehicle-Detect (2026-07-07): pre-flight check de calibración.
+
+    Recibe la imagen capturada por el gestor en CalibrateView (dataURL
+    JPEG o base64 puro) y devuelve la lista de vehículos detectados por
+    YOLO, con bbox ya en coordenadas del viewBox 960x540 del SVG.
+
+    El cliente HTTP ``VehicleDetectorClient`` NUNCA lanza excepción:
+    si el servicio vehicle-detector está caído, devuelve ``detections=[]``.
+    Aquí traducimos eso en un 200 OK silencioso — el caller decide
+    qué hacer con la lista vacía.
+    """
+    # Defensa contra IDs cruzados: la cámara debe pertenecer al parking del path.
+    cam = (
+        db.query(Camera)
+        .filter(Camera.id == camera_id, Camera.parking_id == parking_id)
+        .one_or_none()
+    )
+    if not cam:
+        raise HTTPException(status_code=404, detail="Cámara no encontrada")
+
+    # Decodificar base64 (acepta dataURL 'data:image/jpeg;base64,...' o puro).
+    img_str = payload.image
+    if "," in img_str:
+        img_str = img_str.split(",", 1)[1]
+    try:
+        image_bytes = base64.b64decode(img_str, validate=True)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Imagen no válida: {exc}"
+        ) from exc
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="Imagen vacía")
+
+    # Llamar al cliente (nunca lanza, devuelve [] ante error).
+    client = get_vehicle_detector_client()
+    detections = await client.detect(
+        image_bytes,
+        filename="captured.jpg",
+        content_type="image/jpeg",
+    )
+
+    return DetectVehiclesResponse(detections=detections)

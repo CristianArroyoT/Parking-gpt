@@ -70,6 +70,16 @@ class Settings(BaseSettings):
         default=4.0, alias="OCR_SERVICE_TIMEOUT"
     )
 
+    # Sprint Vehicle-Detect (2026-07-07): detector cenital de vehículos
+    # (Ultralytics YOLO) en su propio contenedor. Timeout generoso
+    # porque YOLO en CPU puede tardar 300-500 ms por imagen 960x540.
+    vehicle_detector_url: str = Field(
+        default="http://localhost:8801", alias="VEHICLE_DETECTOR_URL"
+    )
+    vehicle_detector_timeout: float = Field(
+        default=8.0, alias="VEHICLE_DETECTOR_TIMEOUT"
+    )
+
     # Sprint Fase 3A (2026-07-01): observabilidad y auditoría.
     # ``log_format=plain`` por defecto para que ``docker compose logs backend``
     # siga legible en dev. ``json`` activa ``python-json-logger`` en

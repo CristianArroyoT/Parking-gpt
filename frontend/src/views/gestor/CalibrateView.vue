@@ -41,6 +41,16 @@ interface CameraHealth {
 }
 type Direction = 'entry' | 'exit'
 
+// Sprint Vehicle-Detect (2026-07-07): respuesta de
+// POST /parkings/{parking_id}/cameras/{camera_id}/detect-vehicles.
+// bbox: [x, y, w, h] en coordenadas 960x540 del viewBox del SVG (el
+// backend reescala la imagen antes de inferir para evitar transformaciones).
+interface VehicleDetection {
+  class_name: string
+  confidence: number
+  bbox: [number, number, number, number]
+}
+
 const route = useRoute()
 const ui = useUiStore()
 const parkingId = computed(() => Number(route.params.parkingId))
@@ -127,6 +137,7 @@ watch([parkingId, cameraId], async () => {
   selectedId.value = null
   draft.value = null
   capturedFrame.value = null
+  detections.value = []
   try {
     await Promise.all([loadCamera(), loadGeofences(), loadHealth()])
   } catch {
@@ -177,6 +188,11 @@ function onLivePreviewError(): void {
 const capturedFrame = ref<string | null>(null)
 const captureInFlight = ref(false)
 const liveImgRef = ref<HTMLImageElement | null>(null)
+
+// Sprint Vehicle-Detect (2026-07-07): detecciones YOLO sobre el frame
+// capturado. Vacío = no se ha ejecutado el detector o no encontró nada.
+const detectionRunning = ref(false)
+const detections = ref<VehicleDetection[]>([])
 
 function captureLiveFrame(): void {
   if (captureInFlight.value) return
@@ -339,6 +355,52 @@ function fenceLabel(g: Geofence): string {
   const s = spacesById.value.get(g.parking_space_id)
   return s ? `${s.lane}-${s.number}` : `Plaza #${g.parking_space_id}`
 }
+
+// ── Vehicle detection helpers (Sprint 2026-07-07) ─────────────────────
+// AABB intersection test puro: si una geocerca solapa con UN bbox de
+// detección, la marcamos como "ocupada"; si NO hay intersecciones pero
+// SÍ hay detecciones en el frame → "vacía"; si no se ha ejecutado el
+// detector aún → "sin clasificar" (azul).
+function aabbIntersects(
+  ax: number, ay: number, aw: number, ah: number,
+  bx: number, by: number, bw: number, bh: number,
+): boolean {
+  return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by
+}
+
+function fenceHasVehicle(g: Geofence): boolean {
+  return detections.value.some((d) =>
+    aabbIntersects(g.x, g.y, g.w, g.h, d.bbox[0], d.bbox[1], d.bbox[2], d.bbox[3]),
+  )
+}
+
+function vehiclesInFence(g: Geofence): VehicleDetection[] {
+  return detections.value.filter((d) =>
+    aabbIntersects(g.x, g.y, g.w, g.h, d.bbox[0], d.bbox[1], d.bbox[2], d.bbox[3]),
+  )
+}
+
+async function runVehicleDetection(): Promise<void> {
+  if (!capturedFrame.value || detectionRunning.value) return
+  detectionRunning.value = true
+  try {
+    const { data } = await http.post<{ detections: VehicleDetection[] }>(
+      `/parkings/${parkingId.value}/cameras/${cameraId.value}/detect-vehicles`,
+      { image: capturedFrame.value },
+    )
+    detections.value = data.detections
+    ui.pushToast(
+      'success',
+      data.detections.length
+        ? `Detectados ${data.detections.length} vehículo(s) en la imagen`
+        : 'No se detectaron vehículos en la imagen',
+    )
+  } catch (err: unknown) {
+    ui.pushToast('error', extractError(err, 'No se pudo ejecutar la detección'))
+  } finally {
+    detectionRunning.value = false
+  }
+}
 </script>
 
 <template>
@@ -419,11 +481,21 @@ function fenceLabel(g: Geofence): string {
             >
               <span aria-hidden="true">▶</span> Ver en vivo
             </button>
+            <!-- Sprint Vehicle-Detect (2026-07-07): dispara YOLO sobre el
+                 frame capturado. Sólo habilitado si hay frame. -->
+            <button
+              v-if="capturedFrame"
+              type="button"
+              class="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50 inline-flex items-center gap-1"
+              :disabled="detectionRunning"
+              :title="`Detectar vehículos en la imagen capturada`"
+              @click="runVehicleDetection"
+            >{{ detectionRunning ? '⏳ Detectando…' : '🔍 Detectar vehículos' }}</button>
             <button
               v-if="capturedFrame"
               type="button"
               class="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50"
-              @click="capturedFrame = null"
+              @click="capturedFrame = null; detections = []"
               title="Volver al placeholder"
             >✕ Quitar imagen</button>
           </div>
@@ -470,7 +542,13 @@ function fenceLabel(g: Geofence): string {
               v-for="g in geofences"
               :key="g.id"
               :x="g.x" :y="g.y" :width="g.w" :height="g.h"
-              :stroke="selectedId === g.id ? '#f59e0b' : '#2563eb'"
+              :stroke="selectedId === g.id
+                ? '#f59e0b'
+                : fenceHasVehicle(g)
+                  ? '#dc2626'   /* rojo: interseca con detección de vehículo */
+                  : detections.length
+                    ? '#16a34a' /* verde: vacía (post-detección) */
+                    : '#2563eb' /* azul: sin clasificación aún */"
               :stroke-width="selectedId === g.id ? 3 : 2"
               fill="rgba(37,99,235,.10)"
               data-fence
@@ -488,6 +566,37 @@ function fenceLabel(g: Geofence): string {
               font-weight="600"
               style="pointer-events: none;"
             >{{ fenceLabel(g) }}</text>
+            <!-- Sprint Vehicle-Detect: badge de conteo en esquina superior
+                 derecha de la geocerca cuando intersecta con vehículos. -->
+            <text
+              v-for="g in geofences.filter(fenceHasVehicle)"
+              :key="`cnt-${g.id}`"
+              :x="g.x + g.w - 4" :y="g.y + 14"
+              text-anchor="end"
+              fill="#dc2626"
+              font-size="12" font-weight="700"
+              font-family="Inter, sans-serif"
+              style="pointer-events: none;"
+            >🚗 ×{{ vehiclesInFence(g).length }}</text>
+
+            <!-- Sprint Vehicle-Detect: bboxes de YOLO sobre el SVG.
+                 Las coords ya vienen en viewBox 960x540. -->
+            <template v-for="(d, idx) in detections" :key="`vd-${idx}`">
+              <rect
+                :x="d.bbox[0]" :y="d.bbox[1]"
+                :width="d.bbox[2]" :height="d.bbox[3]"
+                stroke="#fbbf24" stroke-width="1.5"
+                fill="rgba(251,191,36,0.15)"
+                stroke-dasharray="4 2"
+              />
+              <text
+                :x="d.bbox[0]"
+                :y="Math.max(d.bbox[1] - 4, 12)"
+                fill="#fbbf24" font-size="11"
+                font-family="Inter, sans-serif" font-weight="600"
+                style="pointer-events: none;"
+              >{{ d.class_name }} {{ Math.round(d.confidence * 100) }}%</text>
+            </template>
 
             <rect
               v-if="draft"

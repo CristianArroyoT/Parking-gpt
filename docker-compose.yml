@@ -64,6 +64,29 @@ services:
       - "8801:8800"
     restart: unless-stopped
 
+  # ── Servicio vehicle-detector (Ultralytics YOLO separado) ─────────────
+  # Sprint Vehicle-Detect (2026-07-07): detector cenital de vehículos
+  # (pre-flight check de calibración de geocercas). Mantiene torch +
+  # ultralytics aislados del backend. El modelo yolov8n.pt (~6 MB) se
+  # cachea en el volumen 'vehicle_models' para no re-descargarlo cada
+  # arranque. Sin depends_on: si está caído, el cliente hace fallback
+  # silencioso y devuelve detections=[].
+  vehicle-detector:
+    build:
+      context: ./docker/vehicle-detector
+      dockerfile: Dockerfile
+    image: solidapp-vehicle-detector:latest
+    environment:
+      VD_PORT: "8800"
+      VD_MODEL: "yolov8n.pt"
+      VD_MODELS_DIR: /models
+      VD_CONFIDENCE_THRESHOLD: "0.35"
+    volumes:
+      - vehicle_models:/models
+    ports:
+      - "8802:8800"
+    restart: unless-stopped
+
   # ── API FastAPI ──────────────────────────────────────────────────────
   backend:
     build:
@@ -83,12 +106,19 @@ services:
       # el cliente hace fallback silencioso y devuelve [] — NUNCA 500.
       OCR_SERVICE_URL: http://ocr:8800
       OCR_SERVICE_TIMEOUT: "4"
+      # Cliente vehicle-detector (Sprint Vehicle-Detect 2026-07-07). Mismo
+      # patrón fail-OPEN que OCR: si el contenedor YOLO está caído, el
+      # cliente devuelve detections=[] y el endpoint responde 200 con [].
+      VEHICLE_DETECTOR_URL: http://vehicle-detector:8800
+      VEHICLE_DETECTOR_TIMEOUT: "8"
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
       ocr:
+        condition: service_started
+      vehicle-detector:
         condition: service_started
     ports:
       - "8000:8000"
@@ -226,6 +256,7 @@ volumes:
   pgdata:
   redisdata:
   ocr_models:
+  vehicle_models:
   loki-data:
   grafana-data:
   app_logs:
