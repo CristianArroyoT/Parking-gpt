@@ -29,10 +29,10 @@ from app.models.parking import Camera
 log = logging.getLogger(__name__)
 
 
-# Intervalo entre frames: 200 ms = 5 fps (decidido por el producto,
+# Intervalo entre frames: 100 ms = 10 fps (decidido por el producto,
 # calibración humana). Ver ``app/services/cameras/capture.py`` para el
 # equivalente en captura puntual (mayor calidad, single-frame).
-FRAME_INTERVAL_S: float = 0.2
+FRAME_INTERVAL_S: float = 0.1
 
 # Calidad JPEG menor que en ``capture.py`` porque aquí emitimos frames
 # continuamente. 70 es buen compromiso: ~30-60 KB por frame a 1280×720

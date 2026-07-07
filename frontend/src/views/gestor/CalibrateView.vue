@@ -126,6 +126,7 @@ watch([parkingId, cameraId], async () => {
   loading.value = true
   selectedId.value = null
   draft.value = null
+  capturedFrame.value = null
   try {
     await Promise.all([loadCamera(), loadGeofences(), loadHealth()])
   } catch {
@@ -168,6 +169,43 @@ function closeLivePreview(): void {
 function onLivePreviewError(): void {
   livePreviewError.value =
     'No se pudo conectar al stream (¿cámara caída o sin permisos?).'
+}
+
+// ── Captura de frame (Sprint 2026-07-07) ──────────────────────────────────
+// Permite al gestor copiar el frame actual del live preview como fondo del
+// SVG principal para dibujar geocercas con precisión sobre la imagen real.
+const capturedFrame = ref<string | null>(null)
+const captureInFlight = ref(false)
+const liveImgRef = ref<HTMLImageElement | null>(null)
+
+function captureLiveFrame(): void {
+  if (captureInFlight.value) return
+  const img = liveImgRef.value
+  if (!img || img.naturalWidth === 0) {
+    ui.pushToast('error', 'Espera un momento: la imagen aún no está lista')
+    return
+  }
+  captureInFlight.value = true
+  try {
+    // canvas.drawImage sobre el <img> del MJPEG (same-origin, sin CORS)
+    // y toDataURL extrae el frame actual sin round-trip al backend. Esto
+    // evita abrir un segundo VideoCapture RTSP, que algunos NVR limitan.
+    const canvas = document.createElement('canvas')
+    canvas.width = img.naturalWidth
+    canvas.height = img.naturalHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('2d context no disponible')
+    ctx.drawImage(img, 0, 0)
+    capturedFrame.value = canvas.toDataURL('image/jpeg', 0.85)
+    ui.pushToast('success', 'Imagen capturada — dibuja las geocercas')
+    closeLivePreview()
+  } catch (err: unknown) {
+    // eslint-disable-next-line no-console
+    console.error('captureLiveFrame falló', err)
+    ui.pushToast('error', 'No se pudo capturar el frame')
+  } finally {
+    captureInFlight.value = false
+  }
 }
 
 // Si el usuario navega a otra cámara con el modal abierto, cerramos.
@@ -377,10 +415,17 @@ function fenceLabel(g: Geofence): string {
               type="button"
               class="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 inline-flex items-center gap-1"
               @click="openLivePreview"
-              title="Abrir streaming en vivo de la cámara (5 fps)"
+              title="Abrir streaming en vivo de la cámara (10 fps)"
             >
               <span aria-hidden="true">▶</span> Ver en vivo
             </button>
+            <button
+              v-if="capturedFrame"
+              type="button"
+              class="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50"
+              @click="capturedFrame = null"
+              title="Volver al placeholder"
+            >✕ Quitar imagen</button>
           </div>
         </div>
 
@@ -403,11 +448,23 @@ function fenceLabel(g: Geofence): string {
                 <stop offset="1" stop-color="#0f172a" />
               </linearGradient>
             </defs>
-            <rect width="960" height="540" fill="url(#frame-bg)" />
-            <rect x="40" y="40" width="880" height="460" fill="#1f2937" stroke="#334155" />
-            <text x="480" y="280" text-anchor="middle" fill="#475569" font-size="20" font-family="Inter, sans-serif">
-              {{ camera?.rtsp_url ?? 'Sin stream' }}
-            </text>
+            <!-- Si hay frame capturado (Sprint 2026-07-07), lo pegamos como
+                 fondo del viewBox. Si no, placeholder gris degradado + texto
+                 con el RTSP. Las geocercas se dibujan encima (no cambian
+                 sus coordenadas porque el viewBox sigue siendo 960x540). -->
+            <image
+              v-if="capturedFrame"
+              :href="capturedFrame"
+              x="0" y="0" width="960" height="540"
+              preserveAspectRatio="xMidYMid slice"
+            />
+            <template v-else>
+              <rect width="960" height="540" fill="url(#frame-bg)" />
+              <rect x="40" y="40" width="880" height="460" fill="#1f2937" stroke="#334155" />
+              <text x="480" y="280" text-anchor="middle" fill="#475569" font-size="20" font-family="Inter, sans-serif">
+                {{ camera?.rtsp_url ?? 'Sin stream' }}
+              </text>
+            </template>
 
             <rect
               v-for="g in geofences"
@@ -593,7 +650,7 @@ function fenceLabel(g: Geofence): string {
             <div class="flex items-center gap-2 text-white">
               <span class="inline-block w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" aria-hidden="true" />
               <span class="font-semibold">En vivo · {{ camera?.name ?? `Cámara ${cameraId}` }}</span>
-              <span class="text-xs text-slate-400">5 fps · MJPEG</span>
+              <span class="text-xs text-slate-400">10 fps · MJPEG</span>
             </div>
             <button
               type="button"
@@ -606,6 +663,7 @@ function fenceLabel(g: Geofence): string {
             <img
               v-if="livePreviewUrl"
               :src="livePreviewUrl"
+              :ref="(el) => { liveImgRef = el as HTMLImageElement | null }"
               alt="Stream en vivo de la cámara"
               class="w-full h-full object-contain"
               @error="onLivePreviewError"
@@ -614,8 +672,14 @@ function fenceLabel(g: Geofence): string {
               {{ livePreviewError }}
             </p>
           </div>
-          <footer class="px-4 py-2 text-xs text-slate-400 border-t border-slate-800">
-            Cierra esta ventana para liberar el stream. Sólo un cliente a la vez por cámara.
+          <footer class="px-4 py-2 text-xs text-slate-400 border-t border-slate-800 flex items-center justify-between gap-3">
+            <span>Cierra esta ventana para liberar el stream. Sólo un cliente a la vez por cámara.</span>
+            <button
+              type="button"
+              class="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium disabled:opacity-50"
+              :disabled="captureInFlight"
+              @click="captureLiveFrame"
+            >📸 Capturar y usar para geocercas</button>
           </footer>
         </div>
       </div>
