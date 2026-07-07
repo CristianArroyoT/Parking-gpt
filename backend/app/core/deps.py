@@ -94,9 +94,10 @@ def get_current_user_or_query_token(
     Si ni header ni query traen token → 401. Si ambos vienen → gana
     el header (``bearer_token`` no es ``None`` cuando viene el header).
 
-    Sprint O2 (2026-07-06). Sprint Live-Preview (2026-07-07): ahora
-    también la usa ``parking_context`` para que ``<img src="?token=...">``
-    atraviese el RBAC de sucursal sin tener que duplicar deps.
+    Sprint O2 (2026-07-06). Sprint Live-Preview (2026-07-07): la usa el
+    endpoint ``GET /cameras/{id}/live`` (consumido por ``<img>``). NO
+    se usa como dep de ``parking_context`` para no expandir el scope
+    de auth del resto de routers REST — ver push security review.
     """
     raw: str | None = bearer_token or token
     if not raw:
@@ -139,32 +140,31 @@ def get_current_user_or_query_token(
     return user
 
 
-def parking_context(
-    parking_id: int,
-    current: User = Depends(get_current_user_or_query_token),
-    db: Session = Depends(get_db),
+def enforce_parking_membership(
+    user: User, parking_id: int, db: Session
 ) -> User:
-    """Valida que el usuario (no admin) tenga membresía en la sucursal.
+    """Valida que ``user`` (no admin) tenga membresía en ``parking_id``.
 
-    Sprint Live-Preview (2026-07-07): usa ``get_current_user_or_query_token``
-    en vez de ``get_current_user`` para que ``?token=...`` también funcione
-    en endpoints que dependen de ``parking_context`` (p.ej. ``/cameras/{id}/live``
-    consumido desde ``<img>`` del navegador, que no puede setear headers).
-    Los endpoints REST tradicionales siguen aceptando ``Authorization: Bearer``
-    porque ``get_current_user_or_query_token`` prefiere el header si viene.
+    Lógica pura reutilizable tanto por ``parking_context`` (auth header)
+    como por deps locales que necesiten aceptar también ``?token=``
+    (Sprint Live-Preview 2026-07-07: el ``<img>`` del CalibrateView).
+
+    Push security review (2026-07-07): se extrajo aquí para que
+    ``parking_context`` pudiera volver a depender de ``get_current_user``
+    (header-only) sin perder la opción de query-token en el endpoint live.
     """
     from app.models.user import ParkingMembership
 
     # El rol se persiste como String(16); tras recargar el ORM puede venir
     # como enum o como str (depende del flush). Aceptamos ambos casos.
-    role_value = current.role.value if hasattr(current.role, "value") else current.role
+    role_value = user.role.value if hasattr(user.role, "value") else user.role
     if role_value == "admin":
-        return current
+        return user
 
     membership = (
         db.query(ParkingMembership)
         .filter(
-            ParkingMembership.user_id == current.id,
+            ParkingMembership.user_id == user.id,
             ParkingMembership.parking_id == parking_id,
         )
         .one_or_none()
@@ -174,7 +174,25 @@ def parking_context(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No tiene acceso a esta sucursal",
         )
-    return current
+    return user
+
+
+def parking_context(
+    parking_id: int,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    """Valida que el usuario (no admin) tenga membresía en la sucursal.
+
+    Scope deliberadamente limitado a ``Authorization: Bearer``: este dep
+    lo usan routers REST tradicionales (CRUD de cámaras, geocercas,
+    tickets, etc.) y mantenerlo header-only evita exponer el flujo
+    ``?token=...`` a endpoints donde no aporta nada. Endpoints que
+    sí necesitan query token (p.ej. ``/cameras/{id}/live`` consumido
+    desde ``<img>``) deben definir su propio dep local basado en
+    ``get_current_user_or_query_token`` y ``enforce_parking_membership``.
+    """
+    return enforce_parking_membership(current, parking_id, db)
 
 
 def require_any_role(roles: Iterable[str]) -> str:
