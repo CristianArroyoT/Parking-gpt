@@ -395,6 +395,12 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   (`f"/api/v1/admin/reports/{informe}.pdf"`, que sí ejercita el endpoint pero no
   se puede emparejar) y sin cobertura— para no dar por cubierto algo que no lo
   está, ni alarmar por algo que sí lo está.
+- **Hasta dónde da el medidor**: además de "¿tiene test?", el script informa de
+  "¿tiene un test que compruebe el 401/403?". Ese segundo dato sale
+  **indicativo**, con falsos positivos: muchos tests comprueban la denegación
+  construyendo la URL en una variable (`for ruta in ("/plazas", "/tickets")`),
+  así que el emparejamiento literal no las ve. Por eso la puerta del script es
+  "todo endpoint tiene algún test" (99 de 99), no la de denegación.
 
 ### T-14 · I3 — OCR con GPU
 

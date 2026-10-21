@@ -215,7 +215,6 @@ documento, no al revés", se construyó la forma de comprobarlo:
 | `tools/generar_seccion_api.py` | Regenera la sección 3 del documento desde el código |
 | `tools/verificar_api_doc.py` | Detecta la deriva, con **autoprueba** (quita una ruta y añade otra inexistente, y comprueba que las ve) |
 | `tools/cobertura_api.py` | Mide **qué endpoints tienen test** |
-
 Tres cosas salieron de ahí:
 
 1. **Dos rutas estaban registradas dos veces** (`POST

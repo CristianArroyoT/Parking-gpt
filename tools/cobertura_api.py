@@ -15,6 +15,7 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import ast
 import re
 import sys
 from pathlib import Path
@@ -73,6 +74,69 @@ def _texto_de_tests() -> str:
     return "\n".join(textos)
 
 
+def _cuerpos_de_test() -> list[tuple[str, str]]:
+    """(nombre del test, cuerpo) de cada función de test del repo.
+
+    Se usa para comprobar algo más fuerte que "el endpoint se toca":
+    que **exista un test que verifique que a un usuario sin permiso
+    se le responde 401/403**. Un endpoint sin esa comprobación tiene el
+    RBAC sin verificar, por muy many tests que lo toquen.
+    """
+    cuerpos: list[tuple[str, str]] = []
+    for fichero in sorted(TESTS.rglob("*.py")):
+        try:
+            arbol = ast.parse(fichero.read_text(encoding="utf-8"))
+        except SyntaxError:  # pragma: no cover
+            continue
+        lineas = fichero.read_text(encoding="utf-8").splitlines()
+        for nodo in ast.walk(arbol):
+            if not isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if not nodo.name.startswith("test_"):
+                continue
+            cuerpo = "\n".join(lineas[nodo.body[0].lineno - 1:nodo.end_lineno or nodo.body[0].lineno])
+            cuerpos.append((f"{fichero.name}::{nodo.name}", cuerpo))
+    return cuerpos
+
+
+def _test_de_denegacion(ruta: str, cuerpos: list[tuple[str, str]]) -> list[str]:
+    """Tests que mencionan la ruta y comprueban un 401 o un 403."""
+    patron = _forma(ruta)
+    hallados: list[str] = []
+    for nombre, cuerpo in cuerpos:
+        if not patron.search(cuerpo):
+            continue
+        if re.search(r"status_code\s*(==|in)\s*[\(\{\[]?[^\n]*\b(401|403)\b", cuerpo):
+            hallados.append(nombre)
+    return hallados
+
+
+def _filas_con_rbac() -> list[tuple[str, str, str, str, str]]:
+    """(método, ruta, quién, módulo, cobertura) de cada endpoint."""
+    texto = _texto_de_tests()
+    filas: list[tuple[str, str, str, str, str]] = []
+    for fichero in sorted(V1.glob("*.py")):
+        if fichero.stem == "__init__":
+            continue
+        for metodo, ruta, quien, modulo in extraer_de_modulo(fichero):
+            if _forma(ruta).search(texto):
+                estado = "explicita"
+            elif _parametrizada(ruta, texto):
+                estado = "parametrizada"
+            else:
+                estado = "ninguna"
+            filas.append((metodo, ruta, quien, modulo, estado))
+    return filas
+
+
+def _quien_de(ruta: str) -> str:
+    """La columna 'Quién' de una ruta, tal y como la pone el generador."""
+    for _m, r, quien, _mod, _estado in _filas_con_rbac():
+        if r == ruta:
+            return quien
+    return ""
+
+
 def cobertura() -> list[tuple[str, str, str, str]]:
     """(método, ruta, módulo, cobertura) de cada endpoint.
 
@@ -83,19 +147,9 @@ def cobertura() -> list[tuple[str, str, str, str]]:
         endpoint se ejercita pero no se puede emparejar literalmente.
       * ``ninguna``: no hay ningún test que lo toque.
     """
-    texto = _texto_de_tests()
     filas: list[tuple[str, str, str, str]] = []
-    for fichero in sorted(V1.glob("*.py")):
-        if fichero.stem == "__init__":
-            continue
-        for metodo, ruta, _quien, modulo in extraer_de_modulo(fichero):
-            if _forma(ruta).search(texto):
-                estado = "explicita"
-            elif _parametrizada(ruta, texto):
-                estado = "parametrizada"
-            else:
-                estado = "ninguna"
-            filas.append((metodo, ruta, modulo, estado))
+    for metodo, ruta, _quien, modulo, estado in _filas_con_rbac():
+        filas.append((metodo, ruta, modulo, estado))
     return filas
 
 
@@ -114,9 +168,31 @@ def main() -> int:
     print(f"  con test parametrizado:   {len(parametrizadas)}")
     print(f"  SIN ningun test:          {len(sin_test)}")
 
+    # Segunda pregunta, mas fuerte: ¿el RBAC está verificado? Un
+    # endpoint puede estar tocado por tests que no comprueban que a un
+    # usuario sin permiso se le responde 401/403. Los endpoints
+    # publicos no tienen nada que denegar, asi que se quedan fuera.
+    cuerpos = _cuerpos_de_test()
+    publicos = {
+        ruta for _m, ruta, _q, _mod, _estado in _filas_con_rbac()
+        if _quien_de(ruta).startswith("Público")
+    }
+    sin_denegacion = [
+        (m, r, mod) for m, r, mod, estado in filas
+        if estado != "ninguna" and r not in publicos
+        and not _test_de_denegacion(r, cuerpos)
+    ]
+    print(f"  con test de denegacion (401/403): "
+          f"{len(filas) - len(sin_denegacion) - len(publicos)}"
+          f" (los {len(publicos)} públicos no tienen nada que denegar)")
+
     if sin_test:
         print("\nEndpoints sin ningun test que los ejercite:")
         for metodo, ruta, modulo, _ in sin_test:
+            print(f"  {metodo:6} {ruta:56} [{modulo}]")
+    if sin_denegacion:
+        print("\nEndpoints SIN test que compruebe el 401/403 (RBAC sin verificar):")
+        for metodo, ruta, modulo in sin_denegacion:
             print(f"  {metodo:6} {ruta:56} [{modulo}]")
     if parametrizadas:
         print("\nCubiertos por una URL parametrizada (no se pueden emparejar "
@@ -127,6 +203,15 @@ def main() -> int:
         print("\nCon test explicito:")
         for metodo, ruta, modulo, _ in explicitas:
             print(f"  {metodo:6} {ruta:56} [{modulo}]")
+    # La puerta es "todo endpoint tiene algun test". La medida de
+    # denegacion es INDICATIVA y no falla el script: los tests
+    # comprueban el 401/403 construyendo la URL en una variable o
+    # iterando sobre las rutas, asi que aparecen como huecos falsos.
+    if sin_denegacion:
+        print("\nNota: la lista de arriba es INDICATIVA. En varios de esos "
+              "endpoints el 401/403 si se comprueba, pero el test construye "
+              "la URL en una variable (o itera sobre las rutas), asi que "
+              "no se puede emparejar de forma literal.")
     return 1 if sin_test else 0
 
 

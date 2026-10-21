@@ -10,7 +10,7 @@ Utilidades del repo que no forman parte de la aplicación.
 | `extraer_api.py` | Extrae de los routers las **rutas y su RBAC** leyendo el código con `ast`, y las **comprueba contra el OpenAPI real**: si el extractor se deja alguna ruta fuera, sale con código 1. Es lo que alimenta el inventario de la API. |
 | `generar_seccion_api.py` | Genera la sección 3 de `docs/API-INTERNAL.md` a partir del código (`--escribir` la deja en el documento). |
 | `verificar_api_doc.py` | Comprueba que el inventario documentado coincide con el código y dice qué falta y qué sobra. Sale con 1 si hay deriva. Tiene autoprueba (`--autoprueba`). |
-| `cobertura_api.py` | Mide **cuántos endpoints tienen test**. Distingue los que se prueban con la ruta literal de los que se prueban con una URL parametrizada, y de los que no tienen ningún test. Sale con 1 si hay endpoints sin cubrir. |
+| `cobertura_api.py` | Mide **cuántos endpoints tienen test**. Distingue los que se prueban con la ruta literal de los que se prueban con una URL parametrizada, y de los que no tienen ningún test. La puerta es "todo endpoint tiene algún test"; además informa (de forma **indicativa**, con falsos positivos) de qué endpoints no tienen un test que compruebe el 401/403. |
 
 ## Uso
 
