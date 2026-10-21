@@ -1,0 +1,8 @@
+# Los scripts de shell se ejecutan dentro de contenedores Linux. Con
+# core.autocrlf=true (Windows) el checkout les escribe CRLF y el arranque
+# falla con "/bin/bash^M: bad interpreter" o con errores de sintaxis en las
+# líneas con continuaciones (\).
+#
+# Se fuerza LF sólo para los ficheros .sh para no tocar la normalización
+# del resto del repositorio.
+*.sh text eol=lf
