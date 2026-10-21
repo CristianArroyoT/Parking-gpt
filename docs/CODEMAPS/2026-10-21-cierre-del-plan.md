@@ -35,7 +35,7 @@ backend/app/
 ├── services/
 │   ├── cameras/
 │   │   ├── stream.py          mjpeg_generator + CapturaSincronizada (T-06+1/T-13+2)
-│   │   └── live_streams.py    registro de streams vivos con lock (T-10)
+│   │   └── live_streams.py    registro de streams vivos con lock (T-10) — API síncrona (P2 del preview)
 │   ├── incident_attachments.py  almacenamiento de fotos en volumen (T-21) ← NUEVO
 │   ├── plans.py               suscripciones (T-18) ← NUEVO
 │   └── pricing.py             cálculo del descuento (NO tocar: T-18 lo replica)
@@ -102,6 +102,50 @@ Rutas nuevas: `/admin/planes`, `/mi-plan`, `/mi-plaza`, `/pagos`, `/mis-vehiculo
 | `UserUpdate.full_name` exige `min_length=2` | Un nombre de 1 carácter hacía fallar con 500 `GET /users` |
 | El login con `?token=` funciona en `/parkings/{id}/events` (antes 401 siempre) | El endpoint lo anunciaba pero no lo cumplía |
 | La ronda de heartbeat sondea las cámaras **en paralelo** | En serie, con 50 cámaras, monopolizaba un slot del pool y el healthcheck del worker lo reiniciaba en bucle (T-13+4) |
+
+## 3-bis. P2 del preview: el slot de la cámara (2026-10-21)
+
+Arreglado **después** de cerrar el plan. El síntoma: un operador cerraba
+el modal de previsualización y, al volver a abrirlo, recibía un **409**
+durante hasta ~8 s (el umbral del barrido de sesiones huérfanas).
+
+### Qué pasaba
+
+| # | Problema | Consecuencia |
+|---|---|---|
+| 1 | El `cap.release()` (teardown del RTSP) se ejecutaba **en el hilo del event loop** | Con la cámara colgada, `CapturaSincronizada.release()` espera a la lectura en vuelo (hasta el timeout de FFmpeg: 5 s) → **el backend entero se congelaba** |
+| 2 | El slot se liberaba en el `finally` del generador **externo**, que corre **después** del teardown del generador **interno** | El slot quedaba ocupado durante todo el teardown → 409 para quien quisiera reabrir |
+| 3 | La liberación dependía del **finalizador de generadores asíncronos** del event loop | No era determinista: en el peor caso el slot se quedaba hasta el barrido de huérfanas (8 s) |
+| 4 | `release(camera_id)` no sabía **a qué sesión** pertenecía la llamada | El `finally` de un generador viejo podía liberar la sesión de un cliente **nuevo** y matarle el stream (LIMITACIÓN CONOCIDA) |
+
+### Qué se ha cambiado
+
+| Fichero | Cambio |
+|---|---|
+| `app/services/cameras/stream.py` | `mjpeg_generator` acepta `on_session_end` (callback **síncrono**) que se invoca **antes** de la limpieza de la captura; el `cap.release()` va a un hilo (`asyncio.to_thread`), fuera del event loop |
+| `app/services/cameras/live_streams.py` | API **síncrona** (`try_acquire` / `release` / `heartbeat` / `shutdown_all`); `release(camera_id, session)` y `heartbeat(camera_id, session)` sólo tocan la sesión indicada; lock `threading.Lock` |
+| `app/api/v1/cameras_live.py` | `_PreviewResponse` (subclase de `StreamingResponse`) suelta el slot de forma **determinista** al terminar la petición, pase lo que pase |
+
+**Por qué la API del registro pasó a ser síncrona**: la liberación del
+slot tiene que ser una operación que **ninguna cancelación pueda
+interrumpir** y que tenga que ocurrir **antes** del teardown. Con
+`await` dentro de un `finally` de un generador que se cierra por
+cancelación, la cancelación puede cortarlo a mitad.
+
+### Antes / después, medido
+
+El mismo fichero de tests (`backend/tests/test_live_preview_release_order.py`)
+ejecutado contra el código viejo (HEAD `817a51c`) y contra el nuevo:
+
+| Test | Código viejo | Código nuevo |
+|---|---|---|
+| El slot se libera antes de la limpieza de la captura | ❌ | ✅ |
+| La limpieza **no bloquea** el event loop | ❌ **5 ticks en 1 s** (loop congelado) | ✅ ~100 ticks en 1 s |
+| El slot se libera aunque el stream se cancele | ❌ | ✅ |
+| Cerrar y reabrir la cámara no da 409 | ✅ | ✅ |
+
+El 5 ticks frente a ~100 es la medida del congelamiento: con el código
+viejo, el teardown bloqueaba el event loop del backend entero.
 
 ## 4. Modelos de datos nuevos
 

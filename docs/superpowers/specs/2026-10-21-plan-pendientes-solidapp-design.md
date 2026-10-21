@@ -290,7 +290,23 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] Con la app real bombardeando `POST /users` como admin —la contaminación exacta que provocaba los fallos— el fichero de tests de rate-limit pasa **6/6** en dos pasadas.
 - **Nota**: en CI el job ya tenía su propio Redis, pero aislar también allí hace que el resultado de los tests **no dependa de lo que esté haciendo la app** en ese momento.
 
-### T-14 · I3 — OCR con GPU
+### T-13+6 · P2 — cerrar y reabrir el preview daba 409, y el teardown congelaba el backend
+
+- **Estado**: **completado** — corregido y verificado antes/después contra el código anterior
+- **Contexto**: al cerrar el modal de previsualización y volver a abrirlo, el cliente recibía un **409** durante hasta ~8 s (el umbral de `STALE_AFTER_S`). Debajo había cuatro defectos encadenados:
+  1. El `cap.release()` (teardown del RTSP) corría **en el hilo del event loop**. `CapturaSincronizada.release()` espera a la lectura en vuelo, que con la cámara colgada puede tardar hasta el timeout de FFmpeg (5 s): **el backend entero se congelaba**, no sólo ese stream.
+  2. El slot de la cámara se liberaba en el `finally` del generador **externo** (`safe_gen`), que se ejecuta **después** del `finally` del generador **interno** (el que cierra la captura): el slot quedaba ocupado durante todo el teardown.
+  3. La liberación dependía del **finalizador de generadores asíncronos** del event loop (Starlette cancela la tarea al abortarse la petición y el generador se cierra después): no era determinista y, en el peor caso, el slot se quedaba hasta el barrido de huérfanas.
+  4. `release(camera_id)` no sabía **a qué sesión** pertenecía la llamada (LIMITACIÓN CONOCIDA documentada en su docstring): el `finally` de un generador viejo podía liberar la sesión de un cliente nuevo y matarle el stream.
+- **Resultado esperado**: cerrar el preview libera la cámara de inmediato, reabrirla nunca da 409, y el teardown del RTSP no congela el backend.
+- **Criterios de aceptación**:
+  - [x] El slot se libera **antes** de la limpieza de la captura, y la liberación es **determinista** (no depende del finalizador de generadores ni del barrido de huérfanas).
+  - [x] El teardown del `VideoCapture` se ejecuta **fuera** del hilo del event loop.
+  - [x] `release`/`heartbeat` identifican **la sesión**: el `finally` de un generador viejo no puede tocar la sesión de un cliente nuevo.
+  - [x] El registro de streams pasa a una API **síncrona** (una liberación con `await` puede ser cortada por una cancelación).
+  - [x] Test de regresión con el **mismo fichero** ejecutado contra el código anterior y el nuevo: 3 de 4 fallaban antes (incluido el congelamiento del event loop: **5 ticks en 1 s** frente a ~100 ahora) y los 4 pasan ahora.
+- **Nota**: el cierre y reapertura **a nivel de endpoint** ya funcionaba en el camino de cancelación; lo que no estaba garantizado era el orden, la determinación y la identidad de la sesión. El congelamiento del event loop sí era real y era lo más grave.
+
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.
 - **Resultado esperado**: evaluación con números de si la GPU aporta o no, y decisión documentada.
@@ -524,6 +540,12 @@ todos han salido al ejecutar los criterios de aceptación):
    que cualquier cliente con membresía veía las matrículas, los importes y
    las horas de **todos** los vehículos de esa sucursal. Fuga de datos entre
    clientes (LOPDGDD). El ámbito del cliente pasa a ser sus vehículos.
+9. **Cerrar el preview congelaba el backend y bloqueaba la cámara**:
+   el teardown del RTSP corría en el hilo del event loop (hasta 5 s con la
+   cámara colgada) y el slot de la cámara se liberaba **después** de ese
+   teardown, así que reabrirla daba 409. Además, `release()` no identificaba
+   la sesión y el `finally` de un generador viejo podía matar el stream de un
+   cliente nuevo (T-13+6).
 
 **Lo que queda**: tras esta sesión, el **Bloque 3 está completo** (T-18 a T-21
 y T-24, con las decisiones D2/D4/D5 del propio documento aplicadas). Los
@@ -586,7 +608,7 @@ T-22 (recuperación de contraseña) ──> T-24 (PWA, que necesita self-service
 
 - [x] `cd backend && ruff check app tests` → sin errores.
 - [x] `cd backend && mypy app` → sin errores nuevos (hoy `continue-on-error: true`).
-- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **508 passed en SQLite y 517 en PostgreSQL**.
+- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **517 passed en SQLite y 526 en PostgreSQL**.
 - [x] `docker compose up -d` → todos los servicios *healthy* y `/health` responde 200.
 - [x] QA visual en el navegador de las pantallas tocadas (con la app real, no sólo tests).
       → **HECHA** con Chromium headless (Playwright) sobre la app real
