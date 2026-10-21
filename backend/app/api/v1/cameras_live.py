@@ -96,6 +96,18 @@ async def live_preview(
                 session.shutdown_event,
                 request.is_disconnected,
             ):
+                # Sprint Fix-Stale-Sessions (2026-07-08): tras emitir
+                # cada chunk (típicamente un frame MJPEG), marcamos la
+                # sesión como viva. Si el cliente cierra la pestaña y
+                # el socket queda en CLOSE_WAIT, ``is_disconnected()``
+                # puede tardar 30-60 s en notificar. Mientras tanto,
+                # este heartbeat evita que el registry considere la
+                # sesión como huérfana y la libere (lo que provocaría
+                # que un cliente legítimo que aún ve frames reciba un
+                # cierre abrupto). El balance: si pasan >8 s sin
+                # emitir NINGÚN chunk (cliente muerto), la sesión se
+                # libera para evitar 409 falsos al siguiente cliente.
+                await live_streams.heartbeat(camera_id)
                 yield chunk
         finally:
             await live_streams.release(camera_id)
