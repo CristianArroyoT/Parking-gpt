@@ -62,12 +62,35 @@ export const useAuthStore = defineStore('auth', () => {
     email.value = null
   }
 
+  // Sprint R5-sidebar (2026-07-06): cambio de clave del usuario
+  // autenticado desde el dropdown del sidebar. NO invalida tokens
+  // existentes (el usuario puede cerrar todas las sesiones con
+  // /auth/logout/all si lo desea).
+  async function changeMyPassword(
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    try {
+      await http.patch('/users/me/password', {
+        current_password: currentPassword,
+        new_password: newPassword,
+      })
+    } catch (err: unknown) {
+      const msg = extractError(err, 'No se pudo cambiar la contraseña')
+      throw new Error(msg)
+    }
+  }
+
   async function restore(): Promise<void> {
     if (!email.value) return
     await fetchMe()
   }
 
-  return { user, email, loading, error, isAuthenticated, role, login, logout, restore }
+  return {
+    user, email, loading, error,
+    isAuthenticated, role,
+    login, logout, changeMyPassword, restore,
+  }
 })
 
 function extractError(err: unknown, fallback: string): string {

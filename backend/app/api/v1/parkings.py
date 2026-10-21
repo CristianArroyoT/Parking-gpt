@@ -13,8 +13,32 @@ from app.models.enums import UserRole
 from app.models.parking import Parking
 from app.models.user import ParkingMembership, User
 from app.schemas.parking import ParkingCreate, ParkingRead, ParkingUpdate
+from app.services.audit import record_audit_from_request
+from app.services.endpoint_rate_limit import endpoint_rate_limiter
 
 router = APIRouter(prefix="/parkings", tags=["sucursales"])
+
+
+def _enforce_endpoint_rate_limit(
+    request: Request, db: Session, *, scope: str, actor_id: int,
+) -> None:
+    """Sprint R5 (2026-07-06): misma lógica que ``users``/``cameras``.
+    POST/PATCH /parkings protegidos contra ráfagas de scripts."""
+    allowed, bucket, count = endpoint_rate_limiter.check(
+        scope=scope, identifiers={"actor": str(actor_id)},
+    )
+    if not allowed:
+        record_audit_from_request(
+            request, db,
+            action="rate_limited_endpoint",
+            payload={"scope": scope, "bucket": bucket, "count": count},
+            result="failure",
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demasiadas operaciones. Intenta más tarde.",
+        )
 
 
 @router.get("", response_model=list[ParkingRead])
@@ -39,6 +63,13 @@ def create_parking(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_role(UserRole.ADMIN.value)),
 ) -> Parking:
+    # Sprint R5: rate-limit por actor (admin).
+    audit = getattr(request.state, "audit", None) or {}
+    actor_id = audit.get("user_id")
+    if actor_id is not None:
+        _enforce_endpoint_rate_limit(
+            request, db, scope="parkings_create", actor_id=actor_id,
+        )
     parking = Parking(**payload.model_dump())
     db.add(parking)
     try:
@@ -78,6 +109,13 @@ def update_parking(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo el administrador puede modificar sucursales",
         )
+    # Sprint R5: rate-limit por actor.
+    audit = getattr(request.state, "audit", None) or {}
+    actor_id = audit.get("user_id")
+    if actor_id is not None:
+        _enforce_endpoint_rate_limit(
+            request, db, scope="parkings_update", actor_id=actor_id,
+        )
     parking = db.get(Parking, parking_id)
     if not parking:
         raise HTTPException(status_code=404, detail="Sucursal no encontrada")
@@ -96,6 +134,14 @@ def delete_parking(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_role(UserRole.ADMIN.value)),
 ) -> None:
+    # Sprint R5 (follow-up): paridad con POST/PATCH. Un bucle de borrados
+    # de sucursales es destructivamente equivalente a uno de parches.
+    audit = getattr(request.state, "audit", None) or {}
+    actor_id = audit.get("user_id")
+    if actor_id is not None:
+        _enforce_endpoint_rate_limit(
+            request, db, scope="parkings_delete", actor_id=actor_id,
+        )
     parking = db.get(Parking, parking_id)
     if not parking:
         raise HTTPException(status_code=404, detail="Sucursal no encontrada")
