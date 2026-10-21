@@ -107,6 +107,12 @@ JS_DESBORDES = """
     if (el.scrollWidth <= el.clientWidth + 1 || el.clientWidth <= 0) return;
     const pos = getComputedStyle(el).position;
     if (pos === 'absolute' || pos === 'fixed') return;
+    // Los controles de formulario (select, input, textarea) los recorta
+    // el NAVEGADOR de forma nativa: el texto seleccionado se corta con
+    // puntos suspensivos y el desplegable muestra el valor completo. No
+    // es un defecto de maquetación, asi que no se reporta (si lo
+    // estuviera, el detector acabaria marcando ruido y nadie lo miraria).
+    if (el.matches('select, input, textarea')) return;
     const ox = getComputedStyle(el).overflowX;
     // Un contenedor con scroll propio es la SOLUCIÓN, no el defecto:
     // su contenido es más ancho a propósito y el usuario lo desplaza.
