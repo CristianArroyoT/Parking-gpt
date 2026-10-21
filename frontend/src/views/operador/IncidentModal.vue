@@ -1,14 +1,28 @@
 <script setup lang="ts">
 /**
  * Modal de incidentes del operador (sprint 2026-06-30).
+ *
+ * T-21 (plan maestro 2026-10-21): el operador puede adjuntar **hasta 3
+ * fotos** al reportar. El fichero sube de verdad al backend
+ * (`POST /api/v1/incidents/{id}/attachments`), que valida los **bytes**
+ * (no la extensión), lo guarda en un volumen local y deja sólo la
+ * metadata en la base de datos.
+ *
+ * Decisión D5: los adjuntos **no se exponen a ningún canal externo** y
+ * sólo los ven el **gestor** y el **admin** de esa sucursal. El
+ * operador que los sube no puede volver a listarlos: por eso, cuando el
+ * usuario no es gestor/admin, la vista muestra un aviso en lugar de las
+ * miniaturas.
  */
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { createIncident } from '@/api/incidents'
+import { getAccessToken, http } from '@/api/client'
 import type {
   IncidentKind,
   IncidentReason,
   IncidentCreatePayload,
 } from '@/api/client'
+import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
 
 interface Space {
@@ -18,6 +32,18 @@ interface Space {
   number: string
   is_active?: boolean
   is_broken?: boolean
+}
+
+/** Adjunto ya subido (metadata que devuelve la API). */
+interface IncidentAttachment {
+  id: number
+  alert_id: number
+  original_filename: string
+  mime_type: string
+  size_bytes: number
+  thumbnail_url: string
+  download_url: string
+  expires_at: string | null
 }
 
 const props = defineProps<{
@@ -31,11 +57,16 @@ const emit = defineEmits<{
 }>()
 
 const ui = useUiStore()
+const auth = useAuthStore()
 const submitting = ref(false)
 const errorMsg = ref<string | null>(null)
 
 type Tab = 'broken' | 'robery' | 'unbroken'
 const activeTab = ref<Tab>('broken')
+
+/** Límites (los mismos que aplica el backend). */
+const MAX_FOTOS = 3
+const MAX_BYTES = 10 * 1024 * 1024
 
 const SPACE_REASONS: { value: IncidentReason; label: string }[] = [
   { value: 'physical_damage', label: 'Daño físico' },
@@ -54,15 +85,31 @@ const form = reactive({
   reason: 'physical_damage' as IncidentReason,
   notes: '',
   plate: '',
-  photos: ['', '', ''] as string[],
 })
 
+/** Ficheros elegidos (aún no subidos). */
+const selected = ref<File[]>([])
+/** Previsualización local (object URLs). */
+const previews = ref<string[]>([])
+/** Adjuntos ya subidos y aceptados por el backend. */
+const uploaded = ref<IncidentAttachment[]>([])
+
 const availableSpaces = computed(() => props.spaces.filter((s) => s.is_active !== false))
+
+/** Sólo gestor y admin ven las fotos del incidente (decisión D5). */
+const puedeVerAdjuntos = computed(
+  () => auth.role === 'admin' || auth.role === 'gestor',
+)
 
 const kindForTab: Record<Tab, IncidentKind> = {
   broken: 'space_broken',
   robery: 'robery_reported',
   unbroken: 'space_unbroken',
+}
+
+function limpiarPreviews(): void {
+  previews.value.forEach((url) => URL.revokeObjectURL(url))
+  previews.value = []
 }
 
 watch(() => props.open, (v) => {
@@ -74,9 +121,60 @@ watch(() => props.open, (v) => {
     form.reason = 'physical_damage'
     form.notes = ''
     form.plate = ''
-    form.photos = ['', '', '']
+    selected.value = []
+    uploaded.value = []
+    limpiarPreviews()
   }
 })
+
+onBeforeUnmount(() => {
+  limpiarPreviews()
+})
+
+/** Elige hasta 3 fotos y muestra su previsualización local. */
+function onFilesChosen(event: Event): void {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  limpiarPreviews()
+  selected.value = []
+
+  if (files.length > MAX_FOTOS) {
+    errorMsg.value = `Máximo ${MAX_FOTOS} fotos por incidente`
+    input.value = ''
+    return
+  }
+  const demasiadoGrande = files.find((f) => f.size > MAX_BYTES)
+  if (demasiadoGrande) {
+    errorMsg.value = `La foto «${demasiadoGrande.name}» supera el tamaño máximo (10 MB)`
+    input.value = ''
+    return
+  }
+  selected.value = files
+  previews.value = files.map((f) => URL.createObjectURL(f))
+}
+
+/** Sube las fotos al incidente ya creado. */
+async function subirFotos(alertId: number): Promise<void> {
+  if (!selected.value.length) return
+  const formData = new FormData()
+  selected.value.forEach((f) => formData.append('files', f, f.name))
+  const { data } = await http.post<IncidentAttachment[]>(
+    `/incidents/${alertId}/attachments`,
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  )
+  uploaded.value = data
+}
+
+/**
+ * Las miniaturas y las descargas van en un <img>/<a>, que no pueden
+ * mandar la cabecera Authorization: se les pasa el token por query
+ * (mismo patrón que el preview MJPEG y el stream SSE del backend).
+ */
+function urlConToken(ruta: string): string {
+  const token = getAccessToken()
+  return token ? `${ruta}?token=${encodeURIComponent(token)}` : ruta
+}
 
 async function submit(): Promise<void> {
   if (!props.parkingId) {
@@ -98,7 +196,8 @@ async function submit(): Promise<void> {
     payload.parking_space_id = form.spaceId
   } else {
     payload.plate = form.plate || null
-    payload.photos = form.photos.map((p) => p.trim()).filter((p) => p.length > 0)
+    // Se conservan los nombres en el audit log (no los binarios).
+    payload.photos = selected.value.map((f) => f.name)
   }
 
   submitting.value = true
@@ -107,15 +206,40 @@ async function submit(): Promise<void> {
     const result = await createIncident(props.parkingId, payload)
     if (result.noop) {
       ui.pushToast('info', result.detail ?? 'Sin cambios')
-    } else {
-      const label =
-        activeTab.value === 'broken' ? 'Plaza marcada como averiada' :
-        activeTab.value === 'unbroken' ? 'Plaza rehabilitada' :
-        'Reporte de robo enviado'
-      ui.pushToast('success', label)
+      emit('success')
+      emit('close')
+      return
     }
+
+    const alertId = result.alert?.id
+    if (alertId && selected.value.length) {
+      try {
+        await subirFotos(alertId)
+      } catch (err: unknown) {
+        // El incidente YA está creado: la foto fallida no lo invalida.
+        const detail =
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+          'No se pudieron subir las fotos.'
+        errorMsg.value = detail
+        ui.pushToast('error', detail)
+      }
+    }
+
+    const label =
+      activeTab.value === 'broken' ? 'Plaza marcada como averiada' :
+      activeTab.value === 'unbroken' ? 'Plaza rehabilitada' :
+      'Reporte de robo enviado'
+    ui.pushToast('success', label)
     emit('success')
-    emit('close')
+
+    if (uploaded.value.length) {
+      // Con fotos, el modal se queda abierto para mostrar las
+      // miniaturas y la descarga (o el aviso de D5).
+      selected.value = []
+      limpiarPreviews()
+    } else {
+      emit('close')
+    }
   } catch (err: unknown) {
     const detail =
       (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
@@ -222,25 +346,38 @@ function close(): void {
               class="input font-mono uppercase tracking-widest"
             />
           </div>
-          <div>
-            <label class="block text-xs font-medium text-slate-700 mb-1">
-              Fotos (nombres de archivo, máx. 3)
-            </label>
-            <div class="space-y-2">
-              <input
-                v-for="(_, i) in form.photos"
-                :key="i"
-                v-model="form.photos[i]"
-                type="text"
-                :placeholder="`foto-${i + 1}.jpg`"
-                class="input font-mono text-sm"
-              />
-            </div>
-            <p class="text-xs text-slate-500 mt-1">
-              MVP: el archivo no se sube. El nombre se persiste en el audit log.
-            </p>
-          </div>
         </template>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-700 mb-1">
+            Fotos (máx. {{ MAX_FOTOS }})
+          </label>
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            multiple
+            class="input text-sm"
+            :disabled="submitting"
+            @change="onFilesChosen"
+          />
+          <p class="text-xs text-slate-500 mt-1">
+            Sólo JPEG, PNG o WebP, hasta {{ MAX_FOTOS }} fotos y 10 MB por
+            foto. El backend comprueba el contenido real del fichero, no
+            su extensión.
+          </p>
+          <ul v-if="previews.length" class="mt-2 grid grid-cols-3 gap-2">
+            <li v-for="(url, i) in previews" :key="url">
+              <img
+                :src="url"
+                :alt="`Foto ${i + 1}`"
+                class="w-full h-20 object-cover rounded-lg border border-slate-200"
+              />
+              <span class="block text-[10px] text-slate-600 truncate">
+                {{ selected[i]?.name }}
+              </span>
+            </li>
+          </ul>
+        </div>
 
         <div>
           <label class="block text-xs font-medium text-slate-700 mb-1">Notas</label>
@@ -259,6 +396,37 @@ function close(): void {
         >
           <p class="text-sm text-rose-800">{{ errorMsg }}</p>
         </div>
+
+        <div
+          v-if="uploaded.length"
+          class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 space-y-2"
+        >
+          <p class="text-sm text-emerald-800">
+            Incidente registrado con {{ uploaded.length }} foto(s).
+          </p>
+          <div v-if="puedeVerAdjuntos" class="grid grid-cols-3 gap-2">
+            <a
+              v-for="att in uploaded"
+              :key="att.id"
+              :href="urlConToken(att.download_url)"
+              :title="att.original_filename"
+              class="block"
+            >
+              <img
+                :src="urlConToken(att.thumbnail_url)"
+                :alt="att.original_filename"
+                class="w-full h-20 object-cover rounded-lg border border-slate-200"
+              />
+              <span class="block text-[10px] text-slate-600 truncate">
+                {{ att.original_filename }}
+              </span>
+            </a>
+          </div>
+          <p v-else class="text-xs text-emerald-800">
+            Las fotos quedan almacenadas, pero sólo el gestor y el admin de
+            la sucursal pueden verlas o descargarlas.
+          </p>
+        </div>
       </div>
 
       <footer class="px-6 py-4 border-t border-slate-200 flex gap-3 justify-end">
@@ -267,7 +435,7 @@ function close(): void {
           class="btn-secondary"
           :disabled="submitting"
           @click="close"
-        >Cancelar</button>
+        >{{ uploaded.length ? 'Cerrar' : 'Cancelar' }}</button>
         <button
           type="button"
           class="btn-primary"
