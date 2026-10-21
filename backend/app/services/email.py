@@ -17,6 +17,8 @@ Plantillas soportadas (vía ``template_kind``):
 
 - ``ocr_failed`` (default): ``alerts/ocr_failed.{txt,html}.j2``.
 - ``robery_reported``: ``alerts/robery_reported.{txt,html}.j2``.
+- ``camera_offline``: ``alerts/camera_offline.{txt,html}.j2`` (alerta
+  CRITICAL al administrador).
 """
 from __future__ import annotations
 
@@ -109,6 +111,36 @@ def _render_robery_reported(
     return txt, html
 
 
+def _render_camera_offline(
+    alert: Alert,
+    *,
+    camera_code: str,
+    parking_name: str,
+    count: int,
+    threshold: int,
+) -> tuple[str, str]:
+    """Renderiza la plantilla de cámara caída (alerta CRITICAL al admin).
+
+    La plantilla ``alerts/camera_offline.{txt,html}.j2`` existía desde el
+    sprint CAMERA_OFFLINE (2026-07-01), pero la función que la usaba no
+    llegó a definirse: el ``NameError`` lo capturaba el ``except`` de
+    ``send_alert_email`` y la alerta se quedaba **sin enviar el correo**.
+    """
+    ctx: dict[str, Any] = {
+        "alert_id": alert.id,
+        "camera_code": camera_code,
+        "parking_name": parking_name,
+        "severity": alert.severity.value if hasattr(alert.severity, "value") else str(alert.severity),
+        "count": count,
+        "threshold": threshold,
+        "detected_at": alert.created_at.strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "dashboard_url": _DASHBOARD_URL,
+    }
+    txt = _env.get_template("alerts/camera_offline.txt.j2").render(**ctx)
+    html = _env.get_template("alerts/camera_offline.html.j2").render(**ctx)
+    return txt, html
+
+
 def _build_message(
     *,
     from_addr: str,
@@ -183,14 +215,7 @@ def send_alert_email(
                 f"[solidAPP] 🚨 Reporte de robo — {parking_name} (#{alert.id})"
             )
         elif template_kind == "camera_offline":
-            # Sprint Fase 4 CI fix (2026-07-06): _render_camera_offline se
-            # referencia desde el sprint CAMERA_OFFLINE (2026-07-01) pero la
-            # función nunca se llegó a definir en este módulo. El bloque
-            # except superior captura el NameError, así que el path
-            # 'camera_offline' queda como no-op funcional. Lo registramos
-            # aquí como bug pendiente y silenciamos ruff para que el CI
-            # no bloquee.
-            text_body, html_body = _render_camera_offline(  # noqa: F821
+            text_body, html_body = _render_camera_offline(
                 alert,
                 camera_code=camera_code,
                 parking_name=parking_name,

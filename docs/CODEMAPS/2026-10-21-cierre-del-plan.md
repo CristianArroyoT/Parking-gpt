@@ -428,6 +428,38 @@ Sale con 0 / 1 / 2 para poder encadenarlo en un script, y escribe el
 informe en `tools/_informe_ci.txt` (UTF-8) porque la consola de Windows
 se come los acentos.
 
+### 3-duodecies. La alerta de "cámara caída" nunca enviaba el correo (2026-10-21)
+
+Como el CI no ejecuta `mypy` de verdad desde hace meses, su salida **no se
+miraba**. Al leerla, apareceu esto:
+
+```
+app/services/email.py:193: error: Name "_render_camera_offline" is not defined
+```
+
+**El bug**: desde el sprint CAMERA_OFFLINE (2026-07-01) existen las
+plantillas `alerts/camera_offline.{txt,html}.j2`, pero la función que las
+renderiza **nunca se definió**. `send_alert_email` la llamaba, el
+`NameError` lo capturaba el `except` general, y la función devolvía
+`False`: **la alerta de cámara caída se guardaba en la BD pero el correo al
+administrador no salía nunca**. En silencio, y con la alerta ya visible en
+el panel, así que nadie se enteraba.
+
+**Por qué los tests no lo detectaban**: todos los tests de alertas
+**simulan** `send_alert_email` con `monkeypatch` —justo la función que
+contenía el bug—, así que nunca entraban en el renderizado. Y el
+`noqa: F821` que llevaba el código silenciaba al linter para que el CI no
+bloqueara.
+
+| Cambio | Detalle |
+|---|---|
+| `app/services/email.py` | Se implementa `_render_camera_offline` con el mismo patrón que `_render_ocr_failed` y el contexto que la plantilla ya pedía. Se retira el `noqa: F821` y el comentario que lo daba por pendiente |
+| `backend/tests/test_email_templates.py` (nuevo) | 6 tests que llaman al código **real** en modo dry-run, sin simular `send_alert_email`. Uno comprueba que **cada** `template_kind` tiene su fichero de plantilla, para que añadir un tipo sin plantilla no falle en runtime |
+
+El test **demuestra el defecto**: ejecutado contra el código anterior
+fallan 3 de los 6; con la corrección pasan los 6. `mypy app` baja de 78 a
+77 errores y el `NameError` desaparece.
+
 
 | Modelo | Tabla | Notas |
 |---|---|---|

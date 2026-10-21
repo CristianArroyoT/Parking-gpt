@@ -15,6 +15,7 @@ repositorio ya está y las dependencias ya están instaladas.
 Uso:
     python tools/ejecutar_ci_local.py                    # job 'integration'
     python tools/ejecutar_ci_local.py --job backend
+    python tools/ejecutar_ci_local.py --all              # TODOS los jobs
     python tools/ejecutar_ci_local.py --list
 """
 from __future__ import annotations
@@ -63,45 +64,17 @@ def _pasos(job: dict) -> list[tuple[str, str, dict, bool]]:
     return salida
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--job", default="integration")
-    ap.add_argument("--list", action="store_true")
-    ap.add_argument(
-        "--saltar", action="append", default=[],
-        help="No ejecutar los pasos cuyo nombre contenga este texto (repetible)",
-    )
-    args = ap.parse_args()
-
-    workflow = _cargar_workflow()
-    jobs = workflow.get("jobs", {})
-    if args.list:
-        for nombre, job in jobs.items():
-            pasos = _pasos(job)
-            print(f"{nombre}: {len(pasos)} paso(s) con 'run:'")
-            for nombre_paso, _orden, _env, _coe in pasos:
-                print(f"    - {nombre_paso}")
-        return 0
-
-    if args.job not in jobs:
-        print(f"El workflow no tiene el job '{args.job}'. Hay: {list(jobs)}")
-        return 2
-    job = jobs[args.job]
-
-    bash = _bash()
-    if bash is None:
-        print("No se ha encontrado bash (Git Bash). Instálalo o usa WSL.")
-        return 2
-
+def _ejecutar_job(nombre_job: str, job: dict, bash: str, saltar: list[str]) -> tuple[int, int]:
+    """Ejecuta un job. Devuelve (fallos, pasos tolerados)."""
     # El directorio de trabajo y las variables del job.
     cwd = RAIZ / job.get("defaults", {}).get("run", {}).get("working-directory", ".")
     entorno = {**os.environ, **(job.get("env", {}) or {})}
 
-    print(f"Job '{args.job}' en {cwd}")
+    print(f"\n{'=' * 70}\nJob '{nombre_job}' en {cwd}")
     fallos = 0
     tolerados = 0
     for nombre, orden, env_paso, continue_on_error in _pasos(job):
-        if any(m in nombre for m in args.saltar):
+        if any(m in nombre for m in saltar):
             print(f"\n=== {nombre}  (SALTADO)")
             continue
         print(f"\n=== {nombre}")
@@ -125,6 +98,64 @@ def main() -> int:
             print(f"    FALLO (código {resultado.returncode})")
             fallos += 1
             break
+    return fallos, tolerados
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--job", default="integration")
+    ap.add_argument("--all", action="store_true", help="Ejecutar TODOS los jobs del workflow")
+    ap.add_argument("--list", action="store_true")
+    ap.add_argument(
+        "--saltar", action="append", default=[],
+        help="No ejecutar los pasos cuyo nombre contenga este texto (repetible)",
+    )
+    args = ap.parse_args()
+
+    workflow = _cargar_workflow()
+    jobs = workflow.get("jobs", {})
+    if args.list:
+        for nombre, job in jobs.items():
+            pasos = _pasos(job)
+            print(f"{nombre}: {len(pasos)} paso(s) con 'run:'")
+            for nombre_paso, _orden, _env, _coe in pasos:
+                print(f"    - {nombre_paso}")
+        return 0
+
+    bash = _bash()
+    if bash is None:
+        print("No se ha encontrado bash (Git Bash). Instálalo o usa WSL.")
+        return 2
+
+    if args.all:
+        # Todos los jobs, como en GitHub (donde corren en paralelo y uno
+        # no para los demás). Al final, un resumen.
+        resultados: list[tuple[str, int, int]] = []
+        for nombre_job, job in jobs.items():
+            fallos, tolerados = _ejecutar_job(nombre_job, job, bash, args.saltar)
+            resultados.append((nombre_job, fallos, tolerados))
+        print("\n" + "=" * 70)
+        print("RESUMEN DEL CI LOCAL")
+        for nombre_job, fallos, tolerados in resultados:
+            if fallos:
+                estado = "ROJO"
+            elif tolerados:
+                estado = f"VERDE ({tolerados} paso(s) con continue-on-error)"
+            else:
+                estado = "VERDE"
+            print(f"  {estado:<45} {nombre_job}")
+        total = sum(f for _n, f, _t in resultados)
+        if total:
+            print(f"\n{total} job(s) en rojo.")
+            return 1
+        print("\nTodos los jobs pasan en local.")
+        return 0
+
+    if args.job not in jobs:
+        print(f"El workflow no tiene el job '{args.job}'. Hay: {list(jobs)}")
+        return 2
+
+    fallos, tolerados = _ejecutar_job(args.job, jobs[args.job], bash, args.saltar)
 
     print("\n" + "=" * 60)
     if tolerados:

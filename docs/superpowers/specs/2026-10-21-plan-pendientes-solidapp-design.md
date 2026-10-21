@@ -548,6 +548,24 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] El test del heartbeat pasa en el host (UTC+2) **y** en el contenedor (UTC).
   - [x] Ninguna asimetría Create/Update en los esquemas.
 
+### T-26 · P1 — la alerta de "cámara caída" nunca enviaba el correo al administrador
+
+- **Estado**: **completado** — corregido, con test que demuestra el fallo
+- **Contexto**: no estaba en el plan. Salió al leer la salida de `mypy app` (que el CI no ejecuta de verdad desde hace meses, así que nadie lo había visto): `app/services/email.py:193: error: Name "_render_camera_offline" is not defined`.
+- **El bug**: desde el sprint CAMERA_OFFLINE (2026-07-01) existen las plantillas `alerts/camera_offline.{txt,html}.j2`, pero **la función que las renderiza nunca se definió**. `send_alert_email` la llamaba, el `NameError` lo capturaba el `except` general, y la función devolvía `False` con un `log.warning`: **la alerta de cámara caída se guardaba en la BD pero el correo al administrador no salía nunca**. En silencio, y con la alerta ya visible en el panel, así que nadie se enteraba.
+- **Por qué no lo detectaron los tests**: todos los tests de alertas **simulan** `send_alert_email` con `monkeypatch` (justo la función que contenía el bug), así que nunca entraban en el renderizado. El `noqa: F821` que llevaba el código silenciaba al linter para que el CI no bloqueara.
+- **El arreglo**:
+  - Se implementa `_render_camera_offline` en `app/services/email.py`, con el mismo patrón que `_render_ocr_failed` y el mismo contexto que la plantilla ya pedía (`alert_id`, `camera_code`, `parking_name`, `severity`, `count`, `threshold`, `detected_at`, `dashboard_url`).
+  - Se retira el comentario que lo daba por pendiente y el `noqa: F821`.
+  - `mypy app` baja de 78 a 77 errores y el `NameError` desaparece.
+- **Criterios de aceptación**:
+  - [x] `_render_camera_offline` existe y renderiza las dos plantillas.
+  - [x] `send_alert_email(..., template_kind="camera_offline")` devuelve `True` (antes `False`).
+  - [x] Test nuevo `backend/tests/test_email_templates.py` (6 tests) que llama al código **real** en modo dry-run, sin simular `send_alert_email`.
+  - [x] El test **detecta el defecto**: ejecutado contra el código anterior, fallan 3 de los 6 (con la corrección, pasan los 6).
+  - [x] Un test comprueba que **cada** `template_kind` tiene su fichero de plantilla en disco, para que añadir un tipo sin plantilla no falle en runtime.
+  - [x] La suite completa sigue en verde.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.
