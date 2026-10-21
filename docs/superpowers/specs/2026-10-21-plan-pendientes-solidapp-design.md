@@ -4,17 +4,17 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **171 de 172 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **184 de 185 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
-> | Suite completa | **548 passed** en SQLite · **557 passed** en PostgreSQL |
+> | Suite completa | **562 passed** en SQLite (548 + 14 tests nuevos) |
 > | QA visual (Chromium) | 21 pantallas a **5 anchos** (414, 768, 1024, 1232, 1440 px): 0 desbordes, 0 errores de consola |
 > | PWA | verificado: instalable y **arranca sin red** |
-> | API | **99 de 99 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
+> | API | **101 rutas** inventariadas (coinciden con el código) y **99 de 99 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
 > | Esquema | Los modelos y las migraciones coinciden: `alembic check` limpio y **el CI migra una base vacía** |
 > | Carga / SLO | 491 peticiones, 0 fallos → **14 de 14 reglas** |
-> | Lint y tipos | `ruff` en verde; `vue-tsc` y `npm run build` en verde; `actionlint` exit 0. **`mypy` NO está en verde**: da 78 errores en 33 ficheros, y por eso su paso del CI lleva `continue-on-error: true` desde el primer commit (no es una regresión, es el estado heredado) |
+> | Lint y tipos | `ruff` en verde (backend **y** `tools/`); `vue-tsc` y `npm run build` en verde; `actionlint` exit 0. **`mypy` NO está en verde**: da 77 errores en 32 ficheros, y por eso su paso del CI lleva `continue-on-error: true` desde el primer commit (no es una regresión, es el estado heredado) |
 >
 > **Lo que queda depende de ti** (y sólo de ti):
 > 1. **La facturación de la cuenta de GitHub.** Sin ella los jobs de Actions
