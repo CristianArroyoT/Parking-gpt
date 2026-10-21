@@ -121,14 +121,14 @@ def main() -> int:
         print("  2/5. Migrando de cero...")
         subprocess.run(
             [sys.executable, "-m", "alembic", "upgrade", "head"],
-            cwd=str(BACKEND), env=entorno, check=True, capture_output=True, text=True,
+            cwd=str(BACKEND), env=entorno, check=True,
         )
 
         # 3. Seed.
         print("  3/5. Sembrando los datos demo...")
         subprocess.run(
             [sys.executable, "-m", "app.scripts.seed"],
-            cwd=str(BACKEND), env=entorno, check=True, capture_output=True, text=True,
+            cwd=str(BACKEND), env=entorno, check=True,
         )
 
         # 4. La aplicación, contra esa base.

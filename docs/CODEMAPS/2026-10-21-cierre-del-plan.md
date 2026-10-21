@@ -239,6 +239,25 @@ Tres cosas salieron de ahí:
    determinista (venía de un `set`) y la sección podía cambiar entre
    ejecuciones. Corregido.
 
+### 3-nueve. Dos fallos que sólo aparecían fuera del contenedor (2026-10-21)
+
+Salieron al **ejecutar el job de integración del CI en local**, leyendo el
+workflow (`tools/ejecutar_ci_local.py`). La QA y la suite se habían hecho
+siempre dentro del contenedor, que difiere del portátil del equipo en dos
+cosas: la **zona horaria** (UTC) y la **resolución de nombres** de Docker.
+
+| Fallo | Por qué sólo fuera del contenedor | Arreglo |
+|---|---|---|
+| Una cámara **sin URL de RTSP** hacía escupir aserciones de OpenCV ("!_filename.empty()") en cada sondeo, preview y captura | El alta ya lo impedía (`CameraCreate.rtsp_url`, `min_length=8`), pero **el PATCH no**: `CameraUpdate.rtsp_url` no validaba nada, así que un `PATCH {"rtsp_url": ""}` dejaba la cámara rota para siempre en la BD | El PATCH exige lo mismo que el alta; además los tres servicios que abren la captura comprueban la URL antes de llamar a OpenCV y fallan de forma limpia |
+| Un test del heartbeat **sólo pasaba si la máquina estaba en UTC** | El heartbeat guarda `datetime.now(timezone.utc)` y el test lo comparaba con `datetime.now()` (hora **local**): desfase de 1-2 h → *"last_heartbeat_at demasiado antiguo"*. En CI y en el contenedor pasaba (ambos en UTC) | La comparación es UTC contra UTC. Verificado en el host (UTC+2) y en el contenedor (UTC) |
+
+Herramientas que lo destaparon y que se quedan:
+
+| Script | Para qué |
+|---|---|
+| `tools/ejecutar_ci_local.py` | Ejecuta un job del workflow **leyendo el YAML** (no duplicando los pasos), con su `working-directory` y sus variables → comprueba el cableado real |
+| `tools/revisar_esquemas.py` | Busca asimetrías de validación entre los esquemas `Create` y `Update` (ahora no hay ninguna) |
+
 ### 3-octies. Un despliegue limpio, probado de verdad (2026-10-21)
 
 Las migraciones se ejecutaban sobre la base de QA (ya sembrada) y el seed

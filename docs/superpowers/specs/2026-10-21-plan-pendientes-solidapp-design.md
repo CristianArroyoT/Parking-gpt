@@ -484,6 +484,24 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   `CORS_ORIGINS` correctos para el host de la sucursal) y el script de
   alta `infra/deploy/branch.sh`.
 
+### T-25+6 · P3 — dos fallos que sólo aparecían fuera del contenedor
+
+- **Estado**: **completado** — corregidos y verificados en los dos entornos
+- **Contexto**: salieron al **ejecutar el job de integración del CI en local**, leyendo el workflow (herramienta nueva `tools/ejecutar_ci_local.py`). La QA y la suite se habían hecho siempre dentro del contenedor, que tiene dos diferencias con el portátil del equipo: la zona horaria (UTC) y la resolución de nombres de Docker.
+- **Los dos fallos**:
+  1. **Una cámara sin URL de RTSP hacía escupir aserciones de OpenCV.** Con la URL vacía, `cv2.VideoCapture` revienta con una aserción de C++ ("!_filename.empty()") cada vez que se abre: en el sondeo del heartbeat, en el preview y en la captura de un frame. El alta ya lo impedía (`CameraCreate.rtsp_url`, `min_length=8`), pero **el PATCH no**: `CameraUpdate.rtsp_url` no tenía ninguna restricción, así que un `PATCH {"rtsp_url": ""}` dejaba la cámara rota **para siempre** en la BD (y con ella el heartbeat, que además abría una alerta de "cámara caída").
+     - El esquema del PATCH ahora exige lo mismo que el alta.
+     - Además, los tres servicios que abren la captura comprueban la URL antes de llamar a OpenCV y devuelven el fallo de forma limpia (por si queda alguna cámara sin URL de antes, o escrita a mano en la BD).
+  2. **Un test del heartbeat sólo pasaba si la máquina estaba en UTC.** El heartbeat guarda `datetime.now(timezone.utc)` y el test comparaba ese valor (naive) con `datetime.now()`, que es la hora **local**: con un desfase de una o dos horas, la aserción "age < 5 s" fallaba con *"last_heartbeat_at demasiado antiguo"*. En CI y en el contenedor pasaba (los dos en UTC), así que el falso rojo sólo se veía al ejecutar la suite en el portátil del equipo. Ahora la comparación es UTC contra UTC.
+- **Herramientas nuevas que lo destaparon**:
+  - `tools/ejecutar_ci_local.py`: ejecuta un job del workflow **leyendo el YAML** (no duplicando los pasos), con su `working-directory` y sus variables → comprueba el cableado real, no sólo los comandos.
+  - `tools/revisar_esquemas.py`: busca asimetrías de validación entre los esquemas `Create` y `Update`. Ahora no hay ninguna (el `rtsp_url` era la única).
+- **Criterios de aceptación**:
+  - [x] El PATCH de una cámara rechaza una URL vacía o demasiado corta (8 tests nuevos en `tests/test_camara_sin_url.py`).
+  - [x] Con la URL vacía, el preview, el heartbeat y la captura fallan de forma limpia, sin llamar a OpenCV.
+  - [x] El test del heartbeat pasa en el host (UTC+2) **y** en el contenedor (UTC).
+  - [x] Ninguna asimetría Create/Update en los esquemas.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.

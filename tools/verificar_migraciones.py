@@ -69,14 +69,14 @@ def main() -> int:
         _recrear_base(_url_de_mantenimiento(url_objetivo), base)
 
         print("  alembic upgrade head")
+        # Sin ``capture_output``: si un proceso hijo de alembic mantiene
+        # abierta la tubería, ``communicate()`` se queda esperando un EOF
+        # que no llega. Además, en el CI interesa ver la salida de alembic.
         resultado = subprocess.run(
             [sys.executable, "-m", "alembic", "upgrade", "head"],
             cwd=str(BACKEND), env=entorno, check=False,
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
         if resultado.returncode != 0:
-            print(resultado.stdout[-2000:])
-            print(resultado.stderr[-2000:])
             print("  FALLO: las migraciones no se aplican sobre una base vacía.")
             return 1
 
@@ -84,11 +84,8 @@ def main() -> int:
         resultado = subprocess.run(
             [sys.executable, "-m", "alembic", "check"],
             cwd=str(BACKEND), env=entorno, check=False,
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
         if resultado.returncode != 0:
-            print(resultado.stdout[-3000:])
-            print(resultado.stderr[-2000:])
             print("  FALLO: el esquema migrado NO coincide con los modelos.")
             return 1
         print("  OK: el esquema migrado coincide con los modelos.")
