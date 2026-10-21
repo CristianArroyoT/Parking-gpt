@@ -10,7 +10,7 @@ O2).
 
 API expuesta:
   GET /api/v1/parkings/{parking_id}/cameras/{camera_id}/live
-    200  multipart/x-mixed-replace; boundary=frame (5 fps)
+    200  multipart/x-mixed-replace; boundary=frame (5 fps por defecto)
     401  sin token (ni header ni query)
     403  usuario sin membresía en el parking
     404  cámara no pertenece al parking del path
@@ -19,8 +19,22 @@ API expuesta:
 Callers frontend previstos: ``CalibrateView.vue`` (botón "Ver en
 vivo" → modal con ``<img src="/api/v1/parkings/{id}/cameras/{cid}/live?token=...">``).
 
-Decisión producto: 5 fps (cada 200 ms). El placeholder gris del
-SVG NO se sustituye — sólo se añade este botón.
+Decisión producto (D1, 2026-10-21): el preview emite a **5 fps** (un
+frame cada 200 ms), NO al ritmo de la cámara. Motivo: medido en QA el
+modo "tan rápido como la cámara" daba 35 fps y 1,2 MB/s por stream sin
+aportar nada a un preview de inspección (el ojo no distingue 5 fps de
+25 fps en 720p) y ese ancho de banda lo paga el backend. La latencia
+útil para el operador sigue siendo <400 ms.
+
+Contexto histórico (NO se borra): el sprint Latencia-Mínima
+(2026-07-07) eliminó el sleep artificial porque el cliente pidió
+"tiempo real". Ese modo sigue disponible: el fps viene de la variable
+de entorno ``LIVE_PREVIEW_FPS`` (ver ``app/core/config.py``), y con
+``LIVE_PREVIEW_FPS=0`` el stream vuelve a ir sin limitador, limitado
+sólo por la cámara y la red. El default (5 fps) NO está hardcodeado en
+este endpoint: lo aplica ``mjpeg_generator``.
+
+El placeholder gris del SVG NO se sustituye — sólo se añade este botón.
 """
 from __future__ import annotations
 

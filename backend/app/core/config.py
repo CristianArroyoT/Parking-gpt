@@ -60,6 +60,20 @@ class Settings(BaseSettings):
     camera_health_stale_threshold_seconds: int = Field(
         default=120, alias="CAMERA_HEALTH_STALE_THRESHOLD_SECONDS"
     )
+    # Sprint Live-Preview T-07 (2026-10-21): fps objetivo del preview en vivo.
+    #
+    # Decisión D1 (el código anunciaba "5 fps" pero corría a 35 fps reales):
+    # el preview NO necesita ir al ritmo de la cámara. A 5 fps se ahorra
+    # ~85 % de CPU y de ancho de banda del backend, y la latencia útil
+    # que ve el operador sigue siendo <400 ms (el frame llega al cliente
+    # en cuanto se emite).
+    #
+    # Configurable por entorno para poder volver al "flujo libre" del
+    # sprint Latencia-Mínima (2026-07-07) sin tocar código: 0 (o un
+    # valor no positivo) = SIN limitador, el preview va tan rápido como
+    # la cámara + la red lo permitan.
+    live_preview_fps: float = Field(default=5.0, alias="LIVE_PREVIEW_FPS")
+
     # URL del servicio OCR separado (PaddleOCR en su propio contenedor).
     # Si el servicio no responde, el cliente devuelve [] y el caller
     # decide qué hacer. NO usar en tests salvo que se inyecte MockTransport.

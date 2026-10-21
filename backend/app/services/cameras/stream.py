@@ -20,6 +20,34 @@ identificadas y corregidas:
    real de cámara + encoding. Si la cámara es 25 fps y la red lo soporta,
    el cliente ve 25 fps; si la cámara es 5 fps, ve 5 fps (sin padding).
 
+Decisión D1 (2026-10-21, plan maestro T-07): el punto 3 anterior se
+mantiene en su versión "sin sleep artificial", pero el preview deja de
+ir al ritmo de la cámara y se **limita a 5 fps** (intervalo de 0,2 s).
+
+- **Por qué**: el preview en vivo es una herramienta de calibración /
+  inspección, no un vídeo. Medido en QA el modo "tan rápido como la
+  cámara" daba **35 fps y 1,2 MB/s por stream**, consumiendo CPU y ancho
+  de banda del backend para un detalle que el operador apenas puede ver
+  (el ojo no distingue 5 fps de 25 fps en un preview de 720p).
+  A 5 fps se ahorra ~85 % de CPU/ancho de banda y la latencia útil que
+  ve el operador sigue siendo <400 ms (el frame sale en cuanto se
+  emite).
+  Reverificado el 2026-10-21 con el RTSP de prueba (cámara a 25 fps):
+  **4,97 fps / 92,7 KB/s** con el límite frente a **25,01 fps /
+  639,4 KB/s** sin limitador → un 85,5 % menos de ancho de banda.
+- **Contexto histórico que NO se borra**: el "tiempo real" del sprint
+  Latencia-Mínima (2026-07-07) fue un requisito explícito del cliente y
+  sigue siendo el modo de diagnóstico. Por eso el límite es
+  **configurable por variable de entorno** (``LIVE_PREVIEW_FPS``) y no
+  una constante cerrada: con ``LIVE_PREVIEW_FPS=0`` (o cualquier valor
+  no positivo) el preview vuelve a "flujo libre, limitado por la
+  cámara", es decir, **sin limitador** por parte del backend. Sin tocar
+  código.
+- El código y la documentación iban contradichos (los docstrings
+  anunciaban "5 fps / 200 ms" mientras la constante era 0.0). A partir
+  de aquí ambas cosas dicen lo mismo y el test
+  ``tests/test_live_preview_fps.py`` blinda que el limitador sea REAL.
+
 Por qué NO usamos ``grab_frame()`` ya existente: ``grab_frame`` lee
 un solo frame y cierra. Para "live" necesitamos mantener el
 ``VideoCapture`` abierto durante toda la sesión del usuario.
@@ -33,20 +61,29 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from functools import lru_cache
 from typing import AsyncIterator
 
 import cv2
 
+from app.core.config import get_settings
 from app.models.parking import Camera
 
 log = logging.getLogger(__name__)
 
 
-# Sin sleep artificial entre frames (Sprint Latencia-Mínima 2026-07-07):
-# el ritmo real lo marca la cámara + cv2.imencode + red. Reservamos el
-# nombre como deprecated por si alguien lo busca en git history.
-FRAME_INTERVAL_S: float = 0.0
+# Fps objetivo del preview en vivo (decisión D1, 2026-10-21).
+# 5 fps = un frame cada 200 ms. Es el valor por defecto de
+# ``LIVE_PREVIEW_FPS``; el valor EFECTIVO en cada ejecución sale de la
+# configuración (ver ``resolve_frame_interval_s``), para poder volver al
+# "flujo libre" del sprint Latencia-Mínima tocando sólo el entorno.
+DEFAULT_PREVIEW_FPS: float = 5.0
+
+# Intervalo entre frames (segundos) DERIVADO del fps objetivo por
+# defecto. Antes este nombre valía 0.0 (sin sleep) mientras los
+# docstrings anunciaban 0,2 s: la contradicción que arregla T-07.
+FRAME_INTERVAL_S: float = 1.0 / DEFAULT_PREVIEW_FPS  # 0.2 s
 
 # Calidad JPEG menor que en ``capture.py`` porque aquí emitimos frames
 # continuamente. 70 es buen compromiso: ~30-60 KB por frame a 1280×720
@@ -66,6 +103,30 @@ JPEG_QUALITY: int = 70
 MAX_DISCARD_FRAMES: int = 1
 
 
+def resolve_frame_interval_s(fps: float | None = None) -> float:
+    """Convierte el fps objetivo en el intervalo entre frames (segundos).
+
+    Args:
+        fps: fps objetivo. ``None`` → se lee ``LIVE_PREVIEW_FPS`` de la
+            configuración de la app (ver ``app.core.config.Settings``).
+
+    Returns:
+        Segundos entre frames. ``0.0`` significa **sin limitador**: el
+        preview va al ritmo de la cámara (modo "flujo libre" del sprint
+        Latencia-Mínima, 2026-07-07).
+
+    Por qué un valor no positivo = sin limitador y no un error: el
+    cliente puede querer el preview "lo más rápido posible" para
+    diagnosticar una cámara lenta, y eso se decide por entorno
+    (``LIVE_PREVIEW_FPS=0``), no tocando código.
+    """
+    if fps is None:
+        fps = get_settings().live_preview_fps
+    if fps <= 0:
+        return 0.0
+    return 1.0 / fps
+
+
 @lru_cache(maxsize=1)
 def _placeholder_jpeg() -> bytes:
     """JPEG 1×1 negro codificado en runtime.
@@ -83,6 +144,37 @@ def _placeholder_jpeg() -> bytes:
     if not ok:
         return b""
     return bytes(buf)
+
+
+async def _esperar_para_respetar_fps(
+    last_emit_at: float | None, interval_s: float,
+) -> float:
+    """Espera lo que falte para no emitir por encima del fps objetivo.
+
+    Args:
+        last_emit_at: instante (monotónico) del último frame emitido, o
+            ``None`` si todavía no se ha emitido ninguno.
+        interval_s: intervalo mínimo entre frames. ``0.0`` = sin
+            limitador (no se espera nada).
+
+    Returns:
+        El instante (monotónico) de la emisión de este frame.
+
+    Por qué NO un ``sleep(interval_s)`` ciego: añadiría latencia
+    artificial cuando el trabajo real (captura + encode) ya ha tardado
+    más que el intervalo, y en el caso contrario iría por detrás del
+    ritmo objetivo. Aquí la espera es ``interval - (tiempo real
+    transcurrido desde la última emisión)``, es decir, sólo el hueco que
+    falta. Si el tiempo real ya supera el intervalo, no se espera nada:
+    el límite lo marca la cámara, no nosotros.
+    """
+    ahora = time.monotonic()
+    if interval_s > 0 and last_emit_at is not None:
+        restante = interval_s - (ahora - last_emit_at)
+        if restante > 0:
+            await asyncio.sleep(restante)
+            ahora = time.monotonic()
+    return ahora
 
 
 def _open_capture(rtsp_url: str) -> cv2.VideoCapture:
@@ -105,6 +197,7 @@ async def mjpeg_generator(
     camera: Camera,
     shutdown_event: asyncio.Event,
     is_disconnected_callable,
+    frame_interval_s: float | None = None,
 ) -> AsyncIterator[bytes]:
     """Genera frames JPEG multipart hasta que el cliente desconecte.
 
@@ -116,11 +209,19 @@ async def mjpeg_generator(
         is_disconnected_callable: callable async que devuelve ``True``
             si el cliente HTTP cerró la conexión (FastAPI
             ``Request.is_disconnected()``).
+        frame_interval_s: intervalo mínimo entre frames (segundos).
+            ``None`` → se usa el valor de ``LIVE_PREVIEW_FPS`` (5 fps por
+            defecto). ``0.0`` → sin limitador, al ritmo de la cámara.
 
     Yields:
         Chunk ``multipart/x-mixed-replace`` con la cabecera
         ``--frame\\r\\nContent-Type: image/jpeg\\r\\n...``.
     """
+    # Intervalo efectivo: configuración de la app salvo que el caller
+    # pase uno explícito (los tests lo hacen para no depender del env).
+    interval_s = resolve_frame_interval_s() if frame_interval_s is None else frame_interval_s
+    if interval_s < 0:
+        interval_s = 0.0
     try:
         cap = await asyncio.to_thread(_open_capture, camera.rtsp_url)
     except Exception as exc:  # noqa: BLE001 — defensiva
@@ -144,6 +245,10 @@ async def mjpeg_generator(
             + placeholder + b"\r\n"
         )
         return
+
+    # Momento (monotónico) del último frame emitido. Sirve para calcular
+    # la espera del limitador sobre el tiempo REAL transcurrido.
+    last_emit_at: float | None = None
 
     try:
         while True:
@@ -176,6 +281,9 @@ async def mjpeg_generator(
                 # reintentamos. NO salimos del bucle — un NVR puede
                 # reconectar el RTSP solo.
                 placeholder = _placeholder_jpeg()
+                last_emit_at = await _esperar_para_respetar_fps(
+                    last_emit_at, interval_s,
+                )
                 yield (
                     b"--frame\r\n"
                     b"Content-Type: image/jpeg\r\n"
@@ -194,16 +302,27 @@ async def mjpeg_generator(
                 continue
 
             payload = bytes(buf)
+            # LIMITADOR DE FPS (decisión D1, 2026-10-21): aquí, DESPUÉS
+            # de leer y codificar el frame, porque el tiempo de captura
+            # y de encode cuenta como parte del intervalo. Si el grab +
+            # encode ya han tardado más que el intervalo (cámara más
+            # lenta que nuestro objetivo), no se espera nada: no
+            # añadimos latencia artificial. Un ``sleep(intervalo)`` ciego
+            # sí la añadiría y además iría por detrás del ritmo real.
+            last_emit_at = await _esperar_para_respetar_fps(
+                last_emit_at, interval_s,
+            )
             yield (
                 b"--frame\r\n"
                 b"Content-Type: image/jpeg\r\n"
                 b"Content-Length: " + str(len(payload)).encode() + b"\r\n\r\n"
                 + payload + b"\r\n"
             )
-            # Sin sleep artificial: el cliente recibe tan rápido como la
-            # cámara produce + cv2 codifica + la red entrega. En pruebas
-            # con RTSP de demo de 25 fps, observamos 20-23 fps efectivos
-            # con delay visual <200 ms (vs >1 s con sleep 100 ms + buffer).
+            # El ritmo lo marca el limitador de arriba: con 5 fps
+            # (decisión D1) el cliente recibe un frame cada 200 ms; con
+            # ``LIVE_PREVIEW_FPS=0`` lo recibe tan rápido como la cámara
+            # produce + cv2 codifica + la red entrega (modo "tiempo real"
+            # del sprint Latencia-Mínima 2026-07-07).
     finally:
         try:
             cap.release()
