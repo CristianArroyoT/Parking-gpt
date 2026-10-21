@@ -561,12 +561,22 @@ T-22 (recuperación de contraseña) ──> T-24 (PWA, que necesita self-service
 
 ## Definición de "hecho" (global)
 
-- [ ] `cd backend && ruff check app tests` → sin errores.
-- [ ] `cd backend && mypy app` → sin errores nuevos (hoy `continue-on-error: true`).
-- [ ] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos).
-- [ ] `docker compose up -d` → todos los servicios *healthy* y `/health` responde 200.
+- [x] `cd backend && ruff check app tests` → sin errores.
+- [x] `cd backend && mypy app` → sin errores nuevos (hoy `continue-on-error: true`).
+- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **508 passed en SQLite y 517 en PostgreSQL**.
+- [x] `docker compose up -d` → todos los servicios *healthy* y `/health` responde 200.
 - [ ] QA visual en el navegador de las pantallas tocadas (con la app real, no sólo tests).
+      → **NO HECHA**: el login en el navegador integrado requiere que el usuario
+      entre con sus credenciales (el navegador no permite escribirlas por
+      cuenta propia) y en esta sesión no se completó. Mitigado por la
+      verificación en vivo contra la API real de cada pantalla nueva
+      (planes, mi plan, mis vehículos, mi perfil, entradas/salidas, alertas,
+      operadores, mi plaza, pagos, adjuntos) más `vue-tsc` y el build del
+      frontend. **Pendiente de una sesión con acceso al navegador.**
 - [ ] Sin 4xx/5xx inesperados en `docker logs backend` durante la QA.
+      → **Parcial**: durante el trabajo en paralelo los reloader de uvicorn
+      registran errores de arranque por ficheros a medio editar; ya con el
+      árbol estable el log está limpio.
 
 ---
 
