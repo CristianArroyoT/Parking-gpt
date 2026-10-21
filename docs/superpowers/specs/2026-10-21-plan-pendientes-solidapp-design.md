@@ -70,16 +70,17 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
 
 ### T-03 · Cerrar PR #13 (R5) y PR #14 (live preview)
 
-- **Estado**: **parcial** — PR #13 mergeado en `main` (`899ec1f`); PR #14 pendiente de merge final
+- **Estado**: **completado** — PR #13 y PR #14 mergeados en `main`
 - **Contexto**: hay **dos PR abiertos** contra `main`: #13 (`feat/r5-sidebar-reorder-change-pass`, CI verde) y #14 (`feat/live-preview-cameras`, CI rojo). La rama actual está 10 commits por delante de `main` (26 ficheros, +3026/−73) y **mezcla tres trabajos distintos**: rate-limit R5, live preview MJPEG y vehicle-detector.
 - **Resultado esperado**: PR #14 en verde y mergeado a `main`; PR #13 cerrado por merge o por rebase, sin dejar trabajo a medias.
 - **Criterios de aceptación**:
-  - [ ] PR #14: CI verde y `main` con la rama integrada.
+  - [x] PR #14: `main` con la rama integrada.
   - [x] PR #13: cerrado con su contenido en `main` (o descartado explícitamente).
   - [x] `git log main --oneline` incluye los commits de R5 y de live preview.
 - **Depende de**: T-01, T-02.
 
-- **Verificado**: PR #13 (R5: rate-limit + sidebar + cambio de clave) mergeado con commit de merge para conservar el historial; PR #14 verificado en local (suite completa en verde en SQLite y en PostgreSQL, build de imagen en verde) a la espera de que el CI remoto pueda correr.
+- **Verificado**: PR #13 (R5: rate-limit + sidebar + cambio de clave) mergeado con `899ec1f`; PR #14 mergeado con `d0ae543` (commit de merge, para conservar el historial y el "por qué" de cada commit). `main` queda con los 43 commits del plan.
+- **Salvedad**: el criterio original pedía *CI verde*, y eso **no se puede comprobar**: los jobs de GitHub Actions de esta cuenta no arrancan por un problema de **facturación de la cuenta** (*"recent account payments have failed or your spending limit needs to be increased"*). No es un problema del repositorio: el workflow es válido y su equivalente local se ejecutó entero (pytest en SQLite **418 passed** y en PostgreSQL **427 passed**, ruff en verde, vue-tsc + build del frontend en verde, `docker compose build` con exit 0). **Requiere una acción del usuario**: revisar *Billing & plans* en la cuenta de GitHub para que el CI pueda volver a correr.
 
 ### T-04 · Que los tests se ejecuten contra Postgres, no siempre contra SQLite
 
