@@ -23,6 +23,7 @@ from app.core.security import hash_password
 from app.models.enums import UserRole
 from app.models.parking import Camera, Parking
 from app.models.user import User
+from tests._audit_helpers import monkeypatch_tasks_session
 
 
 @pytest.fixture()
@@ -64,6 +65,10 @@ def test_el_sondeo_de_heartbeat_es_paralelo(
 ) -> None:
     """Las tres cámaras se sondean a la vez, no una detrás de otra."""
     from app.workers import tasks as tasks_mod
+
+    # La task usa su propio ``SessionLocal``: sin este parche abriría
+    # sesión contra el motor de la app (otra base en memoria en SQLite).
+    monkeypatch_tasks_session(monkeypatch, db_session)
 
     arrancadas = 0
     todas_arrancadas = asyncio.Event()
