@@ -106,6 +106,41 @@ frames (`STALE_AFTER_S`). El operador que cierra y reabre el preview se
 encuentra un **409 "Ya hay una vista en vivo abierta"**. Con el RTSP real
 medido: el 409 aparece si se reintenta antes de ~8 s.
 
+**Estado: CORREGIDO** (ver `app/services/cameras/live_streams.py`,
+`app/services/cameras/stream.py` y `app/api/v1/cameras_live.py`). Debajo
+del síntoma había **cuatro** defectos encadenados:
+
+1. **El teardown del RTSP corría en el hilo del event loop.**
+   `CapturaSincronizada.release()` espera a que termine la lectura en vuelo, y
+   con la cámara colgada esa espera llega hasta el timeout de FFmpeg (5 s):
+   **se congelaba el backend entero**, no sólo ese stream.
+2. **El slot se liberaba después del teardown**: el `finally` del generador
+   interno (el que cierra la captura) se ejecuta antes que el del generador
+   externo (el que suelta el slot), así que la cámara quedaba ocupada durante
+   todo el teardown.
+3. **La liberación no era determinista**: al abortarse la petición,
+   Starlette cancela la tarea del stream y el generador se cierra después, por
+   el finalizador de generadores asíncronos del event loop. En el peor caso
+   el slot se quedaba hasta el barrido de huérfanas (8 s).
+4. **`release(camera_id)` no sabía a qué sesión pertenecía la llamada** (la
+   LIMITACIÓN CONOCIDA documentada en su propio docstring): el `finally` de un
+   generador viejo podía liberar la sesión de un cliente **nuevo** y matarle
+   el stream.
+
+El arreglo: el generador suelta el slot **antes** de limpiar la captura
+(callback síncrono `on_session_end`), el teardown va a un hilo
+(`asyncio.to_thread`) para no congelar el event loop, la respuesta suelta el
+slot de forma **determinista** al terminar (`_PreviewResponse`), y
+`release()`/`heartbeat()` reciben la **sesión** para no tocar la de otro
+cliente. El registro de streams pasa a una API **síncrona**: una liberación
+con `await` dentro de un `finally` puede ser cortada por una cancelación.
+
+Verificado antes/después con el **mismo** fichero de tests
+(`backend/tests/test_live_preview_release_order.py`) ejecutado contra el
+código anterior y el nuevo: 3 de los 4 tests fallaban antes (incluido el
+congelamiento del event loop: **5 ticks en 1 s** frente a ~100 ahora) y los
+4 pasan ahora.
+
 ## 2. Instalación
 
 `locust` **no** es una dependencia del backend (a propósito: no se añade a
@@ -196,7 +231,7 @@ Comando (el que genera el informe):
 ```bash
 docker run --rm --network parking_default \
   -v D:/Parking/backend:/carga -w /carga \
-  -e "SOLIDAPP_CAMERA_IDS=81,136,137,138,139,140,141,142,143,144" \
+  -e "SOLIDAPP_CAMARA_IDS=81,154,155,156,157,158,159,160,161,162" \
   -e "SOLIDAPP_INFORME_CONTEXTO=/carga/locust/reports/2026-10-21-referencia.contexto.json" \
   locustio/locust -f /carga/locustfile.py --headless \
   --host http://parking-carga:8000 --users 6 --spawn-rate 2 --run-time 180s \
@@ -205,21 +240,29 @@ docker run --rm --network parking_default \
 
 | Métrica | Peticiones | Fallos | p95 | Umbral SLO |
 |---|---|---|---|---|
-| `login` (POST) | 5 | 0 | **330 ms** | 1500 ms |
-| `lectura_plazas` (GET) | 106 | 0 | **21 ms** | 300 ms |
-| `lectura_tickets` (GET) | 68 | 0 | **35 ms** | 300 ms |
-| `lectura_camaras` (GET) | 39 | 0 | **19 ms** | 300 ms |
-| `ticket_crear` (POST) | 60 | 0 | **38 ms** | 500 ms |
-| `ticket_cerrar` (POST) | 60 | 0 | **49 ms** | 1500 ms |
-| `sse_mapa` (apertura) | 71 | 0 | **24 ms** | 1000 ms |
-| `sse_mapa_primer_evento` | 71 | 0 | **0 ms** | 1500 ms |
-| `preview_mjpeg` (apertura) | 8 | 0 | **16 ms** | 1000 ms |
-| `preview_mjpeg_primer_frame` | 8 | 0 | **1 700 ms** | 3000 ms |
-| Bytes por sesión de preview | — | — | 1,18 MB | ≥ 50 KB |
+| `login` (POST) | 5 | 0 | **240 ms** | 1500 ms |
+| `lectura_plazas` (GET) | 109 | 0 | **20 ms** | 300 ms |
+| `lectura_tickets` (GET) | 75 | 0 | **18 ms** | 300 ms |
+| `lectura_camaras` (GET) | 42 | 0 | **15 ms** | 300 ms |
+| `ticket_crear` (POST) | 48 | 0 | **36 ms** | 500 ms |
+| `ticket_cerrar` (POST) | 48 | 0 | **35 ms** | 1500 ms |
+| `sse_mapa` (apertura) | 74 | 0 | **14 ms** | 1000 ms |
+| `sse_mapa_primer_evento` | 74 | 0 | **0 ms** | 1500 ms |
+| `preview_mjpeg` (apertura) | 8 | 0 | **31 ms** | 1000 ms |
+| `preview_mjpeg_primer_frame` | 8 | 0 | **2 100 ms** | 3000 ms |
+| Bytes por sesión de preview | — | — | 1,13 MB | ≥ 50 KB |
+| Previews descartados con 409 | 0 | — | 0 | 0 |
 
-**0 fallos en 461 peticiones y 0 cortes de stream**: el SLO se cumple entero
-(13 de 13 reglas). El contenedor de carga se monitorizó durante los 180 s:
-**0 reinicios** (antes: 3 caídas del worker por el crash P0).
+**0 fallos en 491 peticiones, 0 cortes de stream y 0 previews descartados con
+un 409**: el SLO se cumple entero (14 de 14 reglas). El contenedor de carga se
+monitorizó durante los 180 s: **0 reinicios** (antes: 3 caídas del worker por
+el crash P0).
+
+> La regla `mjpeg_sin_409` es la que ata el P2 del preview al SLO: en el
+> escenario de carga sólo hay **un** visualizador, así que cualquier 409 es un
+> síntoma del P2 (la cámara seguía ocupada al reabrir), no una regla de
+> negocio. Antes de corregirlo, esa métrica la pasaba el locustfile como
+> "éxito" porque un 409 no es un fallo HTTP: el SLO no lo veía.
 
 ### El fixture del RTSP importa (y era lo que inflaba las cifras)
 
@@ -259,6 +302,7 @@ duplica). Cada regla tiene `id`, `method`, `name`, `metrica`, `umbral`,
 | `max_fallos` | Nº de peticiones fallidas de la métrica (0 = ni un fallo). |
 | `min_bytes_medios` | Bytes medios por petición (detecta streams congelados). |
 | `max_tasa_fallo` | Proporción de fallos (0.0 - 1.0). |
+| `max_peticiones` | Nº de **ocurrencias** de la entrada. Sirve para lo que Locust cuenta como "éxito" pero que en realidad es un síntoma: los previews descartados con un 409 (la cámara ocupada) los cuenta el locustfile aparte, porque un 409 es una regla de negocio y no un fallo HTTP. Con esta métrica el SLO detecta una regresión del P2 del preview. |
 
 El percentil se calcula **replicando el algoritmo de Locust**
 (`calculate_response_time_percentile`) para que el número del verificador sea
@@ -266,7 +310,8 @@ exactamente el mismo que muestra la web de Locust.
 
 Si una métrica **no aparece** en el informe o **no tiene muestras
 suficientes**, la regla falla: un SLO que no se puede evaluar no se puede
-"pasar".
+"pasar". La excepción es `max_peticiones`: si la entrada no aparece es que
+hubo **0 ocurrencias**, que es justo lo que la regla quiere ver.
 
 ### Encaje en CI
 
@@ -336,7 +381,7 @@ escenarios reflejan cada caso real.
 | Variable | Defecto | Para qué |
 |---|---|---|
 | `SOLIDAPP_PARKING_ID` | `11` | Sucursal sobre la que se carga. |
-| `SOLIDAPP_CAMERA_IDS` | `81` | Cámaras del escenario MJPEG (separadas por comas). Cada visualizador toma una distinta (el backend sólo admite **un** stream vivo por cámara: 409 si ya hay otro). **Se lee en runtime**, no al importar el módulo. |
+| `SOLIDAPP_CAMARA_IDS` | `81` | Cámaras del escenario MJPEG (separadas por comas). Cada visualizador toma una distinta (el backend sólo admite **un** stream vivo por cámara: 409 si ya hay otro). **Se lee en runtime**, no al importar el módulo. Ojo: el nombre correcto es con **una R** (`CAMARA`); por compatibilidad se acepta también `SOLIDAPP_CAMERA_IDS` (dos R), que es el que leía el locustfile hasta el 2026-10-21 y hacía que la variable documentada no surtiera efecto. |
 | `SOLIDAPP_VEHICLE_IDS` | `1,11,13` | Vehículos sembrados para el escenario de tickets. |
 | `SOLIDAPP_VENTANA_SSE_S` | `2` | Segundos que se lee el stream SSE en cada sesión. |
 | `SOLIDAPP_VENTANA_MJPEG_S` | `8` | Segundos que se lee el stream MJPEG en cada sesión. |
