@@ -8,7 +8,7 @@
 >
 > | Comprobación | Resultado |
 > |---|---|
-> | Suite completa | **530 passed** en SQLite · **539 passed** en PostgreSQL |
+> | Suite completa | **540 passed** en SQLite · **549 passed** en PostgreSQL |
 > | QA visual (Chromium) | 21 pantallas a **4 anchos** (768, 1024, 1232, 1440 px): 0 desbordes, 0 errores de consola |
 > | PWA | verificado: instalable y **arranca sin red** |
 > | API | **99 de 99 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
@@ -468,6 +468,22 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] El CI lo ejecuta en el job de integración.
 - **Nota**: el script usa `psycopg` (que ya es dependencia del backend) y no `psql`, para que no dependa de que el cliente esté en la imagen.
 
+### T-25+5 · P2 — la infraestructura del compose quedaba expuesta en la red de la sucursal
+
+- **Estado**: **completado** — puertos en loopback y arranque bloqueado con el secreto de ejemplo
+- **Contexto**: salió al revisar la higiene de un repositorio **público** (búsqueda de secretos en el árbol y en el historial). Dos cosas:
+  1. **La superficie de red**: el `docker-compose.yml` del repo **es** el que se copia a una sucursal (ADR-0001, opción D: Compose en el edge). Publicaba Postgres (`5432:5432`, con la contraseña `parking` escrita en el repo) y **Redis (`6379:6379`, sin contraseña ninguna**, y ahí vive la blacklist de tokens y el estado de sesión), además de OCR, detector, Loki y Grafana (con `admin/admin`). Todo en `0.0.0.0`: cualquiera de la red de la sucursal podía leer la base de datos entera, invalidar tokens ajenos o mirar los logs.
+  2. **El secreto JWT**: `JWT_SECRET: ${JWT_SECRET:-change-me-in-production}`. Si a una sucursal se le olvidaba la variable, la API firmaba los tokens con un secreto público: se podía fabricar el token de un administrador.
+- **Criterios de aceptación**:
+  - [x] La infraestructura (db, redis, ocr, vehicle-detector, loki, grafana) se publica **sólo en loopback**. La API (8000) y el frontend (5173) siguen publicados: el central y los dispositivos de la sucursal los necesitan.
+  - [x] **Comprobado**: desde la IP de la red local los puertos 5432, 6379 y 3000 ya no responden; desde el host, sí. Los servicios se siguen hablando por la red de Docker.
+  - [x] La aplicación **se niega a arrancar** en `staging`/`production` con el secreto de ejemplo (10 tests nuevos en `tests/test_config_seguridad.py`). En `development` y `test` no se comprueba: el equipo de QA usa ese valor a propósito.
+  - [x] Documentado en el ADR-0001, con la tabla de qué puerto necesita quién.
+- **Lo que queda para el despliegue real** (follow-up ya anotado en el ADR):
+  el `docker-compose.prod.yml` con los valores por entorno (`JWT_SECRET`,
+  `CORS_ORIGINS` correctos para el host de la sucursal) y el script de
+  alta `infra/deploy/branch.sh`.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.
@@ -770,7 +786,7 @@ T-22 (recuperación de contraseña) ──> T-24 (PWA, que necesita self-service
 
 - [x] `cd backend && ruff check app tests` → sin errores.
 - [x] `cd backend && mypy app` → sin errores nuevos (hoy `continue-on-error: true`).
-- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **530 passed en SQLite y 539 en PostgreSQL**.
+- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **540 passed en SQLite y 549 en PostgreSQL**.
 - [x] `docker compose up -d` → todos los servicios *healthy* y `/health` responde 200.
 - [x] QA visual en el navegador de las pantallas tocadas (con la app real, no sólo tests).
       → **HECHA** con Chromium headless (Playwright) sobre la app real

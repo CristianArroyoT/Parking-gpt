@@ -34,6 +34,13 @@ los [ADR](docs/adr/) con las decisiones y sus números, y el
 - Docker Desktop con compose v2.
 - Puertos libres: 5173 (frontend), 8000 (backend), 5432 (Postgres), 6379 (Redis).
 
+> **Postgres y Redis se publican sólo en `127.0.0.1`** (2026-10-21). Este
+> compose es también el que se copia a una sucursal (ADR-0001) y, sin esa
+> restricción, la base de datos (contraseña `parking`) y Redis (sin
+> contraseña) quedaban al alcance de cualquier equipo de la red. La API
+> (8000) y el frontend (5173) sí se publican: el central y los dispositivos
+> de la sucursal los necesitan.
+
 > **No instales nada en el host Windows.** Todo se ejecuta dentro de los
 > contenedores. Ni `pip install`, ni `npm install`.
 

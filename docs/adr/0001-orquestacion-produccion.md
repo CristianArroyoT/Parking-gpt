@@ -152,7 +152,35 @@ Ver [`infra/backup/README.md`](../../../infra/backup/README.md).
 - Script de despliegue a una sucursal (`infra/deploy/branch.sh`).
 - Fichero `docker-compose.prod.yml` con los valores por defecto del
   producto (JWT secret por entorno, `CORS_ORIGINS` correctos, volúmenes).
+  **Avanzado (2026-10-21)**: mientras ese fichero no exista, la
+  aplicación **se niega a arrancar** en `staging`/`production` si
+  `JWT_SECRET` sigue siendo el valor por defecto (`change-me-in-production`),
+  que está escrito en este repositorio público. Es un fallo temprano y
+  explícito, en vez de un 401 sin explicación a mitad de una sesión.
 - Alertas de "la sucursal lleva X horas sin conectar al central".
+
+### La superficie de red de una sucursal (2026-10-21)
+
+Este `docker-compose.yml` **es** el fichero que se copia a una sucursal
+(`rsync` + `docker compose up -d`), así que su configuración de puertos
+es configuración de producción, no del portátil de QA. Lo que se publica
+en la red de la sucursal es sólo lo que la sucursal tiene que atender:
+
+| Servicio | Puerto | ¿Quién lo necesita? |
+|---|---|---|
+| `backend` | 8000 | El central y los dispositivos de la sucursal: **sí, publicado** |
+| `frontend` | 5173 | Los técnicos y los dispositivos: **sí, publicado** |
+| `db` | 5432 | Nadie fuera de Docker: **loopback** |
+| `redis` | 6379 | Nadie fuera de Docker (y **no tiene contraseña**): **loopback** |
+| `ocr` | 8801 | Nadie fuera de Docker: **loopback** |
+| `vehicle-detector` | 8802 | Nadie fuera de Docker: **loopback** |
+| `loki` | 3100 | Nadie fuera de Docker: **loopback** |
+| `grafana` | 3000 | Nadie fuera de Docker (y lleva la contraseña por defecto `admin`): **loopback** |
+
+Comprobado: desde la IP de la red local los puertos 5432, 6379 y 3000 ya
+**no responden**; desde el propio host, sí. Los servicios se siguen
+hablando por la red de Docker (`db:5432`, `redis:6379`…), que es
+privada por definición.
 
 ## Alternativas descartadas (y por qué)
 
