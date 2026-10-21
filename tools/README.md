@@ -11,6 +11,7 @@ Utilidades del repo que no forman parte de la aplicación.
 | `generar_seccion_api.py` | Genera la sección 3 de `docs/API-INTERNAL.md` a partir del código (`--escribir` la deja en el documento). |
 | `verificar_api_doc.py` | Comprueba que el inventario documentado coincide con el código y dice qué falta y qué sobra. Sale con 1 si hay deriva. Tiene autoprueba (`--autoprueba`). |
 | `cobertura_api.py` | Mide **cuántos endpoints tienen test**. Distingue los que se prueban con la ruta literal de los que se prueban con una URL parametrizada, y de los que no tienen ningún test. La puerta es "todo endpoint tiene algún test"; además informa (de forma **indicativa**, con falsos positivos) de qué endpoints no tienen un test que compruebe el 401/403. |
+| `verificar_despliegue_limpio.py` | Smoke test de un **despliegue limpio**: crea una base vacía, la migra de cero, la siembra, levanta la aplicación y comprueba que la API responde con los datos del seed. Borra la base al terminar. Es lo que faltaba: hasta ahora las migraciones y el seed nunca se habían probado juntos sobre una base vacía. |
 
 ## Uso
 
@@ -33,6 +34,10 @@ python tools/verificar_api_doc.py               # detecta la deriva
 
 # Cobertura de tests por endpoint
 python tools/cobertura_api.py                   # quien queda sin test
+
+# Despliegue limpio (base vacia -> migrar -> sembrar -> servir)
+$env:DATABASE_URL="postgresql+psycopg://parking:parking@localhost:5432/solidapp_despliegue"
+python tools/verificar_despliegue_limpio.py
 ```
 
 Los scripts devuelven codigo de salida 0 si no hay nada que mirar y 1 si lo
