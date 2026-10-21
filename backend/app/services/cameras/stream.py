@@ -9,9 +9,13 @@ identificadas y corregidas:
 
 1. **Buffer interno de OpenCV** (~4-5 frames) → ``CAP_PROP_BUFFERSIZE=1``.
    Sin esto, ``cap.read()`` siempre devuelve un frame viejo del buffer.
-2. **Frames obsoletos acumulados** entre yield y read → bucle de
-   ``cap.grab()`` que descarta todos los frames intermedios antes de
-   recuperar el ÚLTIMO con ``cap.retrieve()``.
+2. **Frames obsoletos acumulados** entre yield y read → se toma el frame
+   más reciente del buffer con una única lectura ``cap.grab()`` +
+   ``cap.retrieve()`` (ver ``MAX_DISCARD_FRAMES``). No se drena el buffer
+   con un bucle cerrado: con un stream en vivo ese bucle nunca termina
+   (``grab()`` sólo devuelve False al agotarse el stream), así que el
+   generador no llegaría nunca al ``yield`` y el cliente vería el modal
+   en negro indefinidamente (bug detectado en QA visual 2026-10-21).
 3. **Sleep artificial** entre frames → eliminado. Emitimos al ritmo
    real de cámara + encoding. Si la cámara es 25 fps y la red lo soporta,
    el cliente ve 25 fps; si la cámara es 5 fps, ve 5 fps (sin padding).
@@ -48,6 +52,18 @@ FRAME_INTERVAL_S: float = 0.0
 # continuamente. 70 es buen compromiso: ~30-60 KB por frame a 1280×720
 # sin artifacts visibles para reconocimiento de plaza.
 JPEG_QUALITY: int = 70
+
+# Nº máximo de frames que se leen por vuelta del bucle exterior para
+# quedarnos con el más reciente. 1 = latencia mínima (una lectura).
+#
+# Por qué NO drenar el buffer con un bucle cerrado (`while grab()`):
+# con un stream EN VIVO ese bucle no termina nunca — ``grab()`` sólo
+# devuelve False cuando el stream se agota — de modo que el generador
+# no llegaría jamás al ``yield`` y el cliente se quedaría mirando el
+# modal en negro indefinidamente (bug detectado en QA visual
+# 2026-10-21). Con ``CAP_PROP_BUFFERSIZE=1`` el buffer interno ya es
+# de un frame, así que una sola lectura equivale al frame más reciente.
+MAX_DISCARD_FRAMES: int = 1
 
 
 @lru_cache(maxsize=1)
@@ -136,12 +152,17 @@ async def mjpeg_generator(
             if await is_disconnected_callable():
                 break
 
-            # 1) Descartar todos los frames obsoletos del buffer interno
-            #    con grab() (rápido, no decodifica) y quedarnos con el
-            #    ÚLTIMO disponible vía retrieve(). Así nunca enviamos
-            #    un frame de hace 500 ms cuando ya hay uno de hace 50 ms.
+            # 1) Quedarnos con el frame MÁS RECIENTE disponible.
+            #    OJO: no se puede drenar el buffer con un bucle cerrado
+            #    (``while grab()``) porque con un stream EN VIVO ese bucle
+            #    NUNCA termina — ``grab()`` sólo devuelve False cuando el
+            #    stream se agota — así que el generador jamás llegaría al
+            #    ``yield`` y el cliente vería el modal en negro para
+            #    siempre (bug detectado en QA visual 2026-10-21).
+            #    Con ``CAP_PROP_BUFFERSIZE=1`` + una única lectura tomamos
+            #    el frame más reciente sin bloquear más de un frame.
             latest_frame = None
-            while True:
+            for _ in range(MAX_DISCARD_FRAMES):
                 if shutdown_event.is_set():
                     break
                 grabbed = await asyncio.to_thread(cap.grab)
