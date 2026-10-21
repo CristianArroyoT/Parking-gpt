@@ -242,44 +242,46 @@ onMounted(async () => {
         </form>
       </div>
 
-      <table class="w-full text-sm">
-        <thead class="bg-slate-50 text-slate-500 text-left">
-          <tr>
-            <th class="px-5 py-3 font-medium">Categoría</th>
-            <th class="px-5 py-3 font-medium">Importe</th>
-            <th class="px-5 py-3 font-medium">Periodicidad</th>
-            <th class="px-5 py-3 font-medium">Desde</th>
-            <th class="px-5 py-3 font-medium">Hasta</th>
-            <th class="px-5 py-3 font-medium">Descripción</th>
-            <th class="px-5 py-3 font-medium text-right">Acciones</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-100">
-          <tr v-for="c in costs" :key="c.id">
-            <td class="px-5 py-3">{{ categoryLabel[c.category] }}</td>
-            <td class="px-5 py-3">{{ euro(c.amount) }}</td>
-            <td class="px-5 py-3">{{ periodLabel[c.periodicity] }}</td>
-            <td class="px-5 py-3 text-xs">
-              {{ new Date(c.period_start).toLocaleDateString('es-ES') }}
-            </td>
-            <td class="px-5 py-3 text-xs">
-              {{ c.period_end ? new Date(c.period_end).toLocaleDateString('es-ES') : '—' }}
-            </td>
-            <td class="px-5 py-3 text-slate-600">{{ c.description ?? '—' }}</td>
-            <td class="px-5 py-3 text-right">
-              <button
-                class="text-rose-600 hover:underline text-xs"
-                @click="onDeleteCost(c)"
-              >Eliminar</button>
-            </td>
-          </tr>
-          <tr v-if="!costs.length">
-            <td colspan="7" class="px-5 py-6 text-center text-slate-500">
-              No hay costes para esta sucursal.
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="overflow-x-auto min-w-0">
+        <table class="w-full text-sm min-w-max">
+          <thead class="bg-slate-50 text-slate-500 text-left">
+            <tr>
+              <th class="px-5 py-3 font-medium">Categoría</th>
+              <th class="px-5 py-3 font-medium">Importe</th>
+              <th class="px-5 py-3 font-medium">Periodicidad</th>
+              <th class="px-5 py-3 font-medium">Desde</th>
+              <th class="px-5 py-3 font-medium">Hasta</th>
+              <th class="px-5 py-3 font-medium">Descripción</th>
+              <th class="px-5 py-3 font-medium text-right">Acciones</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <tr v-for="c in costs" :key="c.id">
+              <td class="px-5 py-3">{{ categoryLabel[c.category] }}</td>
+              <td class="px-5 py-3">{{ euro(c.amount) }}</td>
+              <td class="px-5 py-3">{{ periodLabel[c.periodicity] }}</td>
+              <td class="px-5 py-3 text-xs">
+                {{ new Date(c.period_start).toLocaleDateString('es-ES') }}
+              </td>
+              <td class="px-5 py-3 text-xs">
+                {{ c.period_end ? new Date(c.period_end).toLocaleDateString('es-ES') : '—' }}
+              </td>
+              <td class="px-5 py-3 text-slate-600">{{ c.description ?? '—' }}</td>
+              <td class="px-5 py-3 text-right">
+                <button
+                  class="text-rose-600 hover:underline text-xs"
+                  @click="onDeleteCost(c)"
+                >Eliminar</button>
+              </td>
+            </tr>
+            <tr v-if="!costs.length">
+              <td colspan="7" class="px-5 py-6 text-center text-slate-500">
+                No hay costes para esta sucursal.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
   </AppLayout>
 </template>

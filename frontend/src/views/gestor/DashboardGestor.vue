@@ -168,44 +168,46 @@ function healthClass(c: Camera): string {
         <div class="px-5 py-4 border-b border-slate-200">
           <h2 class="font-semibold">Cámaras</h2>
         </div>
-        <table class="w-full text-sm">
-          <thead class="bg-slate-50 text-slate-500 text-left">
-            <tr>
-              <th class="px-5 py-3 font-medium">Código</th>
-              <th class="px-5 py-3 font-medium">Nombre</th>
-              <th class="px-5 py-3 font-medium">Tipo</th>
-              <th class="px-5 py-3 font-medium">Último heartbeat</th>
-              <th class="px-5 py-3 font-medium">Estado</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr v-for="c in camerasByParking" :key="c.id">
-              <td class="px-5 py-3 font-mono text-xs">{{ c.code }}</td>
-              <td class="px-5 py-3">{{ c.name }}</td>
-              <td class="px-5 py-3">
-                <span
-                  :class="['text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded',
-                           c.kind === 'gate' ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-700']"
-                >{{ kindLabel(c.kind) }}</span>
-              </td>
-              <td class="px-5 py-3 text-xs text-slate-500">
-                {{ c.last_heartbeat_at
-                  ? new Date(c.last_heartbeat_at).toLocaleString('es-ES')
-                  : 'Nunca' }}
-              </td>
-              <td class="px-5 py-3">
-                <span :class="['text-xs font-semibold px-2 py-0.5 rounded', healthClass(c)]">
-                  {{ healthLabel(c) }}
-                </span>
-              </td>
-            </tr>
-            <tr v-if="!camerasByParking.length">
-              <td colspan="5" class="px-5 py-6 text-center text-slate-500">
-                Esta sucursal no tiene cámaras dadas de alta.
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="overflow-x-auto min-w-0">
+          <table class="w-full text-sm min-w-max">
+            <thead class="bg-slate-50 text-slate-500 text-left">
+              <tr>
+                <th class="px-5 py-3 font-medium">Código</th>
+                <th class="px-5 py-3 font-medium">Nombre</th>
+                <th class="px-5 py-3 font-medium">Tipo</th>
+                <th class="px-5 py-3 font-medium">Último heartbeat</th>
+                <th class="px-5 py-3 font-medium">Estado</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr v-for="c in camerasByParking" :key="c.id">
+                <td class="px-5 py-3 font-mono text-xs">{{ c.code }}</td>
+                <td class="px-5 py-3">{{ c.name }}</td>
+                <td class="px-5 py-3">
+                  <span
+                    :class="['text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded',
+                             c.kind === 'gate' ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-700']"
+                  >{{ kindLabel(c.kind) }}</span>
+                </td>
+                <td class="px-5 py-3 text-xs text-slate-500">
+                  {{ c.last_heartbeat_at
+                    ? new Date(c.last_heartbeat_at).toLocaleString('es-ES')
+                    : 'Nunca' }}
+                </td>
+                <td class="px-5 py-3">
+                  <span :class="['text-xs font-semibold px-2 py-0.5 rounded', healthClass(c)]">
+                    {{ healthLabel(c) }}
+                  </span>
+                </td>
+              </tr>
+              <tr v-if="!camerasByParking.length">
+                <td colspan="5" class="px-5 py-6 text-center text-slate-500">
+                  Esta sucursal no tiene cámaras dadas de alta.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <!-- Sprint Fase 4-parte-2 (2026-07-06): KPIs de tickets en 24 h.

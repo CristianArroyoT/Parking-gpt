@@ -4,12 +4,12 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **142 de 143 criterios** verificados, **177 commits** en `main` (`9910950`), todo sincronizado con `origin/main`.
+> El plan está **ejecutado**: **160 de 161 criterios** verificados, **195 commits** en `main`, todo sincronizado con `origin/main`.
 >
 > | Comprobación | Resultado |
 > |---|---|
 > | Suite completa | **548 passed** en SQLite · **557 passed** en PostgreSQL |
-> | QA visual (Chromium) | 21 pantallas a **4 anchos** (768, 1024, 1232, 1440 px): 0 desbordes, 0 errores de consola |
+> | QA visual (Chromium) | 21 pantallas a **5 anchos** (414, 768, 1024, 1232, 1440 px): 0 desbordes, 0 errores de consola |
 > | PWA | verificado: instalable y **arranca sin red** |
 > | API | **99 de 99 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
 > | Esquema | Los modelos y las migraciones coinciden: `alembic check` limpio y **el CI migra una base vacía** |
@@ -363,6 +363,26 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   (`select`, `input`, `textarea`), que el navegador recorta de forma nativa
   con puntos suspensivos, y los elementos posicionados en absoluto o fijo.
   Sin esas exclusiones el detector marcaría ruido y nadie lo miraría.
+
+### T-13+9 · P2 — en el móvil (414 px) la página entera se desplazaba de lado a lado
+
+- **Estado**: **completado** — corregido y verificado a 414 px
+- **Contexto**: la QA visual recorría cuatro anchos (768, 1024, 1232 y 1440 px), pero **ninguno era de móvil**: el más estrecho era una tablet vertical. Al añadir el ancho de un móvil (414 px) aparecieron **26 contenidos desbordados** repartidos en 10 de las 21 pantallas, y **10 pantallas con la página entera desplazable** de lado a lado. En un teléfono, el usuario tenía que mover la ventana para ver el final de una tabla.
+- **Por qué**: un `<table>` no baja del ancho de su contenido. Sin un contenedor con `overflow-x-auto`, la tabla se sale de su tarjeta; y dentro de una rejilla o de un flex, el `min-width: auto` del ítem lo ata a la anchura mínima de su contenido, así que la columna no encoge y la página hereda el desbordamiento.
+- **El arreglo tiene dos partes y con una sola no basta**:
+  1. Envolver la tabla en un `div` con `overflow-x-auto` y `min-w-max` **dentro** del atributo `class` de la tabla.
+  2. Poner `min-w-0` **en el ítem de la rejilla** que contiene la tabla. Con sólo la parte 1, el envoltorio se encoge pero la columna sigue midiendo lo que mide la tabla, y la página sigue desbordando. Se comprobó midiendo: el `<section>` de Operadores seguía con `min-width: auto` y 611 px de ancho en una columna de 366.
+- **Cómo se localizó sin adivinar**: `frontend/scripts/sonda_anchura.py` (nuevo) mide la cadena de ancestros del elemento más ancho, con su `min-width` calculado, su `overflow-x` y su `display`. Es lo que distingue "este elemento es el culpable" de "este otro sólo lo arrastra".
+- **Herramienta**: `tools/envolver_tablas.py` (nuevo) aplica la parte 1 a todas las vistas de forma mecánica. Dos detalles que la herramienta tiene que respetar y que costaron un 500 al principio: mueve la directiva `v-if`/`v-else` al envoltorio (si se deja en la tabla, Vue no compila: *"v-else has no adjacent v-if or v-else"*) y añade `min-w-max` **dentro** del atributo `class` (fuera, `<table class="w-full" min-w-max>` no significa nada).
+- **Criterios de aceptación**:
+  - [x] La QA visual recorre el ancho de móvil (414 px).
+  - [x] Las 8 tablas que no caben están envueltas en un contenedor `overflow-x-auto min-w-0`.
+  - [x] Los ítems de rejilla que contienen tablas llevan `min-w-0`.
+  - [x] **0 desbordes a 414 px** (antes 26) y **0 pantallas con scroll horizontal de página** (antes 10).
+  - [x] Sin regresión: **0 desbordes** en las 21 pantallas a 768, 1024, 1232 y 1440 px.
+  - [x] 0 errores de consola y 0 peticiones fallidas en los **cinco** anchos.
+  - [x] `vue-tsc --noEmit` y `npm run build` en verde.
+- **Otro arreglo de la QA**: las pantallas de mapa y de vídeo en directo nunca dejan de cargar (teselas del mapa y flujo SSE), así que la espera de "networkidle" se agotaba siempre ahí y se reportaba como **error de red**. Ahora se reporta como **aviso**: es tráfico de fondo perpetuo, no una pantalla rota.
 
 ### T-24+1 · Verificar que el PWA es instalable y arranca sin red (propuesto, no ejecutado en CI)
 
@@ -816,10 +836,11 @@ T-22 (recuperación de contraseña) ──> T-24 (PWA, que necesita self-service
       La QA destapó un defecto visual: el aviso de cobro contable se leía
       "Cobro contable. Cobro contable: ..." (la etiqueta se anteponía a un
       texto que ya empezaba así). Corregido.
-      → La QA se ha ampliado desde entonces: recorre además **4 anchos**
-      (768, 1024, 1232 y 1440 px) y **detecta el contenido que no cabe**
+      → La QA se ha ampliado desde entonces: recorre además **5 anchos**
+      (414, 768, 1024, 1232 y 1440 px) y **detecta el contenido que no cabe**
       (recortado o desbordado), lo que destapó 6 defectos de maquetación
-      (T-13+7 y T-13+8). También hay `frontend/scripts/qa_pwa.py`, que
+      (T-13+7 y T-13+8) y, al añadir el ancho de móvil, otros 26
+      desbordes en 10 pantallas (T-13+9). También hay `frontend/scripts/qa_pwa.py`, que
       verifica que el PWA es instalable y arranca sin red.
 - [x] Sin 4xx/5xx inesperados en `docker logs backend` durante la QA.
       → Con el árbol estable el log está limpio. Durante el trabajo en

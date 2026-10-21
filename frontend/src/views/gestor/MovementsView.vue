@@ -277,34 +277,36 @@ onMounted(async () => {
       <div v-else-if="!filtered.length" class="text-sm text-slate-500">
         No hay movimientos que cumplan los filtros.
       </div>
-      <table v-else class="w-full text-sm">
-        <thead class="bg-slate-50 text-slate-500 text-left">
-          <tr>
-            <th class="px-3 py-2 font-medium">#</th>
-            <th class="px-3 py-2 font-medium">Entrada</th>
-            <th class="px-3 py-2 font-medium">Salida</th>
-            <th class="px-3 py-2 font-medium">Vehículo · Plaza</th>
-            <th class="px-3 py-2 font-medium">Origen</th>
-            <th class="px-3 py-2 font-medium">Estado</th>
-            <th class="px-3 py-2 font-medium text-right">Importe</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-100">
-          <tr v-for="m in filtered" :key="m.id" class="hover:bg-slate-50">
-            <td class="px-3 py-2 font-mono text-xs">#{{ m.id }}</td>
-            <td class="px-3 py-2">{{ fmt(m.entry_at) }}</td>
-            <td class="px-3 py-2">{{ fmt(m.exit_at) }}</td>
-            <td class="px-3 py-2 font-medium">{{ movementLabel(m, labels) }}</td>
-            <td class="px-3 py-2 text-xs text-slate-600">{{ originLabel(m.origin) }}</td>
-            <td class="px-3 py-2">
-              <span :class="['text-xs font-semibold px-2 py-0.5 rounded', statusBadge(m.status).cls]">
-                {{ statusBadge(m.status).label }}
-              </span>
-            </td>
-            <td class="px-3 py-2 text-right font-medium">{{ eur(m.total) }}</td>
-          </tr>
-        </tbody>
-      </table>
+      <div v-else class="overflow-x-auto min-w-0">
+        <table class="w-full text-sm min-w-max">
+          <thead class="bg-slate-50 text-slate-500 text-left">
+            <tr>
+              <th class="px-3 py-2 font-medium">#</th>
+              <th class="px-3 py-2 font-medium">Entrada</th>
+              <th class="px-3 py-2 font-medium">Salida</th>
+              <th class="px-3 py-2 font-medium">Vehículo · Plaza</th>
+              <th class="px-3 py-2 font-medium">Origen</th>
+              <th class="px-3 py-2 font-medium">Estado</th>
+              <th class="px-3 py-2 font-medium text-right">Importe</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <tr v-for="m in filtered" :key="m.id" class="hover:bg-slate-50">
+              <td class="px-3 py-2 font-mono text-xs">#{{ m.id }}</td>
+              <td class="px-3 py-2">{{ fmt(m.entry_at) }}</td>
+              <td class="px-3 py-2">{{ fmt(m.exit_at) }}</td>
+              <td class="px-3 py-2 font-medium">{{ movementLabel(m, labels) }}</td>
+              <td class="px-3 py-2 text-xs text-slate-600">{{ originLabel(m.origin) }}</td>
+              <td class="px-3 py-2">
+                <span :class="['text-xs font-semibold px-2 py-0.5 rounded', statusBadge(m.status).cls]">
+                  {{ statusBadge(m.status).label }}
+                </span>
+              </td>
+              <td class="px-3 py-2 text-right font-medium">{{ eur(m.total) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
   </AppLayout>
 </template>

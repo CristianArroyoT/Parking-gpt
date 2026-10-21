@@ -171,7 +171,7 @@ function kindLabel(k: CameraKind): string {
     <div v-if="loading" class="text-sm text-slate-500">Cargando cámaras…</div>
 
     <div v-else class="bg-white rounded-xl shadow-card overflow-hidden">
-      <div class="overflow-x-auto">
+      <div class="overflow-x-auto min-w-0">
         <table class="w-full min-w-max text-sm">
           <thead class="bg-slate-50 text-slate-500 text-left">
             <tr>

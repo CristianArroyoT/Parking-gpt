@@ -13,6 +13,8 @@ Utilidades del repo que no forman parte de la aplicación.
 | `cobertura_api.py` | Mide **cuántos endpoints tienen test**. Distingue los que se prueban con la ruta literal de los que se prueban con una URL parametrizada, y de los que no tienen ningún test. La puerta es "todo endpoint tiene algún test"; además informa (de forma **indicativa**, con falsos positivos) de qué endpoints no tienen un test que compruebe el 401/403. |
 | `verificar_despliegue_limpio.py` | Smoke test de un **despliegue limpio**: crea una base vacía, la migra de cero, la siembra, levanta la aplicación y comprueba que la API responde con los datos del seed. Borra la base al terminar. Es lo que faltaba: hasta ahora las migraciones y el seed nunca se habían probado juntos sobre una base vacía. |
 | `escanear_secretos.py` | Busca credenciales en el **árbol versionado** (`--historial` para el historial completo de commits). El repositorio es público: un secreto commiteado no es un inconveniente, es una credencial filtrada. |
+| `envolver_tablas.py` | Envuelve las tablas de las vistas del frontend en un contenedor desplazable (`overflow-x-auto min-w-0`) y les añade `min-w-max` **dentro** del atributo `class`. Sin esto, en el móvil la tabla se sale de su tarjeta y arrastra a la página entera en el scroll lateral. Muta la directiva `v-if`/`v-else` al envoltorio: si se deja en la tabla, Vue no compila. |
+| `ejecutar_ci_local.py` | Ejecuta un job del workflow de GitHub Actions **leyendo el YAML** (sin duplicar los pasos a mano), con su `working-directory` y sus variables. Es la forma de comprobar el CI mientras la cuenta no tiene los jobs activados por facturación. |
 
 ## Uso
 
@@ -43,6 +45,13 @@ python tools/verificar_despliegue_limpio.py
 # Secretos
 python tools/escanear_secretos.py            # arbol versionado
 python tools/escanear_secretos.py --historial # historial completo
+
+# Envolver las tablas del frontend para el movil
+python tools/envolver_tablas.py
+
+# Ejecutar un job del CI en local (lee el YAML del workflow)
+python tools/ejecutar_ci_local.py --list
+python tools/ejecutar_ci_local.py --job integration
 ```
 
 Los scripts devuelven codigo de salida 0 si no hay nada que mirar y 1 si lo

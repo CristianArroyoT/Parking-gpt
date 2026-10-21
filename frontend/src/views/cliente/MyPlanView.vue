@@ -175,31 +175,33 @@ onMounted(async () => {
             vehículos vinculados a tu cuenta.
           </p>
         </div>
-        <table class="w-full text-sm">
-          <thead class="bg-slate-50 text-slate-500 text-left">
-            <tr>
-              <th class="px-5 py-3 font-medium">Plan</th>
-              <th class="px-5 py-3 font-medium">€/mes</th>
-              <th class="px-5 py-3 font-medium">Descuento</th>
-              <th class="px-5 py-3 font-medium">Vehículos</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr v-if="!catalogo.length">
-              <td colspan="4" class="px-5 py-6 text-center text-slate-500">
-                No hay planes disponibles ahora mismo.
-              </td>
-            </tr>
-            <tr v-for="p in catalogo" v-else :key="p.id">
-              <td class="px-5 py-3 font-medium">{{ p.name }}</td>
-              <td class="px-5 py-3">{{ euro(p.monthly_price) }}</td>
-              <td class="px-5 py-3 text-emerald-700 font-medium">
-                {{ pct(p.discount_percent) }}
-              </td>
-              <td class="px-5 py-3">{{ p.included_vehicles }}</td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="overflow-x-auto min-w-0">
+          <table class="w-full text-sm min-w-max">
+            <thead class="bg-slate-50 text-slate-500 text-left">
+              <tr>
+                <th class="px-5 py-3 font-medium">Plan</th>
+                <th class="px-5 py-3 font-medium">€/mes</th>
+                <th class="px-5 py-3 font-medium">Descuento</th>
+                <th class="px-5 py-3 font-medium">Vehículos</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr v-if="!catalogo.length">
+                <td colspan="4" class="px-5 py-6 text-center text-slate-500">
+                  No hay planes disponibles ahora mismo.
+                </td>
+              </tr>
+              <tr v-for="p in catalogo" v-else :key="p.id">
+                <td class="px-5 py-3 font-medium">{{ p.name }}</td>
+                <td class="px-5 py-3">{{ euro(p.monthly_price) }}</td>
+                <td class="px-5 py-3 text-emerald-700 font-medium">
+                  {{ pct(p.discount_percent) }}
+                </td>
+                <td class="px-5 py-3">{{ p.included_vehicles }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
     </template>
   </AppLayout>

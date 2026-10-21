@@ -194,12 +194,15 @@ onMounted(load)
 
         <div class="grid gap-6 lg:grid-cols-2">
           <!-- Listado -->
-          <section class="bg-white rounded-xl shadow-card p-5">
+          <!-- ``min-w-0`` en el item de la rejilla: sin él, la tabla
+               impide que la columna encoja y la página entera se
+               desplaza lateralmente en el móvil. -->
+          <section class="bg-white rounded-xl shadow-card p-5 min-w-0">
             <h2 class="font-semibold mb-3">Operadores de la sucursal</h2>
             <div v-if="!operators.length" class="text-sm text-slate-500">
               Todavía no hay operadores registrados.
             </div>
-            <div v-else class="overflow-x-auto">
+            <div v-else class="overflow-x-auto min-w-0">
               <table class="w-full min-w-max text-sm">
                 <thead class="bg-slate-50 text-slate-500 text-left">
                   <tr>
@@ -236,7 +239,7 @@ onMounted(load)
           </section>
 
           <!-- Alta -->
-          <section class="bg-white rounded-xl shadow-card p-5">
+          <section class="bg-white rounded-xl shadow-card p-5 min-w-0">
             <h2 class="font-semibold mb-3">Nuevo operador</h2>
             <form class="space-y-3" @submit.prevent="onCreate">
               <div>

@@ -203,22 +203,24 @@ onMounted(async () => {
           </div>
         </div>
 
-        <table v-if="report.cost_breakdown.length" class="mt-5 w-full text-sm">
-          <thead class="text-left text-slate-500 border-b border-slate-200">
-            <tr>
-              <th class="py-2 font-medium">Categoría</th>
-              <th class="py-2 font-medium text-right">Importe aplicado</th>
-              <th class="py-2 font-medium text-right">Costes</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr v-for="row in report.cost_breakdown" :key="row.category">
-              <td class="py-2">{{ categoryLabel[row.category] }}</td>
-              <td class="py-2 text-right">{{ euro(row.amount) }}</td>
-              <td class="py-2 text-right">{{ row.cost_count }}</td>
-            </tr>
-          </tbody>
-        </table>
+        <div v-if="report.cost_breakdown.length" class="overflow-x-auto min-w-0">
+          <table class="mt-5 w-full text-sm min-w-max">
+            <thead class="text-left text-slate-500 border-b border-slate-200">
+              <tr>
+                <th class="py-2 font-medium">Categoría</th>
+                <th class="py-2 font-medium text-right">Importe aplicado</th>
+                <th class="py-2 font-medium text-right">Costes</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr v-for="row in report.cost_breakdown" :key="row.category">
+                <td class="py-2">{{ categoryLabel[row.category] }}</td>
+                <td class="py-2 text-right">{{ euro(row.amount) }}</td>
+                <td class="py-2 text-right">{{ row.cost_count }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
       <div v-else class="px-5 py-6 text-sm text-slate-500">
         Selecciona un rango y pulsa "Generar".

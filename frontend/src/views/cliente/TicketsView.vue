@@ -151,35 +151,37 @@ const cerrados = (): Ticket[] => tickets.value.filter((t) => t.status === 'cerra
         <div v-if="!cerrados().length" class="text-sm text-slate-500">
           Sin tickets cerrados todavía.
         </div>
-        <table v-else class="w-full text-sm">
-          <thead class="bg-slate-50 text-slate-500 text-left">
-            <tr>
-              <th class="px-3 py-2 font-medium">#</th>
-              <th class="px-3 py-2 font-medium">Entrada</th>
-              <th class="px-3 py-2 font-medium">Salida</th>
-              <th class="px-3 py-2 font-medium text-right">Importe</th>
-              <th class="px-3 py-2 font-medium text-right">Detalle</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr
-              v-for="t in cerrados()"
-              :key="t.id"
-              class="cursor-pointer hover:bg-slate-50"
-              @click="openDetail(t)"
-            >
-              <td class="px-3 py-2 font-mono text-xs">#{{ t.id }}</td>
-              <td class="px-3 py-2">{{ fmt(t.entry_at) }}</td>
-              <td class="px-3 py-2">{{ fmt(t.exit_at) }}</td>
-              <td class="px-3 py-2 text-right font-medium">{{ eur(t.total) }}</td>
-              <td class="px-3 py-2 text-right">
-                <button type="button" class="text-blue-600 hover:underline text-xs">
-                  Ver detalle
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div v-else class="overflow-x-auto min-w-0">
+          <table class="w-full text-sm min-w-max">
+            <thead class="bg-slate-50 text-slate-500 text-left">
+              <tr>
+                <th class="px-3 py-2 font-medium">#</th>
+                <th class="px-3 py-2 font-medium">Entrada</th>
+                <th class="px-3 py-2 font-medium">Salida</th>
+                <th class="px-3 py-2 font-medium text-right">Importe</th>
+                <th class="px-3 py-2 font-medium text-right">Detalle</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr
+                v-for="t in cerrados()"
+                :key="t.id"
+                class="cursor-pointer hover:bg-slate-50"
+                @click="openDetail(t)"
+              >
+                <td class="px-3 py-2 font-mono text-xs">#{{ t.id }}</td>
+                <td class="px-3 py-2">{{ fmt(t.entry_at) }}</td>
+                <td class="px-3 py-2">{{ fmt(t.exit_at) }}</td>
+                <td class="px-3 py-2 text-right font-medium">{{ eur(t.total) }}</td>
+                <td class="px-3 py-2 text-right">
+                  <button type="button" class="text-blue-600 hover:underline text-xs">
+                    Ver detalle
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
     </template>
 

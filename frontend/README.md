@@ -41,7 +41,7 @@ nueva que salía como inexistente y un texto que no cambiaba).
 
 ## QA visual (Chromium headless)
 
-`scripts/qa_visual.py` recorre las 20 pantallas de los tres roles con las
+`scripts/qa_visual.py` recorre las 21 pantallas de los tres roles con las
 cuentas **demo** del seed, hace una captura de cada una y recoge los
 **errores de consola** y las **peticiones fallidas**. Es lo que cubre la
 parte de "la pantalla se renderiza" que los tests no pueden.
@@ -52,11 +52,19 @@ python scripts/qa_visual.py --salida D:/tmp/qa-solidapp
 
 # con el ancho del panel lateral del navegador integrado (1232 px)
 python scripts/qa_visual.py --salida D:/tmp/qa-solidapp-1232 --ancho 1232
+
+# con el ancho de un móvil
+python scripts/qa_visual.py --salida D:/tmp/qa-solidapp-414 --ancho 414
 ```
 
 Salida: un `informe.json` con el detalle y un PNG por pantalla. El script
 devuelve **1** si alguna pantalla tiene contenido recortado o desbordado, y
 0 si todo está bien.
+
+Las pantallas de **mapa** y de **vídeo en directo** no dejan de cargar
+nunca (teselas del mapa y flujo SSE), así que la espera de "networkidle"
+siempre se agota ahí. Eso se reporta como **aviso**, no como error de red:
+es tráfico de fondo, no una pantalla rota.
 
 ### Detección de contenido que no cabe
 
@@ -92,12 +100,46 @@ El detector **excluye a propósito** tres cosas que no son defectos:
 | 1440 px | Referencia de escritorio | 0 desbordes |
 | 1232 px | Panel lateral del navegador integrado | 0 desbordes (antes 5) |
 | 1024 px | Tablet con el menú colapsado | 0 desbordes (antes 1) |
-| 768 px | Tablet vertical / móvil | 0 desbordes |
+| 768 px | Tablet vertical | 0 desbordes |
+| 414 px | Móvil (iPhone XR) | 0 desbordes (antes 26) |
 
 A 1024 px salió el último defecto: la etiqueta **"Minutos/fracción"** de
 Tarifas era un único token sin espacios (98 px) en una caja de 86 px, así
 que se salía de su columna. Ahora dice "Minutos por fracción", que parte en
 dos palabras como la etiqueta de al lado.
+
+### El móvil (414 px): la página entera se desplazaba
+
+La QA siempre se había corrido a 1440 px, así que **nunca se vio el
+móvil**: a 414 px, 10 de las 21 pantallas tenían la página entera
+desplazable de lado a lado y 26 contenidos se salían de su caja.
+
+El arreglo tiene **dos** partes, y con una sola no basta:
+
+1. Envolver la tabla en un `div` con `overflow-x-auto`, para que la tabla
+   se desplace dentro de su tarjeta en vez de salirse de ella.
+2. Poner `min-w-0` **en el ítem de la rejilla** que contiene la tabla (y no
+   sólo en el envoltorio). Un ítem de rejilla o de flex tiene
+   `min-width: auto`, que lo ata a la anchura mínima de su contenido: sin
+   `min-w-0`, la columna no baja de la anchura de la tabla y la página
+   vuelve a desbordar. Esto se comprobó con `scripts/sonda_anchura.py`,
+   que mide la cadena de ancestros del elemento más ancho.
+
+`tools/envolver_tablas.py` aplica el punto 1 de forma mecánica a todas las
+vistas (muda la directiva `v-else` al envoltorio y añade `min-w-max`
+dentro del atributo `class` de la tabla).
+
+### La sonda de anchuras
+
+`scripts/sonda_anchura.py` responde a "¿de dónde sale este
+desbordamiento?" midiendo, en cada escalón de la cadena de ancestros, la
+anchura real, el `min-width` calculado, el `overflow-x` y el `display`. Es
+lo que permite distinguir "este elemento es el culpable" de "este otro sólo
+lo arrastra".
+
+```bash
+python scripts/sonda_anchura.py --ruta /gestor/operadores --ancho 414
+```
 
 ## QA del PWA (instalabilidad y modo sin red)
 

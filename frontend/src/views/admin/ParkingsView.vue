@@ -82,28 +82,30 @@ onMounted(load)
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div class="lg:col-span-2 bg-white rounded-xl shadow-card overflow-hidden">
-        <table class="w-full text-sm">
-          <thead class="bg-slate-50 text-slate-500 text-left">
-            <tr>
-              <th class="px-5 py-3 font-medium">Nombre</th>
-              <th class="px-5 py-3 font-medium">Código</th>
-              <th class="px-5 py-3 font-medium">Ciudad</th>
-              <th class="px-5 py-3 font-medium text-right">Acciones</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr v-if="loading"><td colspan="4" class="px-5 py-6 text-center text-slate-500">Cargando…</td></tr>
-            <tr v-for="p in parkings" :key="p.id" v-else>
-              <td class="px-5 py-3 font-medium">{{ p.name }}</td>
-              <td class="px-5 py-3 font-mono text-xs">{{ p.code }}</td>
-              <td class="px-5 py-3">{{ p.city }}</td>
-              <td class="px-5 py-3 text-right space-x-2">
-                <button class="btn-secondary" @click="startEdit(p)">Editar</button>
-                <button class="btn-secondary text-rose-600 border-rose-300" @click="remove(p)">Eliminar</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="overflow-x-auto min-w-0">
+          <table class="w-full text-sm min-w-max">
+            <thead class="bg-slate-50 text-slate-500 text-left">
+              <tr>
+                <th class="px-5 py-3 font-medium">Nombre</th>
+                <th class="px-5 py-3 font-medium">Código</th>
+                <th class="px-5 py-3 font-medium">Ciudad</th>
+                <th class="px-5 py-3 font-medium text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr v-if="loading"><td colspan="4" class="px-5 py-6 text-center text-slate-500">Cargando…</td></tr>
+              <tr v-for="p in parkings" :key="p.id" v-else>
+                <td class="px-5 py-3 font-medium">{{ p.name }}</td>
+                <td class="px-5 py-3 font-mono text-xs">{{ p.code }}</td>
+                <td class="px-5 py-3">{{ p.city }}</td>
+                <td class="px-5 py-3 text-right space-x-2">
+                  <button class="btn-secondary" @click="startEdit(p)">Editar</button>
+                  <button class="btn-secondary text-rose-600 border-rose-300" @click="remove(p)">Eliminar</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div class="bg-white rounded-xl shadow-card p-5">

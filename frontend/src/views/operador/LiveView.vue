@@ -187,44 +187,46 @@ onBeforeUnmount(() => {
       <div class="lg:col-span-2 space-y-6">
         <div class="bg-white rounded-xl shadow-card p-5">
           <h2 class="font-semibold mb-3">Tickets activos en esta sucursal</h2>
-          <table class="w-full text-sm">
-            <thead class="bg-slate-50 text-slate-500 text-left">
-              <tr>
-                <th class="px-3 py-2 font-medium">#</th>
-                <th class="px-3 py-2 font-medium">Sucursal</th>
-                <th class="px-3 py-2 font-medium">Plaza</th>
-                <th class="px-3 py-2 font-medium">Entrada</th>
-                <th class="px-3 py-2 font-medium">Origen</th>
-                <th class="px-3 py-2 font-medium">Estado</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-              <tr v-for="t in tickets" :key="t.id">
-                <td class="px-3 py-2 font-mono text-xs">#{{ t.id }}</td>
-                <td class="px-3 py-2">{{ t.parking_id }}</td>
-                <td class="px-3 py-2">{{ t.parking_space_id ?? '—' }}</td>
-                <td class="px-3 py-2">{{ new Date(t.entry_at).toLocaleString('es-ES') }}</td>
-                <td class="px-3 py-2">
-                  <span
-                    class="inline-block px-2 py-0.5 rounded-full text-xs font-medium"
-                    :class="t.origin === 'automatic'
-                      ? 'bg-slate-100 text-slate-600'
-                      : 'bg-amber-100 text-amber-800'"
-                  >
-                    {{ t.origin === 'manual_entry' ? 'manual entrada'
-                      : t.origin === 'manual_exit' ? 'manual salida'
-                      : 'automático' }}
-                  </span>
-                </td>
-                <td class="px-3 py-2">{{ t.status }}</td>
-              </tr>
-              <tr v-if="!tickets.length">
-                <td colspan="6" class="px-3 py-6 text-center text-slate-500">
-                  Sin tickets activos.
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="overflow-x-auto min-w-0">
+            <table class="w-full text-sm min-w-max">
+              <thead class="bg-slate-50 text-slate-500 text-left">
+                <tr>
+                  <th class="px-3 py-2 font-medium">#</th>
+                  <th class="px-3 py-2 font-medium">Sucursal</th>
+                  <th class="px-3 py-2 font-medium">Plaza</th>
+                  <th class="px-3 py-2 font-medium">Entrada</th>
+                  <th class="px-3 py-2 font-medium">Origen</th>
+                  <th class="px-3 py-2 font-medium">Estado</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <tr v-for="t in tickets" :key="t.id">
+                  <td class="px-3 py-2 font-mono text-xs">#{{ t.id }}</td>
+                  <td class="px-3 py-2">{{ t.parking_id }}</td>
+                  <td class="px-3 py-2">{{ t.parking_space_id ?? '—' }}</td>
+                  <td class="px-3 py-2">{{ new Date(t.entry_at).toLocaleString('es-ES') }}</td>
+                  <td class="px-3 py-2">
+                    <span
+                      class="inline-block px-2 py-0.5 rounded-full text-xs font-medium"
+                      :class="t.origin === 'automatic'
+                        ? 'bg-slate-100 text-slate-600'
+                        : 'bg-amber-100 text-amber-800'"
+                    >
+                      {{ t.origin === 'manual_entry' ? 'manual entrada'
+                        : t.origin === 'manual_exit' ? 'manual salida'
+                        : 'automático' }}
+                    </span>
+                  </td>
+                  <td class="px-3 py-2">{{ t.status }}</td>
+                </tr>
+                <tr v-if="!tickets.length">
+                  <td colspan="6" class="px-3 py-6 text-center text-slate-500">
+                    Sin tickets activos.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div v-if="recentAlerts.length" class="bg-white rounded-xl shadow-card p-5">

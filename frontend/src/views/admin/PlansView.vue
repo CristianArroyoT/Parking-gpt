@@ -314,7 +314,7 @@ onMounted(async () => {
               {{ plans.length }} planes · {{ planesActivos.length }} activos
             </p>
           </div>
-          <div class="overflow-x-auto">
+          <div class="overflow-x-auto min-w-0">
             <table class="w-full min-w-max text-sm">
               <thead class="bg-slate-50 text-slate-500 text-left">
                 <tr>
@@ -507,7 +507,7 @@ onMounted(async () => {
           </form>
         </div>
 
-        <div class="overflow-x-auto">
+        <div class="overflow-x-auto min-w-0">
           <table class="w-full min-w-max text-sm">
             <thead class="bg-slate-50 text-slate-500 text-left">
               <tr>

@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from playwright.sync_api import Page, sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 BASE = "http://localhost:5173"
 
@@ -142,6 +143,27 @@ def _desbordes(pagina: Page) -> list[str]:
         return [f"no se pudo evaluar el desbordamiento: {type(exc).__name__}"]
 
 
+def _visitar(pagina: Page, ruta: str) -> str | None:
+    """Abre una ruta y espera a que se calle la red.
+
+    Devuelve un aviso si la red no se quedó quieta a tiempo, o ``None``
+    si todo fue bien.
+
+    OJO: esperar a "networkidle" **falla siempre** en las pantallas con
+    vídeo en directo (SSE) y con el mapa (teselas que se piden al
+    desplazarse). No es un fallo de la pantalla: es tráfico de fondo
+    perpetuo. Por eso el timeout se trata como aviso y no como error de
+    red, que es como se confundía antes.
+    """
+    try:
+        pagina.goto(f"{BASE}{ruta}", wait_until="networkidle", timeout=15000)
+    except PlaywrightTimeout:
+        return "la red no se quedo quieta (video en directo o teselas del mapa)"
+    except Exception as exc:  # noqa: BLE001 — la QA no debe abortar
+        return f"navegacion: {type(exc).__name__}: {exc}"
+    return None
+
+
 def _login(page: Page, email: str, password: str) -> bool:
     """Inicia sesión. Devuelve False si no se pudo (no lanza).
 
@@ -181,6 +203,7 @@ def main() -> int:
 
     resultados: list[Resultado] = []
     errores_login: list[str] = []
+    avisos: list[str] = []
 
     with sync_playwright() as p:
         navegador = p.chromium.launch(headless=True)
@@ -199,10 +222,9 @@ def main() -> int:
                               if m.type in ("error", "warning") else None)
             pagina_publica.on("response", lambda r: red.append(
                 f"{r.status} {r.request.method} {r.url}") if r.status >= 400 else None)
-            try:
-                pagina_publica.goto(f"{BASE}{ruta}", wait_until="networkidle", timeout=25000)
-            except Exception as exc:
-                red.append(f"navegacion: {type(exc).__name__}: {exc}")
+            aviso = _visitar(pagina_publica, ruta)
+            if aviso:
+                avisos.append(f"{etiqueta}: {aviso}")
             pagina_publica.wait_for_timeout(700)
             texto = pagina_publica.inner_text("body")[:400].strip()
             vacia = len(texto) < 40
@@ -246,10 +268,9 @@ def main() -> int:
                           if m.type in ("error", "warning") else None)
                 pagina.on("response", lambda r: red.append(
                     f"{r.status} {r.request.method} {r.url}") if r.status >= 400 else None)
-                try:
-                    pagina.goto(f"{BASE}{ruta}", wait_until="networkidle", timeout=25000)
-                except Exception as exc:
-                    red.append(f"navegacion: {type(exc).__name__}: {exc}")
+                aviso = _visitar(pagina, ruta)
+                if aviso:
+                    avisos.append(f"{etiqueta}: {aviso}")
                 pagina.wait_for_timeout(700)
                 texto = pagina.inner_text("body")[:400].strip()
                 vacia = len(texto) < 40
@@ -271,12 +292,12 @@ def main() -> int:
                         desbordes=_desbordes(pagina),
                     )
                 )
-                pagina.remove_listener("console", pagina.listeners("console")[-1]) if False else None
             contexto.close()
         navegador.close()
 
     informe = {
         "errores_login": errores_login,
+        "avisos": avisos,
         "pantallas": [r.__dict__ for r in resultados],
     }
     (salida / "informe.json").write_text(
@@ -298,6 +319,10 @@ def main() -> int:
             print(f"    DESBORDE: {d[:160]}")
     if errores_login:
         print("ERRORES DE LOGIN:", errores_login)
+    if avisos:
+        print("\nAVISOS (no son fallos):")
+        for a in avisos:
+            print(f"    {a[:160]}")
     total_desbordes = sum(len(r.desbordes) for r in resultados)
     if total_desbordes:
         print(f"\nATENCION: {total_desbordes} contenido(s) recortado(s) sin desplazar")

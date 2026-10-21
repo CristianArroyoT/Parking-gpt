@@ -324,6 +324,43 @@ resuelta **no se puede validar un cambio del workflow** (los jobs no
 arrancan), así que meter algo sin probar dejaría el CI en rojo sin
 querer. Queda como T-24+1 para cuando el CI vuelva a estar en marcha.
 
+### 3-novies. El móvil (414 px) desplazaba la página entera de lado a lado (2026-10-21)
+
+La QA visual recorría cuatro anchos (768, 1024, 1232 y 1440 px), pero
+**ninguno era de móvil**: el más estrecho era una tablet vertical. Al
+añadir el ancho de un móvil (414 px) salieron **26 contenidos desbordados**
+en 10 de las 21 pantallas, y 10 pantallas con la **página entera
+desplazable** de lado a lado.
+
+**La causa tiene dos capas**, y es por eso que arreglar sólo una no sirve:
+
+| Capa | Qué pasa | Arreglo |
+|---|---|---|
+| La tabla | Un `<table>` no baja del ancho de su contenido, así que se sale de su tarjeta | Envolverla en un `div` con `overflow-x-auto` y `min-w-max` **dentro** del `class` de la tabla |
+| La columna | Un ítem de rejilla o de flex tiene `min-width: auto`, que lo ata a la anchura mínima de su contenido: la columna no encoge y la página hereda el desbordamiento | `min-w-0` **en el ítem de la rejilla**, no sólo en el envoltorio de la tabla |
+
+Se comprobó midiendo en el navegador, no adivinando: el `<section>` de
+Operadores seguía con `min-width: auto` y **611 px** en una columna de
+**366 px**, mientras la tabla (571 px) ya cabía desplazándose dentro de su
+envoltorio de 326 px.
+
+Dos herramientas nuevas:
+
+| Script | Para qué |
+|---|---|
+| `tools/envolver_tablas.py` | Envolver las tablas de todas las vistas de forma mecánica. Mueve la directiva `v-if`/`v-else` al envoltorio (si se queda en la tabla, Vue no compila) y añade `min-w-max` **dentro** del atributo `class` |
+| `frontend/scripts/sonda_anchura.py` | Medir la cadena de ancestros del elemento más ancho, con su `min-width` calculado, su `overflow-x` y su `display`: distingue el culpable del que sólo lo arrastra |
+
+Y un arreglo de la propia QA: las pantallas de **mapa** y de **vídeo en
+directo** nunca dejan de cargar (teselas del mapa y flujo SSE), así que la
+espera de "networkidle" se agotaba siempre ahí y se reportaba como **error
+de red**. Ahora se reporta como **aviso**: es tráfico de fondo perpetuo,
+no una pantalla rota.
+
+Resultado medido: **0 desbordes** en las 21 pantallas a los **cinco**
+anchos (414, 768, 1024, 1232, 1440 px), 0 errores de consola y 0
+peticiones fallidas.
+
 
 | Modelo | Tabla | Notas |
 |---|---|---|

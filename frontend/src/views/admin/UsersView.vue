@@ -70,7 +70,7 @@ onMounted(load)
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div class="lg:col-span-2 bg-white rounded-xl shadow-card overflow-hidden">
-        <div class="overflow-x-auto">
+        <div class="overflow-x-auto min-w-0">
           <table class="w-full min-w-max text-sm">
             <thead class="bg-slate-50 text-slate-500 text-left">
               <tr>
