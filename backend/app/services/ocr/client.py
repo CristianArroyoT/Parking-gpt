@@ -57,7 +57,7 @@ class OcrClient:
         if r.status_code != 200:
             return False
         try:
-            return r.json().get("status") == "ok"
+            return bool(r.json().get("status") == "ok")
         except Exception:  # noqa: BLE001
             return False
 

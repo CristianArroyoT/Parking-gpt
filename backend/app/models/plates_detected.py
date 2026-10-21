@@ -7,7 +7,7 @@ confianzas bajas.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -42,6 +42,6 @@ class PlatesDetected(Base, TimestampMixin):
     detected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), index=True, nullable=False
     )
-    raw_response: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    raw_response: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     camera: Mapped["Camera"] = relationship()

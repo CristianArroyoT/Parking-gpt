@@ -592,6 +592,58 @@ comprobación tiene su propio límite de tiempo, y antes de las pesadas
 comprueba que el stack esté en marcha y avisa (`docker compose up -d`)
 en vez de fallar con errores confusos de navegador o de backend.
 
+### 3-vigésimoprimera. `mypy` en verde (de 77 errores a 0) y la puerta del CI deja de tolerarlo (2026-10-21)
+
+El backend estaba en modo `strict` y el paso de mypy en el CI llevaba
+`continue-on-error: true` **desde el primer commit**: 77 errores que
+nadie miraba, porque el paso que los mostraba era el único que la CI se
+saltaba. Con el CI remoto muerto desde el 2026-07-07, además, su salida
+no la leía nadie.
+
+**Qué se corrigió** (32 ficheros, +131/−87, sin tocar la lógica):
+
+| Tipo | Cuántos | Cómo |
+|---|---|---|
+| `no-untyped-def` | 21 | Anotaciones de retorno y de parámetro |
+| `type-arg` | 11 | `dict` → `dict[str, Any]`, `Callable` → `Callable[..., Any]` |
+| `no-any-return` | 11 | `cast(...)` donde la librería no está tipada (passlib, pyjwt, httpx) |
+| Ruido de redis-py | 14 | `cast(int, ...)`: la clase `Redis` de redis-py sirve para el cliente síncrono y el asíncrono, y sus tipos son `Awaitable[Any] \| Any` |
+| `untyped-decorator` | 5 | `# type: ignore[untyped-decorator]` en los decoradores de Celery |
+| `misc` / `assignment` | 4 | Código muerto eliminado (`_ = Ticket` en `pdf.py`), import de `UserRole` movido a `app.models.enums`, `desc(col)` → `col.desc()` |
+
+**Dos cosas que casi rompen el producto, y que un type-checker no
+avisa:**
+
+1. **Anotar `request: Request | None = None` rompe FastAPI.** Sólo
+   inyecta la request cuando el tipo es exactamente `Request`; con la
+   unión, la toma por un parámetro del cuerpo y el endpoint deja de
+   funcionar. Se dejó `Request = None` con un `# type: ignore[assignment]`
+   y un comentario que lo explica.
+2. **El resultado de mypy depende del entorno.** Con mypy 1.20.2 sobre
+   Python 3.11 (la del CI) aparecía un error de `order_by` de SQLAlchemy
+   que el host (Python 3.13) no reportaba. Por eso se comprobó **en los
+   dos**: `Success: no issues found in 107 source files` en ambos.
+
+**Resultado**: la puerta de mypy en el CI **deja de tolerar fallos**
+(`continue-on-error` fuera), validado con el job replicado en local
+("El job 'backend' pasa entero en local").
+
+### 3-vigésimosegunda. La suite ya aguanta dos ejecuciones en paralelo (2026-10-21)
+
+Al revalidar en paralelo (la réplica local del CI y la suite contra
+PostgreSQL a la vez) falló
+`test_rate_limit_blocks_after_max_attempts`: las dos suites usaban la
+**base Redis 15** y una veía los contadores de la otra.
+
+La base de Redis de la suite se elige ahora **por PID** (de la 8 a la
+15, la 0 es de la app), así que dos ejecuciones simultáneas no se
+pisan. Verificado: dos suites de rate-limit en paralelo → **9 passed**
+las dos; en solitario, también.
+
+Esto no era un fallo del CI (allí los jobs van de uno en uno), pero era
+un problema real: cualquier dos ejecuciones simultáneas de la suite se
+contaminaban.
+
 Y con el IPv4 arreglado, la réplica local pasó a poder ejecutar **el CI
 completo**, incluidos los dos pasos de test que antes se saltaban
 porque el host no resolvía los nombres de servicio de Docker:

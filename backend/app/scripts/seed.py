@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from sqlalchemy.orm import Session
+
 from app.core.db import SessionLocal
 from app.core.security import hash_password
 from app.models.enums import UserRole
@@ -49,7 +51,7 @@ LANES = ["A", "B", "C", "D"]
 SPACES_PER_LANE = 15
 
 
-def _seed_parking(db, code: str, name: str, address: str, city: str) -> Parking:
+def _seed_parking(db: Session, code: str, name: str, address: str, city: str) -> Parking:
     parking = db.query(Parking).filter(Parking.code == code).one_or_none()
     created = False
     if parking is None:
@@ -89,7 +91,7 @@ def _seed_parking(db, code: str, name: str, address: str, city: str) -> Parking:
 
 
 def _seed_user(
-    db,
+    db: Session,
     email: str,
     full_name: str,
     phone: str | None,
@@ -121,7 +123,7 @@ def _seed_user(
     return user
 
 
-def _seed_plans(db) -> None:
+def _seed_plans(db: Session) -> None:
     for code, name, price, discount, vehicles in DEMO_PLANS:
         if db.query(Plan).filter(Plan.code == code).one_or_none():
             continue

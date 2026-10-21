@@ -26,6 +26,7 @@ Garantías:
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 import redis
 from redis.exceptions import RedisError
@@ -68,7 +69,11 @@ class LoginRateLimiter:
                 f"rl:login:ip:{ip}",
                 f"rl:login:email:{email.lower()}",
             ):
-                count = r.incr(raw_key)
+                # ``incr`` devuelve ``Awaitable[Any] | Any`` en los tipos de
+                # redis-py (la clase sirve para el cliente síncrono y el
+                # asíncrono), pero aquí el cliente es síncrono y devuelve
+                # un int. El ``cast`` no cambia nada en runtime.
+                count = cast(int, r.incr(raw_key))
                 if count == 1:
                     r.expire(raw_key, window)
                 if count > max_count:

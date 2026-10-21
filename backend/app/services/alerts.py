@@ -35,17 +35,18 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Final
+from typing import Any, Final, cast
 
 import redis
 from redis.exceptions import RedisError
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.db import SessionLocal
 from app.models.audit import Alert
-from app.models.enums import AlertSeverity, AlertType
+from app.models.enums import AlertSeverity, AlertType, UserRole
 from app.models.parking import Camera
-from app.models.user import ParkingMembership, User, UserRole
+from app.models.user import ParkingMembership, User
 from app.services import email as email_module
 
 log = logging.getLogger(__name__)
@@ -75,7 +76,7 @@ def _lock_key(camera_id: int) -> str:
     return f"camera:{camera_id}:ocr_alert_lock"
 
 
-def _resolve_manager_email(db, parking_id: int) -> str | None:
+def _resolve_manager_email(db: Session, parking_id: int) -> str | None:
     """Email del primer gestor con membresía activa en la sucursal.
 
     Si no hay ninguno, retorna ``None``. La alerta se crea igualmente;
@@ -95,7 +96,7 @@ def _resolve_manager_email(db, parking_id: int) -> str | None:
     return row.email if row else None
 
 
-def _resolve_admin_email(db) -> str | None:
+def _resolve_admin_email(db: Session) -> str | None:
     """Email del primer admin activo. Usado para alertas CRITICAL
     (cámara caída) — el operador no siempre tiene gestor asignado y
     el admin necesita enterarse para movilizar soporte técnico.
@@ -147,7 +148,9 @@ def record_ocr_failure(camera: Camera, frame_bytes: bytes | None = None) -> Aler
 
     try:
         rds = _redis_client()
-        count = rds.incr(_consecutive_key(camera.id))
+        # \incr\ devuelve \Awaitable[Any] | Any\ en los tipos de
+        # redis-py, pero el cliente es síncrono y devuelve un int.
+        count = cast(int, rds.incr(_consecutive_key(camera.id)))
         if count == 1:
             rds.expire(_consecutive_key(camera.id), COUNT_TTL_SECONDS)
     except RedisError as exc:
@@ -198,7 +201,7 @@ def record_ocr_failure(camera: Camera, frame_bytes: bytes | None = None) -> Aler
                 f"OCR sin lecturas en {camera.code} — "
                 f"{count} frames consecutivos sin matrícula"
             )
-            context: dict = {
+            context: dict[str, Any] = {
                 "camera_id": camera.id,
                 "camera_code": camera.code,
                 "consecutive_fails": count,
@@ -233,7 +236,7 @@ def record_ocr_failure(camera: Camera, frame_bytes: bytes | None = None) -> Aler
             manager_email,
             camera_code=camera.code,
             parking_name=parking_name,
-            count=int(count),
+            count=count,
             threshold=threshold,
             frame_path=frame_path,
         )
@@ -299,7 +302,7 @@ def record_camera_offline(camera: Camera, *, kind: str = "frame") -> Alert | Non
 
     try:
         rds = _redis_client()
-        count = rds.incr(_consecutive_offline_key(camera.id))
+        count = cast(int, rds.incr(_consecutive_offline_key(camera.id)))
         if count == 1:
             rds.expire(_consecutive_offline_key(camera.id), COUNT_TTL_SECONDS)
     except RedisError as exc:
@@ -346,7 +349,7 @@ def record_camera_offline(camera: Camera, *, kind: str = "frame") -> Alert | Non
                 f"Cámara {camera.code} sin respuesta — "
                 f"{count} intentos consecutivos de captura fallidos"
             )
-            context: dict = {
+            context: dict[str, Any] = {
                 "camera_id": camera.id,
                 "camera_code": camera.code,
                 "consecutive_fails": count,
@@ -382,7 +385,7 @@ def record_camera_offline(camera: Camera, *, kind: str = "frame") -> Alert | Non
             template_kind="camera_offline",
             camera_code=camera.code,
             parking_name=parking_name,
-            count=int(count),
+            count=count,
             threshold=threshold,
         )
         return alert

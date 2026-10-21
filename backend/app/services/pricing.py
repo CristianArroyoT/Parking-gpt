@@ -113,7 +113,7 @@ def _compute_discount(
     if not rows or amount <= 0:
         return 0.0
     best_pct = max(plan.discount_percent for _, plan in rows)
-    return amount * (best_pct / 100.0)
+    return float(amount * (best_pct / 100.0))
 
 
 def is_vehicle_known(db: Session, vehicle_id: int) -> bool:

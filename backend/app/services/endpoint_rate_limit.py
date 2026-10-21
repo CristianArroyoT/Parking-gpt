@@ -22,7 +22,7 @@ también para endpoints autenticados).
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, cast
 
 import redis
 
@@ -93,7 +93,9 @@ class EndpointRateLimiter:
         max_count = 0
         for kind, value in identifiers.items():
             key = f"rl:{scope}:{kind}:{value}"
-            count = r.incr(key)
+            # ``incr`` devuelve ``Awaitable[Any] | Any`` en los tipos de
+            # redis-py, pero el cliente es síncrono y devuelve un int.
+            count = cast(int, r.incr(key))
             if count == 1:
                 # Sólo la primera vez que se crea el bucket se aplica
                 # el TTL. Si ya existía, conserva su TTL original

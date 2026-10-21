@@ -22,7 +22,7 @@ temporal si Redis cae antes que tokens comprometidos circulando.
 from __future__ import annotations
 
 import time
-from typing import Optional
+from typing import Optional, cast
 
 import redis
 from redis.exceptions import RedisError
@@ -80,7 +80,9 @@ class TokenBlacklist:
         caller: dejar propagar es parte del contrato.
         """
         key = f"{get_settings().jwt_blacklist_key_prefix}{jti}"
-        return self._r().exists(key) > 0
+        # ``exists`` devuelve ``Awaitable[Any] | Any`` en los tipos de
+        # redis-py, pero el cliente es síncrono y devuelve un int.
+        return cast(int, self._r().exists(key)) > 0
 
 
 token_blacklist = TokenBlacklist()

@@ -75,7 +75,7 @@ os.environ["ASYNC_DATABASE_URL"] = _url_async(URL_BD_TEST)
 os.environ.setdefault("JWT_SECRET", "test-secret")
 os.environ.setdefault("ENVIRONMENT", "test")
 
-# La suite usa una base de Redis APARTE (la 15) para que los buckets de
+# La suite usa una base de Redis APARTE para que los buckets de
 # rate-limit no se mezclen con los de la app que está en marcha en el
 # mismo Redis (backend en :8000, worker de Celery, QA manual). Con la
 # base compartida, un POST de la app real incrementa el mismo bucket que
@@ -83,9 +83,21 @@ os.environ.setdefault("ENVIRONMENT", "test")
 # el 2026-10-21). En CI el job tiene su propio Redis, pero aun así se
 # aísla: si la suite y la app comparten base, el resultado de los tests
 # depende de lo que esté haciendo la app en ese momento.
-# Redis tiene 16 bases por defecto (0-15).
+#
+# La base se elige **por PID** (de la 8 a la 15) y no fija: con dos
+# suites lanzadas a la vez (el job replicado en local y otro motor de
+# pruebas, por ejemplo) las dos acababan en la 15 y los tests de
+# rate-limit de una veían los contadores de la otra. Medido el
+# 2026-10-21: con las dos suites en paralelo, ``test_rate_limit_blocks_
+# after_max_attempts`` fallaba; en solitario pasa.
+#
+# Redis tiene 16 bases por defecto (0-15); la 0 la usa la app, así que
+# la suite se queda entre la 8 y la 15.
 _URL_REDIS_REAL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
-os.environ["REDIS_URL"] = _URL_REDIS_REAL.rsplit("/", 1)[0] + "/15"
+_BASE_REDIS_SUITE = 8 + (os.getpid() % 8)
+os.environ["REDIS_URL"] = (
+    _URL_REDIS_REAL.rsplit("/", 1)[0] + f"/{_BASE_REDIS_SUITE}"
+)
 
 import pytest  # noqa: E402 — debe ir después de fijar las variables de entorno
 from fastapi.testclient import TestClient  # noqa: E402

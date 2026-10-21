@@ -19,7 +19,6 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.core.audit import audited
@@ -65,7 +64,12 @@ def list_parking_alerts(
         q = q.filter(Alert.acknowledged_at.is_not(None))
     elif acknowledged is False:
         q = q.filter(Alert.acknowledged_at.is_(None))
-    return q.order_by(desc(Alert.created_at)).offset(offset).limit(limit).all()
+    # ``Alert.created_at.desc()`` en vez de ``desc(Alert.created_at)``: en
+    # runtime es lo mismo, pero el tipo que devuelve el metodo encaja en
+    # la firma de ``order_by`` de SQLAlchemy 2.x (la función ``desc``
+    # devuelve ``OrderByList | UnaryExpression``, que los stubs no
+    # aceptan como argumento de ``order_by``).
+    return q.order_by(Alert.created_at.desc()).offset(offset).limit(limit).all()
 
 
 @router.post("/{alert_id}/acknowledge", response_model=AlertRead)

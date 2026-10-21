@@ -29,6 +29,7 @@ Formato del payload publicado::
 """
 from __future__ import annotations
 
+from typing import Any
 import json
 import logging
 from datetime import datetime, timezone
@@ -55,7 +56,7 @@ def channel_for_parking(parking_id: int) -> str:
     return f"parking:{parking_id}:events"
 
 
-def publish(parking_id: int, event_type: str, payload: dict) -> None:
+def publish(parking_id: int, event_type: str, payload: dict[str, Any]) -> None:
     """Publica un evento en el canal ``parking:{id}:events``.
 
     Fire-and-forget: cualquier excepción (Redis caído, timeout, JSON

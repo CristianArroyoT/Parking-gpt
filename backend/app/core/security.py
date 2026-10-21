@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, cast
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -17,13 +17,14 @@ _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def hash_password(plain: str) -> str:
     """Devuelve el hash bcrypt de la contraseña en claro."""
-    return _pwd_context.hash(plain)
+    # passlib no esta tipado: devuelve Any.
+    return cast(str, _pwd_context.hash(plain))
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     """Verifica una contraseña contra su hash."""
     try:
-        return _pwd_context.verify(plain, hashed)
+        return cast(bool, _pwd_context.verify(plain, hashed))
     except ValueError:
         return False
 
@@ -46,7 +47,8 @@ def create_access_token(subject: str | int, extra: dict[str, Any] | None = None)
     }
     if extra:
         payload.update(extra)
-    return jwt.encode(payload, _settings.jwt_secret, algorithm=_settings.jwt_algorithm)
+    # pyjwt no esta tipado: devuelve Any.
+    return cast(str, jwt.encode(payload, _settings.jwt_secret, algorithm=_settings.jwt_algorithm))
 
 
 def create_refresh_token(subject: str | int) -> str:
@@ -65,12 +67,12 @@ def create_refresh_token(subject: str | int) -> str:
         "type": "refresh",
         "jti": uuid.uuid4().hex,
     }
-    return jwt.encode(payload, _settings.jwt_secret, algorithm=_settings.jwt_algorithm)
+    return cast(str, jwt.encode(payload, _settings.jwt_secret, algorithm=_settings.jwt_algorithm))
 
 
 def decode_token(token: str) -> dict[str, Any]:
     """Decodifica y valida un JWT. Devuelve el payload."""
     try:
-        return jwt.decode(token, _settings.jwt_secret, algorithms=[_settings.jwt_algorithm])
+        return cast(dict[str, Any], jwt.decode(token, _settings.jwt_secret, algorithms=[_settings.jwt_algorithm]))
     except JWTError as exc:
         raise ValueError("Token inválido o expirado") from exc

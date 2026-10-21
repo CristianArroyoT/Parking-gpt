@@ -152,7 +152,11 @@ def login_json(
 @router.post("/login/oauth", response_model=TokenPair)
 def login_oauth(
     form: OAuth2PasswordRequestForm = Depends(),
-    request: Request = None,
+    # OJO: la anotación debe seguir siendo ``Request`` (no ``Request |
+    # None``): FastAPI sólo inyecta la request cuando el tipo es
+    # exactamente ``Request``; con la unión, la tomaría por un parámetro
+    # del cuerpo y el endpoint dejaría de funcionar.
+    request: Request = None,  # type: ignore[assignment]
     db: Session = Depends(get_db),
 ) -> TokenPair:
     user = db.query(User).filter(User.email == form.username).one_or_none()

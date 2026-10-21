@@ -34,7 +34,7 @@ from __future__ import annotations
 import functools
 import inspect
 import time
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from fastapi import Request
 from sqlalchemy.orm import Session
@@ -42,14 +42,14 @@ from sqlalchemy.orm import Session
 from app.services.audit import record_audit_from_request
 
 
-def audited(action: str, *, resource_arg: str | None = None) -> Callable:
+def audited(action: str, *, resource_arg: str | None = None) -> Callable[..., Any]:
     """Decora un handler FastAPI para registrar ``audit_logs`` automáticamente."""
 
-    def _decorator(func: Callable) -> Callable:
+    def _decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         sig = inspect.signature(func)
 
         @functools.wraps(func)
-        async def _async_wrapper(*args, **kwargs):
+        async def _async_wrapper(*args: Any, **kwargs: Any) -> Any:
             started = time.monotonic()
             request: Request | None = kwargs.get("request")
             db: Session | None = kwargs.get("db")
@@ -71,7 +71,7 @@ def audited(action: str, *, resource_arg: str | None = None) -> Callable:
                 raise
 
         @functools.wraps(func)
-        def _sync_wrapper(*args, **kwargs):
+        def _sync_wrapper(*args: Any, **kwargs: Any) -> Any:
             started = time.monotonic()
             request: Request | None = kwargs.get("request")
             db: Session | None = kwargs.get("db")
@@ -92,10 +92,14 @@ def audited(action: str, *, resource_arg: str | None = None) -> Callable:
                 )
                 raise
 
-        wrapper = _async_wrapper if inspect.iscoroutinefunction(func) else _sync_wrapper
+        wrapper: Any = (
+            _async_wrapper if inspect.iscoroutinefunction(func) else _sync_wrapper
+        )
         # FastAPI introspects __signature__ para resolver los Depends.
-        wrapper.__signature__ = sig  # type: ignore[attr-defined]
-        return wrapper
+        # El atributo no existe en el tipo de la función
+        # (``__signature__`` lo pone ``functools.wraps``).
+        wrapper.__signature__ = sig
+        return cast(Callable[..., Any], wrapper)
 
     return _decorator
 

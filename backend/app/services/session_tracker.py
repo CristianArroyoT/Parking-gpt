@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Optional
+from typing import Optional, cast
 
 import redis
 from redis.exceptions import RedisError
@@ -97,7 +97,10 @@ class SessionTracker:
     def list_active(self, *, user_id: int) -> list[str]:
         """Devuelve la lista de jtis activos del usuario. Fail-OPEN → []. """
         try:
-            return list(self._r().smembers(self._key(user_id)))
+            # ``smembers`` devuelve ``Awaitable[set[Any]] | set[Any]`` en los
+            # tipos de redis-py, pero el cliente es síncrono y devuelve un
+            # set de cadenas.
+            return list(cast(set[str], self._r().smembers(self._key(user_id))))
         except RedisError as exc:
             log.warning(
                 "session_tracker.list_active: Redis down user=%s (%s)",
@@ -113,7 +116,7 @@ class SessionTracker:
         """
         r = self._r()
         key = self._key(user_id)
-        jtis = list(r.smembers(key))
+        jtis = list(cast(set[str], r.smembers(key)))
         for jti in jtis:
             # TTL del blacklist = refresh TTL (los jtis más viejos del
             # set probablemente son refresh con ese TTL).

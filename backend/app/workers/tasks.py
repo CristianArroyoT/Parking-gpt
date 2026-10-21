@@ -55,7 +55,7 @@ FAILED_FRAMES_RETENTION_DAYS = 30
 DEFAULT_OCR_FAILED_DIR = Path("/tmp/ocr-failed")
 
 
-@celery_app.task(name="solidapp.tick_cameras")
+@celery_app.task(name="solidapp.tick_cameras")  # type: ignore[untyped-decorator]
 def tick_cameras() -> dict[str, int]:
     """Revisa el estado del inventario de cámaras y loguea totales.
 
@@ -74,7 +74,7 @@ def tick_cameras() -> dict[str, int]:
     return payload
 
 
-@celery_app.task(name="solidapp.ping_camera")
+@celery_app.task(name="solidapp.ping_camera")  # type: ignore[untyped-decorator]
 def ping_camera(camera_id: int) -> dict[str, Any]:
     """Envía un frame al servicio OCR y persiste los hits detectados.
 
@@ -278,7 +278,7 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
         db.close()
 
 
-@celery_app.task(name="solidapp.cleanup_failed_frames")
+@celery_app.task(name="solidapp.cleanup_failed_frames")  # type: ignore[untyped-decorator]
 def cleanup_failed_frames() -> dict[str, int]:
     """Purga /tmp/ocr-failed/*.jpg con mtime > N días.
 
@@ -306,7 +306,7 @@ def cleanup_failed_frames() -> dict[str, int]:
     return {"deleted": deleted, "kept": kept}
 
 
-@celery_app.task(name="solidapp.purge_audit_logs")
+@celery_app.task(name="solidapp.purge_audit_logs")  # type: ignore[untyped-decorator]
 def purge_audit_logs(retention_days: int | None = None) -> dict[str, Any]:
     """Borra ``audit_logs`` con ``created_at < now - retention_days``.
 
@@ -350,7 +350,7 @@ def purge_audit_logs(retention_days: int | None = None) -> dict[str, Any]:
         db.close()
 
 
-@celery_app.task(name="solidapp.probe_heartbeats")
+@celery_app.task(name="solidapp.probe_heartbeats")  # type: ignore[untyped-decorator]
 def probe_heartbeats() -> dict[str, Any]:
     """Heartbeat batch: sondea todas las cámaras activas cada 60 s.
 

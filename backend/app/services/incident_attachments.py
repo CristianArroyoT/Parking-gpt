@@ -43,6 +43,7 @@ esa sucursal (el operador las sube, pero no puede volver a listarlas).
 """
 
 from __future__ import annotations
+from typing import Any
 
 import hashlib
 import io
@@ -518,7 +519,9 @@ def _encolar_borrado_fichero(
 
 
 @event.listens_for(Session, "before_flush")
-def _purgar_datos_al_borrar_usuario(session, flush_context, instances) -> None:
+def _purgar_datos_al_borrar_usuario(
+    session: Session, flush_context: Any, instances: Any
+) -> None:
     """Derecho al olvido: al borrar un usuario, se borran sus datos.
 
     Borra (a) las fotos que subió y (b) los incidentes (``alerts``) que
@@ -564,7 +567,7 @@ def _purgar_datos_al_borrar_usuario(session, flush_context, instances) -> None:
 
 
 @event.listens_for(Session, "after_commit")
-def _borrar_ficheros_pendientes(session) -> None:
+def _borrar_ficheros_pendientes(session: Session) -> None:
     """Borra del disco los ficheros encolados por el hook anterior."""
     pendientes = session.info.pop(_CLAVE_PENDIENTES, None)
     if not pendientes:
@@ -574,7 +577,7 @@ def _borrar_ficheros_pendientes(session) -> None:
 
 
 @event.listens_for(Session, "after_rollback")
-def _descartar_ficheros_pendientes(session) -> None:
+def _descartar_ficheros_pendientes(session: Session) -> None:
     """Si la transacción se deshace, los ficheros se quedan (hay filas)."""
     session.info.pop(_CLAVE_PENDIENTES, None)
 

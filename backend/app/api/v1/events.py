@@ -28,6 +28,7 @@ import logging
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from typing import AsyncIterator
 
 from app.core import db as db_mod
 from app.core.db import get_db
@@ -125,7 +126,7 @@ async def stream_parking_events(
 
     shutdown_event = getattr(request.app.state, "shutdown_event", None)
 
-    async def gen():
+    async def gen() -> AsyncIterator[str]:
         try:
             # Mensaje inicial para que el cliente sepa que conectó OK.
             yield "event: ping\ndata: {}\n\n"
@@ -163,7 +164,7 @@ async def stream_parking_events(
         finally:
             try:
                 await pubsub.unsubscribe(channel)
-                await pubsub.aclose()
+                await pubsub.aclose()  # type: ignore[no-untyped-call]
             except Exception as exc:  # noqa: BLE001
                 log.debug("SSE: cleanup pubsub falló (no crítico): %s", exc)
 

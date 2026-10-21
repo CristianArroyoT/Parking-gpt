@@ -64,7 +64,7 @@ def _fmt_money(value: float | None) -> str:
     return f"{value:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def _fmt_dt(dt) -> str:
+def _fmt_dt(dt: datetime | None) -> str:
     if dt is None:
         return "—"
     return dt.strftime("%d/%m/%Y %H:%M")
@@ -422,7 +422,3 @@ __all__ = [
     "PALETA_PARK",
 ]
 
-
-# Evitar warnings de imports no usados al linter.
-_ = Ticket
-_ = Vehicle

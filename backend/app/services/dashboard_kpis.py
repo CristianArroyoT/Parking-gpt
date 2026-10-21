@@ -154,13 +154,13 @@ def compute_dashboard_kpis(
     # Plaza ocupada = ticket activo apuntando a esta plaza. DISTINCT
     # porque el modelo permite (no debería pero puede) varios tickets
     # activos con el mismo parking_space_id.
-    occupied_subq = db.query(Ticket.parking_space_id).filter(
+    occupied_query = db.query(Ticket.parking_space_id).filter(
         Ticket.status == TicketStatus.ACTIVO,
         Ticket.parking_space_id.isnot(None),
     )
     if parking_id is not None:
-        occupied_subq = occupied_subq.filter(Ticket.parking_id == parking_id)
-    occupied_subq = occupied_subq.subquery()
+        occupied_query = occupied_query.filter(Ticket.parking_id == parking_id)
+    occupied_subq = occupied_query.subquery()
     spaces_occupied = (
         db.query(func.count(func.distinct(ParkingSpace.id)))
         .filter(ParkingSpace.id.in_(occupied_subq.select()))

@@ -42,6 +42,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Sequence
+from sqlalchemy.orm import Session
 
 from sqlalchemy.exc import IntegrityError
 
@@ -133,7 +134,7 @@ def process_plate_hits(
 
 # ── Internos ──────────────────────────────────────────────────────────
 def _process_in_tx(
-    db,
+    db: Session,
     hit: PlateHit,
     camera: Camera,
     *,
@@ -411,7 +412,9 @@ def _process_in_tx(
     )
 
 
-def _close_ticket_for_exit(db, ticket: Ticket, *, exit_at: datetime) -> Ticket:
+def _close_ticket_for_exit(
+    db: Session, ticket: Ticket, *, exit_at: datetime
+) -> Ticket:
     """Cierra un ticket activo: calcula tarifa, marca CERRADO, genera PDF.
 
     El commit del cierre + cálculo de tarifa es atómico. La generación de

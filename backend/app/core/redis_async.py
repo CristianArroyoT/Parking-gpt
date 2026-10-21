@@ -23,7 +23,10 @@ def get_async_redis() -> aioredis.Redis:
     global _async_client
     if _async_client is None:
         s = get_settings()
-        _async_client = aioredis.from_url(s.redis_url, decode_responses=True)
+        # redis.asyncio no esta tipado.
+        _async_client = aioredis.from_url(  # type: ignore[no-untyped-call]
+            s.redis_url, decode_responses=True
+        )
     return _async_client
 
 

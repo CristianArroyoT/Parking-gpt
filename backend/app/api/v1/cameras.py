@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import logging
 from datetime import datetime, timezone
+from typing import Literal, cast
 
 import redis
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -281,6 +282,7 @@ def camera_health(
     last_ok = cam.last_heartbeat_ok
 
     # Status derivado de 4 estados posibles (ver docs de ``CameraHealthRead``).
+    status_value: Literal["never_probed", "offline", "healthy", "degraded"]
     if last_at is None or last_ok is None:
         status_value = "never_probed"
     elif not last_ok:
@@ -299,7 +301,9 @@ def camera_health(
         rds = redis.Redis.from_url(settings.redis_url, decode_responses=True)
         raw = rds.get(f"camera:{cam.id}:consecutive_offline")
         if raw is not None:
-            consecutive = int(raw)
+            # ``get`` devuelve ``Awaitable[Any] | Any`` en los tipos de
+            # redis-py, pero el cliente es síncrono y devuelve una cadena.
+            consecutive = int(cast(str, raw))
     except RedisError as exc:
         log.warning(
             "camera_health: Redis no disponible camera=%s: %s",

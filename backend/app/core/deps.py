@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Any, Callable, Iterable
 
 from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordBearer
@@ -59,7 +59,7 @@ def get_current_user(
     return user
 
 
-def require_role(*roles: str):
+def require_role(*roles: str) -> Callable[..., Any]:
     """Devuelve una dependencia que valida el rol del usuario actual."""
 
     allowed = set(roles)

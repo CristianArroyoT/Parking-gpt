@@ -65,7 +65,7 @@ import threading
 import time
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import AsyncIterator, Callable
+from typing import Any, AsyncIterator, Awaitable, Callable
 
 import cv2
 
@@ -263,7 +263,7 @@ class CapturaSincronizada:
         with self._lock:
             return bool(self._cap.grab())
 
-    def retrieve(self):
+    def retrieve(self) -> tuple[bool, Any]:
         with self._lock:
             return self._cap.retrieve()
 
@@ -320,7 +320,7 @@ async def _cerrar_captura(cap: CapturaSincronizada, camera_id: int) -> None:
 async def mjpeg_generator(
     camera: Camera | CameraRef,
     shutdown_event: asyncio.Event,
-    is_disconnected_callable,
+    is_disconnected_callable: Callable[[], Awaitable[bool]],
     frame_interval_s: float | None = None,
     on_session_end: Callable[[], None] | None = None,
 ) -> AsyncIterator[bytes]:

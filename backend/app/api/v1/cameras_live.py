@@ -39,7 +39,7 @@ El placeholder gris del SVG NO se sustituye — sólo se añade este botón.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -220,7 +220,7 @@ async def live_preview(
         """
         live_streams.release(camera_id, session)
 
-    async def safe_gen():
+    async def safe_gen() -> AsyncIterator[bytes]:
         try:
             async for chunk in mjpeg_generator(
                 ref,

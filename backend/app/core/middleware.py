@@ -44,7 +44,7 @@ import time
 import uuid
 
 from redis.exceptions import RedisError
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -58,7 +58,9 @@ log = logging.getLogger(__name__)
 class AuditMiddleware(BaseHTTPMiddleware):
     """Inyecta ``request.state.audit`` y propaga ``X-Request-ID``."""
 
-    async def dispatch(self, request: Request, call_next) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
         # 1. correlation_id (reutiliza entrante o genera nuevo).
         correlation_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
         # Asegurar que cabe en String(36) de la BD.

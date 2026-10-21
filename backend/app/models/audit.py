@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -39,7 +39,7 @@ class AuditLog(Base, TimestampMixin):
     ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
     action: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
     resource: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
-    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Sprint Fase 3A (2026-07-01): 4 columnas para correlación forense y
@@ -71,7 +71,7 @@ class Alert(Base, TimestampMixin):
         String(16), default=AlertSeverity.WARN, nullable=False
     )
     message: Mapped[str] = mapped_column(Text, nullable=False)
-    context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    context: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     acknowledged_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

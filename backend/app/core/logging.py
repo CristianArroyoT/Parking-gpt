@@ -23,6 +23,7 @@
 # del container desde que ``backend/Dockerfile`` lo creó en Fase 3A).
 from __future__ import annotations
 
+from typing import Any
 import logging
 import logging.config
 import os
@@ -66,7 +67,7 @@ def configure_logging() -> None:
         except Exception:
             pass
 
-    formatters: dict = {
+    formatters: dict[str, Any] = {
         "plain": {
             "format": "%(asctime)s %(levelname)s %(name)s: %(message)s",
             "datefmt": "%Y-%m-%dT%H:%M:%S%z",
@@ -79,7 +80,7 @@ def configure_logging() -> None:
             "datefmt": "%Y-%m-%dT%H:%M:%S%z",
         }
 
-    handlers: dict = {
+    handlers: dict[str, Any] = {
         "stdout": {
             "class": "logging.StreamHandler",
             "formatter": fmt if fmt in formatters else "plain",

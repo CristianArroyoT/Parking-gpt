@@ -166,8 +166,8 @@ def create_manual_ticket(
             db.add(ticket)
             db.flush()  # asigna ticket.id antes del audit
         else:
-            ticket = _find_active_ticket(db, vehicle.id, payload.parking_id)
-            if ticket is None:
+            activo = _find_active_ticket(db, vehicle.id, payload.parking_id)
+            if activo is None:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=(
@@ -175,6 +175,7 @@ def create_manual_ticket(
                         "no se puede registrar la salida"
                     ),
                 )
+            ticket = activo
             try:
                 ticket = _close_for_manual_exit(db, ticket, occurred_at)
             except PricingError as exc:

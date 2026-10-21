@@ -14,7 +14,7 @@
 > | API | **101 rutas** inventariadas (coinciden con el código) y **99 de 99 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
 > | Esquema | Los modelos y las migraciones coinciden: `alembic check` limpio y **el CI migra una base vacía** |
 > | Carga / SLO | **Revalidado** con el código final: 467 peticiones, 0 fallos → **14 de 14 reglas** (informe `2026-10-21-revalidacion.json`) |
-> | Lint y tipos | `ruff` en verde (backend **y** `tools/`); `vue-tsc` y `npm run build` en verde; `actionlint` exit 0. **`mypy` NO está en verde**: da 77 errores en 32 ficheros, y por eso su paso del CI lleva `continue-on-error: true` desde el primer commit (no es una regresión, es el estado heredado) |
+> | Lint y tipos | `ruff` en verde (backend **y** `tools/`); **`mypy` en verde (0 errores en modo `strict`)**, y su paso del CI ya **no** va con `continue-on-error`; `vue-tsc` y `npm run build` en verde; `actionlint` exit 0 |
 > | CI replicado en local | Los **4 jobs** del workflow (backend, integration, docker-build y frontend) pasan **completos, incluidos los dos pasos de test**: `python tools/ejecutar_ci_local.py --all` |
 >
 > **Lo que queda depende de ti** (y sólo de ti):
@@ -118,7 +118,7 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
 - **Resultado esperado**: el job "Backend (ruff, mypy, pytest)" del PR #14 pasa en verde.
 - **Criterios de aceptación**:
   - [x] `ruff check app tests` → *All checks passed!*
-  - [x] `mypy app` no empeora (hoy va con `continue-on-error: true`).
+  - [x] `mypy app` → **0 errores** (en modo `strict`; ver T-28). Su paso del CI ya no va con `continue-on-error`.
   - [ ] Los **4 checks del CI sobre `main`** en SUCCESS (Backend, Integration, Build de imágenes Docker y Frontend).
       > El criterio original decía `gh pr checks 14`, pero **el PR #14 está fusionado desde el 2026-07-07** y no queda ningún PR abierto: la referencia correcta hoy es el CI sobre `main`. Ver `python tools/estado_ci.py`.
 - **Cómo verificarlo**: `cd backend && ruff check app tests && python tools/estado_ci.py`
@@ -609,6 +609,29 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] El inventario de la API se regenera: **101 rutas** (coincide con el código) y el documento incluye la nueva.
   - [x] La suite completa sigue en verde.
 
+### T-28 · P2 — `mypy` en modo `strict`: de 77 errores a 0, y la puerta del CI deja de tolerarlos
+
+- **Estado**: **completado** — `mypy app` sale con *"no issues found in 107 source files"*
+- **Contexto**: el backend estaba en modo `strict` (`[tool.mypy] strict = true`) y el paso del CI llevaba `continue-on-error: true` **desde el primer commit** (*"MVP: todavía hay pocos stubs"*). O sea: 77 errores que nadie miraba, porque el paso que los mostraba era el único que la CI se saltaba. Con el CI remoto muerto desde el 2026-07-07, además, su salida no la leía nadie.
+- **Qué se hizo** (32 ficheros, +131/−87):
+  - **21 anotaciones que faltaban** (`no-untyped-def`): tipos de retorno y de parámetro.
+  - **11 tipos genéricos sin parámetros** (`type-arg`): `dict` → `dict[str, Any]`, `Callable` → `Callable[..., Any]`.
+  - **11 `no-any-return`**: `cast(...)` donde la librería no está tipada (passlib, pyjwt, httpx, SQLAlchemy).
+  - **14 errores de redis-py**: `Awaitable[Any] | Any` en los tipos de la clase `Redis` (que sirve para el cliente síncrono y el asíncrono). Con `cast(int, ...)` se documenta que el cliente **es síncrono** y el valor **es un int**.
+  - **5 decoradores de Celery** sin tipar (`# type: ignore[untyped-decorator]`).
+  - **Código muerto eliminado**: el `_ = Ticket` / `_ = Vehicle` del final de `pdf.py` (los imports se usaban de verdad, así que el truco no servía para nada).
+  - **Un import en el sitio equivocado**: `UserRole` venía de `app.models.user` (que no lo exporta) y ahora viene de `app.models.enums`, que es donde vive.
+  - **`desc(col)` → `col.desc()`** en `api/v1/alerts.py`: en runtime es lo mismo, pero el tipo que devuelve la función no encaja en la firma de `order_by` de SQLAlchemy 2.x.
+- **El hallazgo que casi se lleva por delante**: al anotar `request: Request | None = None` en `api/v1/auth.py`, **FastAPI deja de inyectar la request** (sólo lo hace cuando el tipo es exactamente `Request`; con la unión, la toma por un parámetro del cuerpo y el endpoint se rompe). La anotación se dejó como `Request = None` con un `# type: ignore[assignment]` y un comentario que explica por qué. **Un type-checker puede romper la API si se le hace caso sin leer lo que hace el framework.**
+- **Criterios de aceptación**:
+  - [x] `mypy app` → **0 errores** en modo `strict`.
+  - [x] Verde **en los dos entornos**: Python 3.11 (la del CI, con mypy 1.20.2) y Python 3.13 (el del host). El resultado de mypy **depende de la versión** (con 1.20.2 en 3.11 aparecía un error de `order_by` que el host no reportaba), así que se comprobó en los dos.
+  - [x] `ruff check app tests` → sin errores.
+  - [x] La suite completa sigue en verde: **562 passed** en SQLite y **571** en PostgreSQL.
+  - [x] El paso del CI **deja de tolerar** los fallos de mypy (`continue-on-error` fuera), validado con el job replicado en local.
+  - [x] `actionlint` exit 0.
+- **Qué NO se ha tocado**: la lógica. Todos los cambios son anotaciones, `cast` y dos correcciones de import. El único cambio de comportamiento posible (el `response_model` implícito de `api/v1/incidents.py` al anotar su retorno) lo cubre la suite.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.
@@ -916,7 +939,7 @@ T-22 (recuperación de contraseña) ──> T-24 (PWA, que necesita self-service
 > mientras GitHub no ejecute nada.
 
 - [x] `cd backend && ruff check app tests` → sin errores.
-- [x] `cd backend && mypy app` → sin errores nuevos (hoy `continue-on-error: true`).
+- [x] `cd backend && mypy app` → **sin errores** (modo `strict`). Antes daba 77 y su paso iba con `continue-on-error: true`; ver T-28.
 - [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **548 passed en SQLite y 557 en PostgreSQL**.
 - [x] `docker compose up -d` → todos los servicios *healthy* y `/health` responde 200.
 - [x] QA visual en el navegador de las pantallas tocadas (con la app real, no sólo tests).

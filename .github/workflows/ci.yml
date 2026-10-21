@@ -81,8 +81,13 @@ jobs:
         run: ruff check app tests ../tools
 
       - name: Tipos (mypy)
+        # POR QUÉ ya no es continue-on-error (2026-10-21): el backend
+        # estaba en modo ``strict`` con 77 errores y la puerta lo toleraba
+        # desde el primer commit. Los 77 están corregidos: ``mypy app``
+        # sale con "no issues found" en Python 3.11 (la del CI) y en 3.13.
+        # Ahora la puerta de verdad: si mypy se pone rojo, el CI se pone
+        # rojo. Comprobado con el job replicado en local.
         run: mypy app
-        continue-on-error: true   # MVP: todavía hay pocos stubs
 
       - name: Tests (pytest, SQLite)
         run: pytest -q

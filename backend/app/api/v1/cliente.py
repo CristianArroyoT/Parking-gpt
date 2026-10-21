@@ -52,7 +52,7 @@ app de test para poder ejercitarlo.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, cast
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -250,7 +250,7 @@ def listar_plazas(
                 lane=space.lane if space else None,
                 number=space.number if space else None,
                 space_label=_etiqueta_plaza(space),
-                entry_at=_aware(t.entry_at),
+                entry_at=cast(datetime, _aware(t.entry_at)),
                 is_broken=bool(space.is_broken) if space else False,
             )
         )
@@ -309,7 +309,7 @@ def listar_tickets(
                 parking_space_id=t.parking_space_id,
                 space_label=_etiqueta_plaza(space),
                 status=t.status.value if hasattr(t.status, "value") else str(t.status),
-                entry_at=_aware(t.entry_at),
+                entry_at=cast(datetime, _aware(t.entry_at)),
                 exit_at=_aware(t.exit_at),
                 amount=t.amount,
                 discount=t.discount,

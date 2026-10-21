@@ -38,6 +38,7 @@ acepta como adjunto (es XML ejecutable).
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import (
     APIRouter,
@@ -99,7 +100,7 @@ def create_incident_endpoint(
     response: Response,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict[str, Any] | IncidentRead:
     parking_context(parking_id, current=current_user, db=db)
     ip = request.client.host if request.client else None
     alert = create_incident(
@@ -219,7 +220,7 @@ def descargar_adjunto_incidente(
     attachment_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(_gestor_o_admin),
-):
+) -> Response:
     """Descarga el fichero original de la foto.
 
     Se sirve como **descarga** (``Content-Disposition: attachment``) con el

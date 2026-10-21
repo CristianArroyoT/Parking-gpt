@@ -18,6 +18,7 @@ Email sólo para ``ROBERY_REPORTED`` (CRITICAL). ``SPACE_BROKEN`` /
 """
 from __future__ import annotations
 
+from typing import Any
 import logging
 from datetime import datetime, timezone
 
@@ -111,7 +112,7 @@ def create_incident(
             return None
 
         now = datetime.now(timezone.utc)
-        context: dict = {
+        context: dict[str, Any] = {
             "kind": kind.value,
             "reason": reason_value,
             "notes": payload.notes,
