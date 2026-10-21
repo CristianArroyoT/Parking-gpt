@@ -24,11 +24,64 @@ import contextlib
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
 BACKEND = RAIZ / "backend"
 BASE_MAINTENANCE = "postgres"
+
+#: Tope de tiempo para cada comando (segundos). Si se supera, el proceso se
+#: mata: un paso de CI colgado sin error es peor que un paso que falla.
+TIEMPO_MAX_S = 600
+
+
+def _correr(comando: list[str], cwd: Path, env: dict) -> tuple[int, str]:
+    """Ejecuta un comando y devuelve (código de salida, salida).
+
+    POR QUÉ la salida va a un FICHERO y no a una tubería: si el proceso
+    hijo hereda la tubería de salida de este script, y más adelante otro
+    proceso la mantiene abierta, el ``communicate()`` se queda esperando
+    un EOF que no llega y el paso se cuelga **sin ningún error visible**.
+    Ya pasó: ``alembic check`` se quedó colgado más de diez minutos
+    cuando el script se ejecutaba con la salida heredada de un proceso
+    que la leía por tubería. Con un fichero no hay EOF que esperar, y
+    además se puede poner un tope de tiempo.
+
+    OJO: ``stdin`` va a ``DEVNULL`` por lo mismo: un hijo que lee de la
+    entrada estándar puede quedarse esperando datos que nunca llegan.
+    """
+    with tempfile.TemporaryFile(
+        mode="w+", encoding="utf-8", errors="replace"
+    ) as fichero:
+        proceso = subprocess.Popen(
+            comando,
+            cwd=str(cwd), env=env,
+            stdout=fichero, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+        )
+        try:
+            codigo = proceso.wait(timeout=TIEMPO_MAX_S)
+        except subprocess.TimeoutExpired:
+            proceso.kill()
+            proceso.wait()
+            fichero.seek(0)
+            return 124, (
+                fichero.read()
+                + f"\n[el comando supero el limite de {TIEMPO_MAX_S} s y se detuvo]"
+            )
+        fichero.seek(0)
+        return codigo, fichero.read()
+
+
+def _consola(texto: str) -> str:
+    """Texto que la consola de Windows puede imprimir.
+
+    La consola usa cp1252 y no puede representar todos los caracteres
+    (los acentos de la salida de alembic, por ejemplo). Se sustituyen
+    por ``?`` en vez de reventar con ``UnicodeEncodeError``.
+    """
+    codificacion = getattr(sys.stdout, "encoding", None) or "utf-8"
+    return texto.encode(codificacion, "replace").decode(codificacion, "replace")
 
 
 def _parte_de_url(url: str) -> tuple[str, int, str, str, str]:
@@ -69,23 +122,24 @@ def main() -> int:
         _recrear_base(_url_de_mantenimiento(url_objetivo), base)
 
         print("  alembic upgrade head")
-        # Sin ``capture_output``: si un proceso hijo de alembic mantiene
-        # abierta la tubería, ``communicate()`` se queda esperando un EOF
-        # que no llega. Además, en el CI interesa ver la salida de alembic.
-        resultado = subprocess.run(
+        codigo, salida = _correr(
             [sys.executable, "-m", "alembic", "upgrade", "head"],
-            cwd=str(BACKEND), env=entorno, check=False,
+            BACKEND, entorno,
         )
-        if resultado.returncode != 0:
+        if salida.strip():
+            print(_consola(salida.rstrip()))
+        if codigo != 0:
             print("  FALLO: las migraciones no se aplican sobre una base vacía.")
             return 1
 
         print("  alembic check")
-        resultado = subprocess.run(
+        codigo, salida = _correr(
             [sys.executable, "-m", "alembic", "check"],
-            cwd=str(BACKEND), env=entorno, check=False,
+            BACKEND, entorno,
         )
-        if resultado.returncode != 0:
+        if salida.strip():
+            print(_consola(salida.rstrip()))
+        if codigo != 0:
             print("  FALLO: el esquema migrado NO coincide con los modelos.")
             return 1
         print("  OK: el esquema migrado coincide con los modelos.")

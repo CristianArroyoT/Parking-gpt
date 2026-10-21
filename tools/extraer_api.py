@@ -139,7 +139,9 @@ def _deps_de_firma(func: ast.FunctionDef, constantes: dict[str, list[str]]) -> l
     pares: list[tuple[ast.expr, ast.expr | None]] = []
     for i, default in enumerate(func.args.defaults):
         pares.append((posicionales[len(posicionales) - n_defs + i], default))
-    for arg, default in zip(func.args.kwonlyargs, func.args.kw_defaults):
+    for arg, default in zip(
+        func.args.kwonlyargs, func.args.kw_defaults, strict=False
+    ):
         pares.append((arg, default))
     for _arg, default in pares:
         if default is None:

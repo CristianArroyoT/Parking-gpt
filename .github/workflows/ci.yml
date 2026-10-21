@@ -73,7 +73,12 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Linter (ruff)
-        run: ruff check app tests
+        # ``../tools`` entra también: las herramientas de ``tools/`` son
+        # puertas del pipeline (inventario de la API, migraciones,
+        # despliegue limpio, corrupcion de texto) y ningun linter las
+        # miraba. Por ahi se colaron hasta tres fallos, uno de ellos un
+        # ``NameError`` en el camino de error de ``tools/estado_ci.py``.
+        run: ruff check app tests ../tools
 
       - name: Tipos (mypy)
         run: mypy app

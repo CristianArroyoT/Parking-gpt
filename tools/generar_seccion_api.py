@@ -113,7 +113,7 @@ def seccion() -> str:
     # El endpoint de salud no vive en un router de la API: lo define
     # ``create_app`` en ``app/main.py`` y va fuera del prefijo.
     numero += 1
-    lineas.append("### 3.%d Salud — `meta` (`main.py`)" % numero)
+    lineas.append(f"### 3.{numero} Salud — `meta` (`main.py`)")
     lineas.append("")
     lineas.append("| Método | Ruta | Quién |")
     lineas.append("|---|---|---|")

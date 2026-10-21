@@ -31,6 +31,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -44,6 +45,53 @@ PUERTO_APP = 8021
 #: Timeout de cada peticion. El login hashea la contrasena (bcrypt), que
 #: es lento: con la maquina cargada se puede pasar de 15 s.
 TIEMPO_PETICION_S = 30
+#: Tope de tiempo para cada comando (segundos).
+TIEMPO_MAX_S = 600
+
+
+def _correr(comando: list[str], cwd: Path, env: dict) -> tuple[int, str]:
+    """Ejecuta un comando y devuelve (código de salida, salida).
+
+    La salida va a un FICHERO, no a una tubería: si el proceso hijo
+    hereda la tubería de salida de este script, y más adelante otro
+    proceso la mantiene abierta, el ``communicate()`` se queda esperando
+    un EOF que no llega y el paso se cuelga **sin ningún error visible**.
+    Ya pasó con ``alembic check``. Con un fichero no hay EOF que esperar
+    y además se puede poner un tope de tiempo.
+
+    OJO: ``stdin`` va a ``DEVNULL`` por lo mismo.
+    """
+    with tempfile.TemporaryFile(
+        mode="w+", encoding="utf-8", errors="replace"
+    ) as fichero:
+        proceso = subprocess.Popen(
+            comando,
+            cwd=str(cwd), env=env,
+            stdout=fichero, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+        )
+        try:
+            codigo = proceso.wait(timeout=TIEMPO_MAX_S)
+        except subprocess.TimeoutExpired:
+            proceso.kill()
+            proceso.wait()
+            fichero.seek(0)
+            return 124, (
+                fichero.read()
+                + f"\n[el comando supero el limite de {TIEMPO_MAX_S} s y se detuvo]"
+            )
+        fichero.seek(0)
+        return codigo, fichero.read()
+
+
+def _consola(texto: str) -> str:
+    """Texto que la consola de Windows puede imprimir.
+
+    La consola usa cp1252 y no puede representar todos los caracteres
+    (los acentos de la salida de alembic, por ejemplo). Se sustituyen
+    por ``?`` en vez de reventar con ``UnicodeEncodeError``.
+    """
+    codificacion = getattr(sys.stdout, "encoding", None) or "utf-8"
+    return texto.encode(codificacion, "replace").decode(codificacion, "replace")
 
 
 def _parte_de_url(url: str) -> tuple[str, str, str, str, int]:
@@ -151,17 +199,23 @@ def main() -> int:
 
         # 2. Migraciones desde cero.
         print("  2/5. Migrando de cero...")
-        subprocess.run(
-            [sys.executable, "-m", "alembic", "upgrade", "head"],
-            cwd=str(BACKEND), env=entorno, check=True,
+        codigo, salida = _correr(
+            [sys.executable, "-m", "alembic", "upgrade", "head"], BACKEND, entorno
         )
+        if codigo != 0:
+            print(_consola(salida.rstrip()[-1500:]))
+            print("  FALLO: las migraciones no se aplican sobre una base vacía.")
+            return 1
 
         # 3. Seed.
         print("  3/5. Sembrando los datos demo...")
-        subprocess.run(
-            [sys.executable, "-m", "app.scripts.seed"],
-            cwd=str(BACKEND), env=entorno, check=True,
+        codigo, salida = _correr(
+            [sys.executable, "-m", "app.scripts.seed"], BACKEND, entorno
         )
+        if codigo != 0:
+            print(_consola(salida.rstrip()[-1500:]))
+            print("  FALLO: el seed no se aplica sobre la base migrada.")
+            return 1
 
         # 4. La aplicación, contra esa base.
         print("  4/5. Levantando la aplicación...")
@@ -209,6 +263,8 @@ def main() -> int:
                 print(f"  FALLO: {ruta} devolvió {n} elementos (se esperaban {cuenta})")
                 return 1
     except subprocess.CalledProcessError as exc:
+        # Las llamadas a alembic y al seed ya no lanzan esto (usan
+        # ``_correr``); queda por si algún otro subproceso falla.
         print(f"  FALLO: {exc.cmd[2:]} devolvió {exc.returncode}")
         if exc.stderr:
             print("  " + exc.stderr.strip()[-600:])

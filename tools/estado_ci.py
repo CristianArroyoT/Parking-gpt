@@ -58,7 +58,7 @@ def _gh(*args: str) -> str:
     if resultado.returncode != 0:
         raise SystemExit(
             f"gh {' '.join(args)} fallo (codigo {resultado.returncode}):\n"
-            f"{(resultario.stderr or '').strip()}"
+            f"{(resultado.stderr or '').strip()}"
         )
     return resultado.stdout
 
