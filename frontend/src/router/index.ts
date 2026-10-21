@@ -110,6 +110,41 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/cliente/TicketsView.vue'),
     meta: { roles: ['admin', 'cliente'] },
   },
+  // T-19 (2026-10-21): "Mis vehículos" y "Mi perfil" del cliente.
+  // El guard por rol es el de siempre: ``meta.roles`` + redirección a
+  // /forbidden si el rol no encaja.
+  {
+    path: '/mis-vehiculos',
+    name: 'cliente-vehiculos',
+    component: () => import('@/views/cliente/VehiclesView.vue'),
+    meta: { roles: ['admin', 'cliente'] },
+  },
+  {
+    path: '/mi-perfil',
+    name: 'cliente-perfil',
+    component: () => import('@/views/cliente/ProfileView.vue'),
+    meta: { roles: ['admin', 'cliente'] },
+  },
+  // T-20 (2026-10-21): log de entradas/salidas, alertas activas y
+  // operadores del gestor.
+  {
+    path: '/gestor/movimientos',
+    name: 'gestor-movimientos',
+    component: () => import('@/views/gestor/MovementsView.vue'),
+    meta: { roles: ['admin', 'gestor'] },
+  },
+  {
+    path: '/gestor/alertas',
+    name: 'gestor-alertas',
+    component: () => import('@/views/gestor/AlertsView.vue'),
+    meta: { roles: ['admin', 'gestor'] },
+  },
+  {
+    path: '/gestor/operadores',
+    name: 'gestor-operadores',
+    component: () => import('@/views/gestor/OperatorsView.vue'),
+    meta: { roles: ['admin', 'gestor'] },
+  },
   {
     path: '/forbidden',
     name: 'forbidden',

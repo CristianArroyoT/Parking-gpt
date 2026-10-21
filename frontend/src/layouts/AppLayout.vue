@@ -49,6 +49,13 @@ const NAV_BY_ROLE: Record<string, NavItem[]> = {
     { name: 'operador-manual', label: 'Alta manual', to: '/operador/alta-manual' },
     { name: 'gestor-cameras', label: 'Cámaras', to: '/cameras' },
     { name: 'gestor-map', label: 'Mapa', to: '/mapa' },
+    // T-20 (2026-10-21): log de entradas/salidas, alertas activas y
+    // operadores. Van detrás de "Mapa" porque no forman parte de la
+    // secuencia canónica que dictó el usuario (dashboard → en vivo → alta
+    // manual → cámaras → sucursales → mapa → tarifas → costes → usuarios).
+    { name: 'gestor-movimientos', label: 'Entradas/Salidas', to: '/gestor/movimientos' },
+    { name: 'gestor-alertas', label: 'Alertas', to: '/gestor/alertas' },
+    { name: 'gestor-operadores', label: 'Operadores', to: '/gestor/operadores' },
   ],
   operador: [
     { name: 'operador-live', label: 'En vivo', to: '/vivo' },
@@ -58,6 +65,10 @@ const NAV_BY_ROLE: Record<string, NavItem[]> = {
     // Cliente no aparece en la lista canónica del usuario: conserva
     // su única entrada propia.
     { name: 'cliente-tickets', label: 'Mis tickets', to: '/mis-tickets' },
+    // T-19 (2026-10-21): gestión de vehículos y perfil. "Mi perfil" va
+    // al final porque es una acción secundaria frente a las operativas.
+    { name: 'cliente-vehiculos', label: 'Mis vehículos', to: '/mis-vehiculos' },
+    { name: 'cliente-perfil', label: 'Mi perfil', to: '/mi-perfil' },
   ],
 }
 
