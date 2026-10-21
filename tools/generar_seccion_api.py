@@ -70,14 +70,30 @@ def _rutas_por_modulo() -> dict[str, list[tuple[str, str, str]]]:
 def seccion() -> str:
     por_modulo = _rutas_por_modulo()
     lineas: list[str] = []
-    total = sum(len(v) for v in por_modulo.values())
+    total = sum(len(v) for v in por_modulo.values()) + 1  # + /health
     grupos = len([m for m in por_modulo if m not in SUBNO_MODULOS])
     lineas.append("## 3. Mapa de recursos y RBAC")
     lineas.append("")
     lineas.append(
-        f"{total} endpoints en {grupos + 1} grupos. La columna «Quién» es la "
-        "autorización efectiva **hoy**, extraída del código (no de la "
-        "intención) con `tools/extraer_api.py`."
+        f"{total} endpoints en {grupos + 1} grupos. La columna «Quién» tiene "
+        "dos partes, las dos leídas del código con `tools/extraer_api.py`:"
+    )
+    lineas.append("")
+    lineas.append(
+        "1. **El RBAC de dependencia**: quién puede llamar al endpoint "
+        "(`parking_context`, `require_role(...)`, el token por `?token=`, "
+        "el middleware de auditoría…)."
+    )
+    lineas.append(
+        "2. **El ámbito de datos** que el endpoint aplica *en el cuerpo* "
+        "(`ámbito: membresías de sucursal`, `ámbito: sus vehículos`): "
+        "varios endpoints filtran por rol y por membresía a mano, para no "
+        "duplicar el JOIN con `parking_context`."
+    )
+    lineas.append("")
+    lineas.append(
+        "El `admin` salta el filtro de membresías salvo que la propia "
+        "dependencia lo restrinja (`require_role('admin')`)."
     )
     lineas.append("")
     numero = 0

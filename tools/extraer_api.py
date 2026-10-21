@@ -207,6 +207,41 @@ def _usa_audit_del_middleware(func: ast.FunctionDef) -> bool:
     return False
 
 
+def _ambito_del_cuerpo(func: ast.FunctionDef) -> list[str]:
+    """El **ámbito de datos** que el endpoint aplica en su cuerpo.
+
+    Las dependencias dicen *quién puede llamar* al endpoint, pero varios
+    endpoints filtran además *qué ve* segun el rol y las membresias, y
+    esa parte no sale de las dependencias: se comprueba a mano en el
+    cuerpo (a proposito, para no duplicar el JOIN con
+    ``parking_context``).
+    """
+    ambitos: list[str] = []
+    for nodo in ast.walk(func):
+        # ``db.query(ParkingMembership)`` → el alcance son las
+        # membresias de sucursal del usuario. Ojo: sólo cuenta como
+        # filtro cuando la clase se **consulta**; construirla
+        # (``ParkingMembership(user_id=...)``) no es un filtro, es el
+        # alta de una membresia.
+        if not (isinstance(nodo, ast.Call)
+                and isinstance(nodo.func, ast.Attribute)
+                and nodo.func.attr == "query"
+                and nodo.args):
+            continue
+        consultada = nodo.args[0]
+        if not isinstance(consultada, ast.Name):
+            continue
+        if consultada.id == "ParkingMembership":
+            ambito = "ámbito: membresías de sucursal"
+        elif consultada.id == "VehicleUser":
+            ambito = "ámbito: sus vehículos"
+        else:
+            continue
+        if ambito not in ambitos:
+            ambitos.append(ambito)
+    return ambitos
+
+
 def _quien(deps: list[Dep], por_middleware: bool = False) -> str:
     textos: list[str] = []
     for nombre, roles in deps:
@@ -267,12 +302,10 @@ def extraer_de_modulo(ruta_fichero: Path) -> list[tuple[str, str, str, str]]:
                       + _deps_del_cuerpo(nodo)):
                 if d not in deps:
                     deps.append(d)
-            filas.append((
-                metodo,
-                completa,
-                _quien(deps, por_middleware=_usa_audit_del_middleware(nodo)),
-                ruta_fichero.stem,
-            ))
+            quien = _quien(deps, por_middleware=_usa_audit_del_middleware(nodo))
+            for ambito in _ambito_del_cuerpo(nodo):
+                quien = f"{quien} + {ambito}"
+            filas.append((metodo, completa, quien, ruta_fichero.stem))
     return filas
 
 

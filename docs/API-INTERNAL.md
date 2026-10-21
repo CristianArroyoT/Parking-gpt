@@ -42,7 +42,12 @@ Dependencias de autorización (en `backend/app/core/deps.py`):
 
 ## 3. Mapa de recursos y RBAC
 
-99 endpoints en 25 grupos. La columna «Quién» es la autorización efectiva **hoy**, extraída del código (no de la intención) con `tools/extraer_api.py`.
+100 endpoints en 25 grupos. La columna «Quién» tiene dos partes, las dos leídas del código con `tools/extraer_api.py`:
+
+1. **El RBAC de dependencia**: quién puede llamar al endpoint (`parking_context`, `require_role(...)`, el token por `?token=`, el middleware de auditoría…).
+2. **El ámbito de datos** que el endpoint aplica *en el cuerpo* (`ámbito: membresías de sucursal`, `ámbito: sus vehículos`): varios endpoints filtran por rol y por membresía a mano, para no duplicar el JOIN con `parking_context`.
+
+El `admin` salta el filtro de membresías salvo que la propia dependencia lo restrinja (`require_role('admin')`).
 
 ### 3.1 Administración — auditoría — `admin` (`admin.py`)
 
@@ -55,7 +60,7 @@ Dependencias de autorización (en `backend/app/core/deps.py`):
 | Método | Ruta | Quién |
 |---|---|---|
 | GET | `/parkings/{parking_id}/alerts` | `parking_context` |
-| POST | `/parkings/{parking_id}/alerts/{alert_id}/acknowledge` | Autenticado |
+| POST | `/parkings/{parking_id}/alerts/{alert_id}/acknowledge` | Autenticado + ámbito: membresías de sucursal |
 
 ### 3.3 Autenticación — `auth` (`auth.py`)
 
@@ -151,7 +156,7 @@ Dependencias de autorización (en `backend/app/core/deps.py`):
 
 | Método | Ruta | Quién |
 |---|---|---|
-| GET | `/parkings` | Autenticado |
+| GET | `/parkings` | Autenticado + ámbito: membresías de sucursal |
 | POST | `/parkings` | `require_role('admin')` |
 | GET | `/parkings/{parking_id}` | `parking_context` |
 | PATCH | `/parkings/{parking_id}` | `parking_context` |
@@ -241,12 +246,12 @@ Dependencias de autorización (en `backend/app/core/deps.py`):
 | GET | `/users/me` | Autenticado |
 | PATCH | `/users/me/password` | Autenticado |
 | PATCH | `/users/me/profile` | Autenticado |
-| GET | `/users/me/vehicles` | Autenticado |
+| GET | `/users/me/vehicles` | Autenticado + ámbito: sus vehículos |
 | POST | `/users/me/vehicles` | Autenticado |
 | PATCH | `/users/me/vehicles/{vehicle_id}` | Autenticado |
 | POST | `/users/me/vehicles/{vehicle_id}/links` | Autenticado |
-| DELETE | `/users/me/vehicles/{vehicle_id}/links/{user_id}` | Autenticado |
-| GET | `/users/me/tickets` | Autenticado |
+| DELETE | `/users/me/vehicles/{vehicle_id}/links/{user_id}` | Autenticado + ámbito: sus vehículos |
+| GET | `/users/me/tickets` | Autenticado + ámbito: sus vehículos |
 | GET | `/users` | `require_role('admin')` |
 | POST | `/users` | `require_role('admin')` |
 | GET | `/users/{user_id}` | `require_role('admin')` |

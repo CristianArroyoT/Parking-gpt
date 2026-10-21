@@ -368,6 +368,7 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
 - **Al construir el verificador salieron dos defectos de código**:
   1. `POST /users/{user_id}/memberships` y `POST /vehicles/{vehicle_id}/users` tenían **el decorador `@router.post` duplicado**: la ruta se registraba dos veces y FastAPI avisaba en cada arranque con *"Duplicate Operation ID"*, ensuciando el OpenAPI (que es la fuente de la que sale el inventario). Corregido: el aviso desaparece.
   2. La columna "Quién" de dos endpoints no se podía leer del `Depends`: el preview y el SSE llaman a la dependencia **a mano** dentro del cuerpo (el patrón "opt-in por endpoint"), y `logout`/`logout/all` dependen del `AuditMiddleware`, que valida el token Bearer y deja el contexto en `request.state.audit`. El extractor reconoce los tres patrones.
+  3. Y además, las dependencias dicen **quién puede llamar** al endpoint, pero no **qué datos ve**: varios endpoints filtran por rol y por membresía a mano en el cuerpo (para no duplicar el JOIN con `parking_context`). La columna "Quién" tiene ahora dos partes: el RBAC de dependencia y el ámbito de datos (`ámbito: membresías de sucursal`, `ámbito: sus vehículos`).
 - **Criterios de aceptación**:
   - [x] `tools/extraer_api.py` extrae rutas y RBAC del código con `ast` y **se valida contra el OpenAPI real** (si se le escapa una ruta, sale con código 1).
   - [x] `tools/generar_seccion_api.py --escribir` regenera la sección 3 del documento.
