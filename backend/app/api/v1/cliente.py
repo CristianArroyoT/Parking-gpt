@@ -10,12 +10,13 @@ routers (y no se duplican aquí):
 - ``GET /api/v1/users/me/tickets``  → tickets de esos vehículos (T-19).
 - ``GET /api/v1/plans/me``          → su plan y su suscripción (T-18).
 
-Lo que **no** existía era la plaza: ni ``GET /vehicles`` (staff-only)
-ni ``GET /tickets`` (que acota por membresía de sucursal) dicen qué
-plaza ocupa el coche, y un cliente no puede ni listar los espacios de
-una sucursal (``GET /parkings/{id}/spaces`` exige membresía). Por eso
-este router devuelve **los datos enriquecidos** que la app necesita y
-que no se pueden derivar en el navegador:
+Lo que **no** existía era la plaza ni los datos enriquecidos: ni
+``GET /vehicles`` (staff-only) ni ``GET /tickets`` (que ya acota por
+``vehicle_users``) dicen qué plaza ocupa el coche, con qué etiqueta, en
+qué sucursal, ni si esa plaza está averiada. Y el cliente no puede
+pedírselo por su cuenta: listar espacios o sucursales exige membresía
+de sucursal, que el cliente no tiene. Por eso este router devuelve
+**los datos enriquecidos** que la app necesita:
 
 - ``GET /api/v1/cliente/plazas`` → plaza ocupada ahora mismo (etiqueta
   de plaza, sucursal, avería, hora de entrada).

@@ -18,10 +18,10 @@
  *
  * Por qué hace falta `/cliente/*`: el cliente no tiene membresía de
  * sucursal, así que no puede listar espacios (`GET /parkings/{id}/spaces`
- * devuelve 403) ni sucursales. Y `GET /tickets` acota por membresía, no
- * por vehículo: un cliente con membresía vería tickets de vehículos
- * ajenos. `/cliente/*` acota siempre por `vehicle_users` y devuelve los
- * datos ya enriquecidos (plaza, sucursal, pendiente de pago).
+ * devuelve 403) ni sucursales. Y `GET /tickets`, aunque ya acota por
+ * vehículo (T-19/T-24), no trae la etiqueta de la plaza, el nombre de
+ * la sucursal ni el flag de "pendiente de pago". `/cliente/*` acota
+ * siempre por `vehicle_users` y devuelve los datos ya enriquecidos.
  */
 import { http } from './client'
 
