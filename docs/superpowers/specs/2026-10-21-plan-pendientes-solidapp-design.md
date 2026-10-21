@@ -361,6 +361,21 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   sin querer. Queda documentado para cuando el CI vuelva a estar en
   marcha.
 
+### T-25+1 · El inventario de la API se había quedado en 61 de 99 endpoints (y dos rutas estaban registradas dos veces)
+
+- **Estado**: **completado** — inventario regenerado y con comprobación automática
+- **Contexto**: `docs/API-INTERNAL.md` (T-25) decía "61 endpoints en 18 grupos", pero la API ya tenía **99**. El documento no se había revisado desde antes del Bloque 3 (planes, incidencias y adjuntos, operadores de sucursal, plantillas faciales, informes, KPIs, PWA del cliente...). La propia sección 6 del documento avisa de que "se actualiza el documento, no al revés", pero no había forma mecánica de saber que estaba desfasado.
+- **Al construir el verificador salieron dos defectos de código**:
+  1. `POST /users/{user_id}/memberships` y `POST /vehicles/{vehicle_id}/users` tenían **el decorador `@router.post` duplicado**: la ruta se registraba dos veces y FastAPI avisaba en cada arranque con *"Duplicate Operation ID"*, ensuciando el OpenAPI (que es la fuente de la que sale el inventario). Corregido: el aviso desaparece.
+  2. La columna "Quién" de dos endpoints no se podía leer del `Depends`: el preview y el SSE llaman a la dependencia **a mano** dentro del cuerpo (el patrón "opt-in por endpoint"), y `logout`/`logout/all` dependen del `AuditMiddleware`, que valida el token Bearer y deja el contexto en `request.state.audit`. El extractor reconoce los tres patrones.
+- **Criterios de aceptación**:
+  - [x] `tools/extraer_api.py` extrae rutas y RBAC del código con `ast` y **se valida contra el OpenAPI real** (si se le escapa una ruta, sale con código 1).
+  - [x] `tools/generar_seccion_api.py --escribir` regenera la sección 3 del documento.
+  - [x] `tools/verificar_api_doc.py` detecta la deriva entre el documento y el código.
+  - [x] El inventario documenta los **99 endpoints** con su RBAC real, y el verificador dice "El inventario coincide con el código".
+  - [x] Sin avisos de *Duplicate Operation ID* al arrancar.
+  - [x] Suite en verde (521 passed en SQLite) tras quitar los decoradores duplicados.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.
