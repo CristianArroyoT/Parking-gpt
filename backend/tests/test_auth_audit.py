@@ -26,15 +26,33 @@ otros tests).
 """
 from __future__ import annotations
 
+import redis
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.security import hash_password
 from app.models.audit import AuditLog
 from app.models.enums import UserRole
 from app.models.user import User
 
 PASSWORD = "admin12345"
+
+
+def _clean_login_buckets() -> None:
+    """Borra los buckets Redis del rate-limit de login.
+
+    El login está rate-limiteado por IP y por email (``rl:login:*``). Si
+    queda un contador vivo de otro test, este login recibiría un 429 en
+    lugar de un 200 y el fallo no tendría nada que ver con lo que
+    estamos comprobando.
+    """
+    try:
+        r = redis.Redis.from_url(get_settings().redis_url, decode_responses=True)
+        for key in r.scan_iter(match="rl:login:*"):
+            r.delete(key)
+    except Exception:
+        pass
 
 
 def _seed_admin(db: Session, *, email: str = "admin-t08@test.es") -> User:
@@ -49,6 +67,19 @@ def _seed_admin(db: Session, *, email: str = "admin-t08@test.es") -> User:
     db.commit()
     db.refresh(admin)
     return admin
+
+
+def _login(
+    client: TestClient, email: str, password: str = PASSWORD,
+    headers: dict[str, str] | None = None,
+):
+    """Login limpio de contadores de rate-limit (ver ``_clean_login_buckets``)."""
+    _clean_login_buckets()
+    return client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+        headers=headers,
+    )
 
 
 def _latest_audit(db: Session, action: str) -> AuditLog | None:
@@ -72,10 +103,7 @@ def test_login_success_audit_identifies_the_user(
     """
     admin = _seed_admin(db_session)
 
-    response = client.post(
-        "/api/v1/auth/login",
-        json={"email": admin.email, "password": PASSWORD},
-    )
+    response = _login(client, admin.email)
     assert response.status_code == 200, response.text
 
     row = _latest_audit(db_session, "login_success")
@@ -99,6 +127,7 @@ def test_login_oauth_success_audit_identifies_the_user(
     """
     admin = _seed_admin(db_session, email="admin-t08-oauth@test.es")
 
+    _clean_login_buckets()
     response = client.post(
         "/api/v1/auth/login/oauth",
         data={"username": admin.email, "password": PASSWORD},
@@ -126,10 +155,7 @@ def test_login_failure_audit_is_not_attributed_to_a_user(
     """
     _seed_admin(db_session)
 
-    response = client.post(
-        "/api/v1/auth/login",
-        json={"email": "ghost-t08@test.es", "password": "incorrecta"},
-    )
+    response = _login(client, "ghost-t08@test.es", password="incorrecta")
     assert response.status_code == 401, response.text
 
     row = _latest_audit(db_session, "login_failure")
@@ -152,10 +178,8 @@ def test_login_success_audit_keeps_ip_and_correlation_id(
     admin = _seed_admin(db_session, email="admin-t08-ctx@test.es")
     correlation_id = "cid-t08-login-success"
 
-    response = client.post(
-        "/api/v1/auth/login",
-        json={"email": admin.email, "password": PASSWORD},
-        headers={"X-Request-ID": correlation_id},
+    response = _login(
+        client, admin.email, headers={"X-Request-ID": correlation_id},
     )
     assert response.status_code == 200, response.text
 
