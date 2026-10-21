@@ -306,7 +306,12 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] El registro de streams pasa a una API **síncrona** (una liberación con `await` puede ser cortada por una cancelación).
   - [x] Test de regresión con el **mismo fichero** ejecutado contra el código anterior y el nuevo: 3 de 4 fallaban antes (incluido el congelamiento del event loop: **5 ticks en 1 s** frente a ~100 ahora) y los 4 pasan ahora.
 - **Nota**: el cierre y reapertura **a nivel de endpoint** ya funcionaba en el camino de cancelación; lo que no estaba garantizado era el orden, la determinación y la identidad de la sesión. El congelamiento del event loop sí era real y era lo más grave.
+- **Revalidación bajo carga (2026-10-21)**: con el código corregido se regeneró la ejecución de referencia (6 usuarios, 180 s, 10 cámaras): **491 peticiones, 0 fallos, 0 cortes, 0 reinicios del worker y 0 previews descartados con un 409** → SLO **14 de 14** reglas OK (antes 13 de 13). Al revalidar salieron dos fallos del **instrumental**, corregidos:
+  1. El locustfile leía en runtime `SOLIDAPP_CAMERA_IDS` (dos R) mientras la constante y el README documentan `SOLIDAPP_CAMARA_IDS` (una R): poner la variable documentada **no surtía efecto** y la ejecución se quedaba con la cámara 81 sola, la que provoca la contención. Ahora se aceptan los dos nombres.
+  2. Los previews descartados con un 409 los cuenta Locust como **éxito** (un 409 es una regla de negocio, no un fallo HTTP), así que el SLO **no veía** la métrica clave del P2: una regresión habría pasado el CI sin que nadie se enterase. Nueva métrica `max_peticiones` (cuenta ocurrencias) y regla `mjpeg_sin_409` con umbral 0, con sus tests.
+- **CI replicado a mano** (el CI remoto no arranca por la facturación): `ruff check app tests` en verde, `mypy app` sin errores nuevos, pytest en SQLite y PostgreSQL, `pytest tests/test_sqlite_only_functions.py` (paso aparte del job de integración), `vue-tsc --noEmit`, `npm run build`, **build de las dos imágenes Docker** (exit 0), usuario no-root `app` y log rotado en `/var/log/solidapp/backend.log` comprobados como hace el job `docker-build`, y QA visual headless (19 pantallas sin incidencias, 0 errores de consola).
 
+### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.
 - **Resultado esperado**: evaluación con números de si la GPU aporta o no, y decisión documentada.
@@ -608,7 +613,7 @@ T-22 (recuperación de contraseña) ──> T-24 (PWA, que necesita self-service
 
 - [x] `cd backend && ruff check app tests` → sin errores.
 - [x] `cd backend && mypy app` → sin errores nuevos (hoy `continue-on-error: true`).
-- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **517 passed en SQLite y 526 en PostgreSQL**.
+- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **521 passed en SQLite y 530 en PostgreSQL**.
 - [x] `docker compose up -d` → todos los servicios *healthy* y `/health` responde 200.
 - [x] QA visual en el navegador de las pantallas tocadas (con la app real, no sólo tests).
       → **HECHA** con Chromium headless (Playwright) sobre la app real

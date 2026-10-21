@@ -41,7 +41,7 @@ nueva que salía como inexistente y un texto que no cambiaba).
 
 ## QA visual (Chromium headless)
 
-`scripts/qa_visual.py` recorre las 18 pantallas de los tres roles con las
+`scripts/qa_visual.py` recorre las 20 pantallas de los tres roles con las
 cuentas **demo** del seed, hace una captura de cada una y recoge los
 **errores de consola** y las **peticiones fallidas**. Es lo que cubre la
 parte de "la pantalla se renderiza" que los tests no pueden.
@@ -52,6 +52,18 @@ python scripts/qa_visual.py --salida D:/tmp/qa-solidapp
 ```
 
 Salida: un `informe.json` con el detalle y un PNG por pantalla.
+
+Resultado de la última ejecución (2026-10-21, con el stack completo):
+**19 pantallas sin incidencias y 0 errores de consola**. Quedan dos avisos
+que **no son fallos**: `/mapa` y `/vivo` agotan el tiempo de espera de
+`networkidle` porque mantienen una conexión abierta (el SSE del mapa y el
+preview MJPEG), así que la red nunca queda en reposo. Es inherente a esas
+dos pantallas; el resto se captura bien.
+
+> Si el script falla con `ERR_CONNECTION_RESET` en la pantalla de login,
+> casi siempre es que hay otra cosa comiéndose la CPU (un build de Docker,
+> por ejemplo): el servidor de desarrollo tarda y el navegador aborta la
+> petición. Repitiendo la ejecución en reposo, sale limpio.
 
 ## PWA — app instalable del cliente
 

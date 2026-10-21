@@ -147,6 +147,21 @@ ejecutado contra el código viejo (HEAD `817a51c`) y contra el nuevo:
 El 5 ticks frente a ~100 es la medida del congelamiento: con el código
 viejo, el teardown bloqueaba el event loop del backend entero.
 
+### 3-ter. El SLO atado al P2: la regla `mjpeg_sin_409`
+
+Al revalidar la carga con el código nuevo salieron dos cosas del
+instrumental, ambas corregidas:
+
+| Hallazgo | Por qué importaba | Arreglo |
+|---|---|---|
+| El locustfile leía en runtime `SOLIDAPP_CAMERA_IDS` (dos R) mientras la constante y el README documentan `SOLIDAPP_CAMARA_IDS` (una R) | Poner la variable como dice la documentación **no surtía efecto**: la ejecución se quedaba siempre con la cámara 81, que es justo la que provoca la contención (409) | El locustfile acepta los dos nombres; el documento manda en el nombre |
+| Los previews descartados con un 409 los cuenta Locust como **éxito** (un 409 es una regla de negocio, no un fallo HTTP) | El SLO **no veía** la métrica clave del P2: una regresión del 409 habría pasado el CI sin que nadie se enterase | Nueva métrica `max_peticiones` (cuenta ocurrencias, no fallos) y regla `mjpeg_sin_409` con umbral 0 |
+
+**Referencia regenerada** con el código nuevo (6 usuarios, 180 s, 10
+cámaras): **491 peticiones, 0 fallos, 0 cortes, 0 reinicios del worker, 0
+previews omitidos con un 409** → **SLO 14 de 14 reglas OK** (antes 13 de
+13; la nueva es la que ata el P2).
+
 ## 4. Modelos de datos nuevos
 
 | Modelo | Tabla | Notas |
