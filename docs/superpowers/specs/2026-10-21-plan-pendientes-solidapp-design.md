@@ -909,6 +909,12 @@ T-22 (recuperación de contraseña) ──> T-24 (PWA, que necesita self-service
 
 ## Definición de "hecho" (global)
 
+> **La puerta que manda mientras el CI remoto no arranque** (facturación):
+> `python tools/verificar_repo.py` corre todo lo de esta lista en un
+> comando y devuelve 0/1. Con `--completo` añade el CI replicado en local
+> y la QA visual en los cinco anchos. Es la red de seguridad del repo
+> mientras GitHub no ejecute nada.
+
 - [x] `cd backend && ruff check app tests` → sin errores.
 - [x] `cd backend && mypy app` → sin errores nuevos (hoy `continue-on-error: true`).
 - [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **548 passed en SQLite y 557 en PostgreSQL**.
