@@ -207,7 +207,10 @@ def _usa_audit_del_middleware(func: ast.FunctionDef) -> bool:
     return False
 
 
-def _ambito_del_cuerpo(func: ast.FunctionDef) -> list[str]:
+def _ambito_del_cuerpo(
+    func: ast.FunctionDef,
+    helpers: dict[str, ast.FunctionDef] | None = None,
+) -> list[str]:
     """El **ámbito de datos** que el endpoint aplica en su cuerpo.
 
     Las dependencias dicen *quién puede llamar* al endpoint, pero varios
@@ -215,30 +218,75 @@ def _ambito_del_cuerpo(func: ast.FunctionDef) -> list[str]:
     esa parte no sale de las dependencias: se comprueba a mano en el
     cuerpo (a proposito, para no duplicar el JOIN con
     ``parking_context``).
+
+    El filtro muchas veces no esta en el endpoint sino en una
+    **funcion auxiliar** del modulo (``_scoped_query``,
+    ``_resolve_parking_id``...), asi que se siguen las llamadas a
+    funciones locales del mismo fichero.
     """
     ambitos: list[str] = []
-    for nodo in ast.walk(func):
-        # ``db.query(ParkingMembership)`` → el alcance son las
-        # membresias de sucursal del usuario. Ojo: sólo cuenta como
-        # filtro cuando la clase se **consulta**; construirla
-        # (``ParkingMembership(user_id=...)``) no es un filtro, es el
-        # alta de una membresia.
-        if not (isinstance(nodo, ast.Call)
-                and isinstance(nodo.func, ast.Attribute)
-                and nodo.func.attr == "query"
-                and nodo.args):
-            continue
-        consultada = nodo.args[0]
-        if not isinstance(consultada, ast.Name):
-            continue
-        if consultada.id == "ParkingMembership":
-            ambito = "ámbito: membresías de sucursal"
-        elif consultada.id == "VehicleUser":
-            ambito = "ámbito: sus vehículos"
-        else:
-            continue
-        if ambito not in ambitos:
-            ambitos.append(ambito)
+    helpers = helpers or {}
+    vistas: set[int] = set()
+
+    def recorrer(objetivo: ast.AST) -> None:
+        if id(objetivo) in vistas:
+            return
+        vistas.add(id(objetivo))
+        for nodo in ast.walk(objetivo):
+            if not isinstance(nodo, ast.Call):
+                continue
+            # Si llama a una funcion auxiliar del modulo, se sigue su
+            # cuerpo: ahi suele estar el filtro.
+            if isinstance(nodo.func, ast.Name) and nodo.func.id in helpers:
+                recorrer(helpers[nodo.func.id])
+
+    def clases_consultadas(objetivo: ast.AST) -> set[str]:
+        """Clases de ambito que se CONSULTAN (no las que se construyen).
+
+        ``db.query(VehicleUser)`` y ``db.query(Vehicle).join(VehicleUser, ...)``
+        son filtros; ``VehicleUser(user_id=..., role=...)`` es el ALTA de
+        un vinculo, no un filtro.
+        """
+        padres: dict[ast.AST, ast.AST] = {}
+        for padre in ast.walk(objetivo):
+            for hijo in ast.iter_child_nodes(padre):
+                padres[hijo] = padre
+        consultadas: set[str] = set()
+        for nodo in ast.walk(objetivo):
+            if not isinstance(nodo, ast.Name):
+                continue
+            if nodo.id not in ("VehicleUser", "ParkingMembership"):
+                continue
+            padre = padres.get(nodo)
+            if isinstance(padre, ast.Call) and padre.func is nodo:
+                continue  # construccion: no es un filtro
+            if isinstance(padre, (ast.FunctionDef, ast.AsyncFunctionDef, ast.arg)):
+                continue  # anotacion de tipo: no es un filtro
+            consultadas.add(nodo.id)
+        return consultadas
+
+    def anotar(objetivo: ast.AST) -> None:
+        for clase in clases_consultadas(objetivo):
+            ambito = (
+                "ámbito: membresías de sucursal"
+                if clase == "ParkingMembership"
+                else "ámbito: sus vehículos"
+            )
+            if ambito not in ambitos:
+                ambitos.append(ambito)
+
+    def recorrer_con_ambito(objetivo: ast.AST) -> None:
+        if id(objetivo) in vistas:
+            return
+        vistas.add(id(objetivo))
+        anotar(objetivo)
+        for nodo in ast.walk(objetivo):
+            if not isinstance(nodo, ast.Call):
+                continue
+            if isinstance(nodo.func, ast.Name) and nodo.func.id in helpers:
+                recorrer_con_ambito(helpers[nodo.func.id])
+
+    recorrer_con_ambito(func)
     return ambitos
 
 
@@ -278,6 +326,13 @@ def extraer_de_modulo(ruta_fichero: Path) -> list[tuple[str, str, str, str]]:
 
     filas: list[tuple[str, str, str, str]] = []
     vistas: set[tuple[str, str]] = set()
+    # Funciones auxiliares del modulo: ahi suele estar el filtro de
+    # ambito (por ejemplo ``_scoped_query`` en tickets.py).
+    auxiliares: dict[str, ast.FunctionDef] = {
+        nodo.name: nodo
+        for nodo in arbol.body
+        if isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
     for nodo in ast.walk(arbol):
         if not isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
@@ -303,7 +358,7 @@ def extraer_de_modulo(ruta_fichero: Path) -> list[tuple[str, str, str, str]]:
                 if d not in deps:
                     deps.append(d)
             quien = _quien(deps, por_middleware=_usa_audit_del_middleware(nodo))
-            for ambito in _ambito_del_cuerpo(nodo):
+            for ambito in _ambito_del_cuerpo(nodo, auxiliares):
                 quien = f"{quien} + {ambito}"
             filas.append((metodo, completa, quien, ruta_fichero.stem))
     return filas

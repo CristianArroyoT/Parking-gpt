@@ -95,8 +95,8 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 
 | Método | Ruta | Quién |
 |---|---|---|
-| GET | `/cliente/plazas` | Autenticado |
-| GET | `/cliente/tickets` | Autenticado |
+| GET | `/cliente/plazas` | Autenticado + ámbito: sus vehículos |
+| GET | `/cliente/tickets` | Autenticado + ámbito: sus vehículos |
 
 ### 3.7 Costes operativos — `costs` (`costs.py`)
 
@@ -131,7 +131,7 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 
 | Método | Ruta | Quién |
 |---|---|---|
-| GET | `/parkings/{parking_id}/operadores` | Autenticado + `enforce_parking_membership` |
+| GET | `/parkings/{parking_id}/operadores` | Autenticado + `enforce_parking_membership` + ámbito: membresías de sucursal |
 | POST | `/parkings/{parking_id}/operadores` | Autenticado + `enforce_parking_membership` |
 
 ### 3.12 Incidentes y adjuntos — `incidents` (`incidents.py`)
@@ -194,17 +194,17 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 
 | Método | Ruta | Quién |
 |---|---|---|
-| GET | `/admin/reports/margins` | Autenticado |
-| GET | `/admin/reports/margins.csv` | Autenticado |
-| GET | `/admin/reports/ingresos.csv` | Autenticado |
-| GET | `/admin/reports/ingresos.pdf` | Autenticado |
-| GET | `/admin/reports/ocupacion.csv` | Autenticado |
-| GET | `/admin/reports/ocupacion.pdf` | Autenticado |
-| GET | `/admin/reports/tickets.csv` | Autenticado |
-| GET | `/admin/reports/tickets.pdf` | Autenticado |
-| GET | `/admin/reports/alertas.csv` | Autenticado |
-| GET | `/admin/reports/alertas.pdf` | Autenticado |
-| GET | `/admin/reports/margins.pdf` | Autenticado |
+| GET | `/admin/reports/margins` | Autenticado + ámbito: membresías de sucursal |
+| GET | `/admin/reports/margins.csv` | Autenticado + ámbito: membresías de sucursal |
+| GET | `/admin/reports/ingresos.csv` | Autenticado + ámbito: membresías de sucursal |
+| GET | `/admin/reports/ingresos.pdf` | Autenticado + ámbito: membresías de sucursal |
+| GET | `/admin/reports/ocupacion.csv` | Autenticado + ámbito: membresías de sucursal |
+| GET | `/admin/reports/ocupacion.pdf` | Autenticado + ámbito: membresías de sucursal |
+| GET | `/admin/reports/tickets.csv` | Autenticado + ámbito: membresías de sucursal |
+| GET | `/admin/reports/tickets.pdf` | Autenticado + ámbito: membresías de sucursal |
+| GET | `/admin/reports/alertas.csv` | Autenticado + ámbito: membresías de sucursal |
+| GET | `/admin/reports/alertas.pdf` | Autenticado + ámbito: membresías de sucursal |
+| GET | `/admin/reports/margins.pdf` | Autenticado + ámbito: membresías de sucursal |
 
 ### 3.19 Plazas — `spaces` (`spaces.py`)
 
@@ -233,11 +233,11 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 
 | Método | Ruta | Quién |
 |---|---|---|
-| GET | `/tickets` | Autenticado |
+| GET | `/tickets` | Autenticado + ámbito: sus vehículos + ámbito: membresías de sucursal |
 | POST | `/tickets` | Autenticado |
 | POST | `/tickets/manual` | `require_role('admin')` + Autenticado + `parking_context` |
-| GET | `/tickets/{ticket_id}` | Autenticado |
-| POST | `/tickets/{ticket_id}/close` | Autenticado |
+| GET | `/tickets/{ticket_id}` | Autenticado + ámbito: sus vehículos + ámbito: membresías de sucursal |
+| POST | `/tickets/{ticket_id}/close` | Autenticado + ámbito: sus vehículos + ámbito: membresías de sucursal |
 
 ### 3.23 Usuarios y membresías — `users` (`users.py`)
 
@@ -247,9 +247,9 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 | PATCH | `/users/me/password` | Autenticado |
 | PATCH | `/users/me/profile` | Autenticado |
 | GET | `/users/me/vehicles` | Autenticado + ámbito: sus vehículos |
-| POST | `/users/me/vehicles` | Autenticado |
-| PATCH | `/users/me/vehicles/{vehicle_id}` | Autenticado |
-| POST | `/users/me/vehicles/{vehicle_id}/links` | Autenticado |
+| POST | `/users/me/vehicles` | Autenticado + ámbito: sus vehículos |
+| PATCH | `/users/me/vehicles/{vehicle_id}` | Autenticado + ámbito: sus vehículos |
+| POST | `/users/me/vehicles/{vehicle_id}/links` | Autenticado + ámbito: sus vehículos |
 | DELETE | `/users/me/vehicles/{vehicle_id}/links/{user_id}` | Autenticado + ámbito: sus vehículos |
 | GET | `/users/me/tickets` | Autenticado + ámbito: sus vehículos |
 | GET | `/users` | `require_role('admin')` |
