@@ -16,6 +16,7 @@ from app.api.v1 import (
     incidents,
     logout_all,
     parkings,
+    password_reset,
     plates,
     reports,
     spaces,
@@ -29,6 +30,9 @@ from app.api.v1 import (
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(auth.router)
 api_router.include_router(logout_all.router)
+# T-22 (2026-10-21): recuperación de contraseña por correo (token de un
+# solo uso, hasheado en BD). Routers separados para no tocar auth.py.
+api_router.include_router(password_reset.router)
 api_router.include_router(users.router)
 api_router.include_router(parkings.router)
 api_router.include_router(spaces.router)

@@ -16,6 +16,7 @@ from app.models.enums import (
 )
 from app.models.geofence import CameraGeofence
 from app.models.parking import Camera, Parking, ParkingSpace
+from app.models.password_reset_token import PasswordResetToken
 from app.models.plates_detected import PlatesDetected
 from app.models.pricing import Plan, Subscription, Tariff
 from app.models.ticket import Ticket
@@ -36,6 +37,7 @@ __all__ = [
     "Parking",
     "ParkingMembership",
     "ParkingSpace",
+    "PasswordResetToken",
     "Plan",
     "PlatesDetected",
     "Subscription",
