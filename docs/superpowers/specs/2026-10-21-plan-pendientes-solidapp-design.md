@@ -2,6 +2,32 @@
 
 **Fecha**: 2026-10-21 · **Rama de trabajo**: `feat/live-preview-cameras` · **Estado del repo**: 8 ficheros modificados sin commitear, PR #13 y PR #14 abiertos.
 
+> ### 📍 Estado actual (2026-10-21, cierre de la sesión)
+>
+> El plan está **ejecutado**: **142 de 143 criterios** verificados, **177 commits** en `main` (`9910950`), todo sincronizado con `origin/main`.
+>
+> | Comprobación | Resultado |
+> |---|---|
+> | Suite completa | **530 passed** en SQLite · **539 passed** en PostgreSQL |
+> | QA visual (Chromium) | 21 pantallas a **4 anchos** (768, 1024, 1232, 1440 px): 0 desbordes, 0 errores de consola |
+> | PWA | verificado: instalable y **arranca sin red** |
+> | API | **99 de 99 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
+> | Carga / SLO | 491 peticiones, 0 fallos → **14 de 14 reglas** |
+> | Lint y tipos | `ruff` y `mypy` en verde, `vue-tsc` y `npm run build` en verde, `actionlint` exit 0 |
+>
+> **Lo que queda depende de ti** (y sólo de ti):
+> 1. **La facturación de la cuenta de GitHub.** Sin ella los jobs de Actions
+>    no arrancan (*"recent account payments have failed"*) y no se puede
+>    marcar el último criterio, que es precisamente el que depende del
+>    CI. **Todos** los jobs del workflow están replicados a mano y en
+>    verde, así que deberían pasar en cuanto lo arregles.
+> 2. **La decisión de producto del cobro con pasarela** (D2): hoy es
+>    contable, a la espera de que haya un cliente piloto.
+>
+> Este documento **creció** durante la ejecución: cada hallazgo posterior
+> (T-13+6 y siguientes) tiene su propia entrada, con lo que se
+> comprobó y cómo.
+
 > **Qué es este documento**: el inventario completo y verificable de lo que queda por hacer en solidAPP, con el **resultado esperado** de cada bloque. Está escrito para que otra sesión pueda repartir el trabajo entre subagentes vía `/goal`: cada ítem (`T-xx`) es una unidad autónoma, con resultado esperado y criterios de aceptación comprobables.
 >
 > **Cómo se usa**: cada ítem tiene un identificador estable (`T-01`, `T-02`, …). Un subagente debe recibir **un** `T-xx` (o un grupo contiguo del mismo bloque), y no tocar ficheros fuera de los indicados en el ítem.
@@ -375,7 +401,7 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] `tools/verificar_api_doc.py` detecta la deriva entre el documento y el código.
   - [x] El inventario documenta los **99 endpoints** con su RBAC real, y el verificador dice "El inventario coincide con el código".
   - [x] Sin avisos de *Duplicate Operation ID* al arrancar.
-  - [x] Suite en verde (521 passed en SQLite) tras quitar los decoradores duplicados.
+  - [x] Suite en verde (530 passed en SQLite) tras quitar los decoradores duplicados.
 
 ### T-25+2 · Dos endpoints sin ningún test: el OCR de placas
 
@@ -713,11 +739,11 @@ T-22 (recuperación de contraseña) ──> T-24 (PWA, que necesita self-service
 
 - [x] `cd backend && ruff check app tests` → sin errores.
 - [x] `cd backend && mypy app` → sin errores nuevos (hoy `continue-on-error: true`).
-- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **521 passed en SQLite y 530 en PostgreSQL**.
+- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **530 passed en SQLite y 539 en PostgreSQL**.
 - [x] `docker compose up -d` → todos los servicios *healthy* y `/health` responde 200.
 - [x] QA visual en el navegador de las pantallas tocadas (con la app real, no sólo tests).
       → **HECHA** con Chromium headless (Playwright) sobre la app real
-      (`frontend/scripts/qa_visual.py`): las **18 pantallas** de los tres
+      (`frontend/scripts/qa_visual.py`): las **21 pantallas** de los tres
       roles se renderizan, **0 errores de consola** y **0 peticiones de red
       fallidas**. Se revisaron una a una las capturas: catálogo de planes,
       mi plan, mis vehículos, mi perfil, mi plaza, pagos, entradas/salidas,
@@ -725,6 +751,11 @@ T-22 (recuperación de contraseña) ──> T-24 (PWA, que necesita self-service
       La QA destapó un defecto visual: el aviso de cobro contable se leía
       "Cobro contable. Cobro contable: ..." (la etiqueta se anteponía a un
       texto que ya empezaba así). Corregido.
+      → La QA se ha ampliado desde entonces: recorre además **4 anchos**
+      (768, 1024, 1232 y 1440 px) y **detecta el contenido que no cabe**
+      (recortado o desbordado), lo que destapó 6 defectos de maquetación
+      (T-13+7 y T-13+8). También hay `frontend/scripts/qa_pwa.py`, que
+      verifica que el PWA es instalable y arranca sin red.
 - [x] Sin 4xx/5xx inesperados en `docker logs backend` durante la QA.
       → Con el árbol estable el log está limpio. Durante el trabajo en
       paralelo sí hubo errores de arranque del reloader por ficheros a

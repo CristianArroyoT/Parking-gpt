@@ -11,7 +11,7 @@
 
 ```
 backend/app/
-├── api/v1/                    100 endpoints en 22 routers
+├── api/v1/                    100 endpoints en 24 routers
 │   ├── __init__.py            el concentrador (registra todos los routers)
 │   ├── auth.py                login, oauth, refresh, logout
 │   ├── password_reset.py      recuperación de contraseña (T-22)
