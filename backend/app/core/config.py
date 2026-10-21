@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -216,6 +216,42 @@ class Settings(BaseSettings):
     )
 
     environment: Literal["development", "staging", "production", "test"] = Field(default="development", alias="ENVIRONMENT")
+
+    @model_validator(mode="after")
+    def _exigir_secreto_real_fuera_de_desarrollo(self) -> "Settings":
+        """En staging/producción, el secreto JWT tiene que ser real.
+
+        POR QUÉ (2026-10-21): el compose trae ``JWT_SECRET:
+        ${JWT_SECRET:-change-me-in-production}``. Ese valor por defecto
+        está escrito en un repositorio **público**: si alguien despliega
+        en una sucursal sin poner la variable de entorno, la API firmaría
+        los tokens con un secreto que cualquiera puede leer, es decir,
+        podría fabricar el token de administrador.
+
+        Mejor que arrancar y fallar por el camino (un 401 en mitad de una
+        sesión de un técnico es unundiagnóstico horrible): que la
+        aplicación no levante y lo diga claro en el log.
+
+        En ``development`` y ``test`` no se comprueba: el equipo de QA
+        usa el valor por defecto a propósito.
+        """
+        if self.environment not in ("production", "staging"):
+            return self
+        if self.jwt_secret.strip().lower() in {
+            "change-me",
+            "change-me-in-production",
+            "changeme",
+            "secret",
+            "",
+        }:
+            raise ValueError(
+                "JWT_SECRET debe definirse con un valor real cuando "
+                f"ENVIRONMENT={self.environment}: el valor por defecto "
+                "'change-me-in-production' está en el repositorio "
+                "público y permitiría firmar tokens de administrador. "
+                "Exporta JWT_SECRET antes de arrancar."
+            )
+        return self
 
     @property
     def cors_origins_list(self) -> list[str]:

@@ -27,7 +27,14 @@ services:
       timeout: 5s
       retries: 10
     ports:
-      - "5432:5432"
+      # SÓLO loopback (2026-10-21): este compose es también el que se
+      # copia a una sucursal (ADR-0001, opción D: Compose en el edge), y
+      # con "5432:5432" la base de datos quedaba escuchando en la red
+      # de la sucursal con la contraseña "parking" escrita en un
+      # repositorio público. La base NO necesita ser accesible desde
+      # fuera: los servicios se hablan por la red de Docker
+      # ("db:5432") y el host sigue entrando por 127.0.0.1.
+      - "127.0.0.1:5432:5432"
 
   # ── Cola + cache + scheduler ─────────────────────────────────────────
   redis:
@@ -41,7 +48,12 @@ services:
       timeout: 3s
       retries: 5
     ports:
-      - "6379:6379"
+      # SÓLO loopback (2026-10-21): Redis no tiene contraseña y aquí
+      # vive la blacklist de tokens y el estado de sesión. Con
+      # "6379:6379" cualquier equipo de la red de la sucursal podía
+      # leerlo e invalidar tokens ajenos. Por dentro los servicios
+      # siguen hablándose por la red de Docker.
+      - "127.0.0.1:6379:6379"
 
   # ── Servicio OCR (PaddleOCR separado) ─────────────────────────────────
   # Mantiene PaddleOCR aislado del backend (~1.5 GB de imagen sólo aquí).
@@ -61,7 +73,10 @@ services:
     volumes:
       - ocr_models:/models
     ports:
-      - "8801:8800"
+      # SÓLO loopback (2026-10-21): es un servicio interno del backend
+      # (el backend le manda los frames). El puerto se publica para
+      # depurar a mano con curl, no para que lo use la red.
+      - "127.0.0.1:8801:8800"
     restart: unless-stopped
 
   # ── Servicio vehicle-detector (Ultralytics YOLO separado) ─────────────
@@ -92,7 +107,8 @@ services:
     volumes:
       - vehicle_models:/models
     ports:
-      - "8802:8800"
+      # SÓLO loopback (2026-10-21): servicio interno del backend.
+      - "127.0.0.1:8802:8800"
     restart: unless-stopped
 
   # ── API FastAPI ──────────────────────────────────────────────────────
@@ -264,7 +280,9 @@ services:
       - loki-data:/loki
       - ./infra/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
     ports:
-      - "3100:3100"
+      # SÓLO loopback (2026-10-21): los logs de la sucursal no se
+      # exponen a la red local.
+      - "127.0.0.1:3100:3100"
     restart: unless-stopped
 
   promtail:
@@ -286,7 +304,10 @@ services:
       - grafana-data:/var/lib/grafana
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
     ports:
-      - "3000:3000"
+      # SÓLO loopback (2026-10-21): Grafana lleva la contraseña por
+      # defecto "admin" y muestra los logs de la sucursal. Se abre por
+      # túnel (ssh -L) o desde el propio host, no desde la red local.
+      - "127.0.0.1:3000:3000"
     depends_on:
       - loki
     restart: unless-stopped
