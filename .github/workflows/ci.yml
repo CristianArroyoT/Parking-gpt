@@ -163,6 +163,18 @@ jobs:
           alembic upgrade head
           alembic check
 
+      - name: Despliegue limpio (migrar, sembrar y servir)
+        # POR QUÉ (2026-10-21): nadie había probado el camino COMPLETO de
+        # un despliegue nuevo. Las migraciones se ejecutaban sobre la
+        # base de QA (ya sembrada) y el seed por separado, pero nunca
+        # los tres juntos sobre una base VACÍA: un despliegue roto
+        # (una migración que no aplica sobre el esquema limpio, o un
+        # seed que usa una columna que ya no existe) sólo se habría
+        # visto en el primer cliente.
+        env:
+          DATABASE_URL: "postgresql+psycopg://parking:parking@localhost:5432/solidapp_despliegue"
+        run: python ../tools/verificar_despliegue_limpio.py
+
   # ── Build de las imágenes Docker ────────────────────────────────────────
   # POR QUÉ este job existe (T-05, 2026-10-21): el ``backend/Dockerfile``
   # estuvo roto mucho tiempo (``RUN mkdir -p /var/log/solidapp`` después
