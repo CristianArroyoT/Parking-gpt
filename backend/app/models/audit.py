@@ -68,5 +68,12 @@ class Alert(Base, TimestampMixin):
     acknowledged_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # T-21 (2026-10-21): usuario que reportó el incidente. Las alertas
+    # del sistema (cámara caída, OCR fallido…) lo tienen a NULL.
+    # ON DELETE CASCADE: al borrar el usuario se borra su incidente y,
+    # en cascada, sus fotos adjuntas (derecho al olvido, LOPDGDD).
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
+    )
 
     parking: Mapped["Parking"] = relationship()

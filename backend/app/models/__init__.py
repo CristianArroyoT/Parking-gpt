@@ -16,6 +16,7 @@ from app.models.enums import (
 )
 from app.models.face_template import FaceTemplate
 from app.models.geofence import CameraGeofence
+from app.models.incident import IncidentAttachment
 from app.models.parking import Camera, Parking, ParkingSpace
 from app.models.password_reset_token import PasswordResetToken
 from app.models.plates_detected import PlatesDetected
@@ -35,6 +36,7 @@ __all__ = [
     "CostCategory",
     "CostPeriod",
     "FaceTemplate",
+    "IncidentAttachment",
     "ManualEntryReason",
     "Parking",
     "ParkingMembership",
