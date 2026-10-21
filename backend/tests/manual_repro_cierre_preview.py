@@ -10,7 +10,6 @@ Uso: python /tmp/_repro_sigsegv.py
 from __future__ import annotations
 
 import os
-import signal
 import subprocess
 import sys
 import time
