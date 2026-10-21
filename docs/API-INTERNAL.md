@@ -263,6 +263,12 @@ Dependencias de autorización (en `backend/app/core/deps.py`):
 | PATCH | `/vehicles/{vehicle_id}` | `require_role('admin', 'gestor', 'operador')` |
 | POST | `/vehicles/{vehicle_id}/users` | `require_role('admin', 'gestor', 'operador')` |
 
+### 3.25 Salud — `meta` (`main.py`)
+
+| Método | Ruta | Quién |
+|---|---|---|
+| GET | `/health` | Público |
+
 ## 4. Versionado y política de deprecación
 
 - **Prefijo fijo `/api/v1`**. El versionado es por ruta, no por cabecera.

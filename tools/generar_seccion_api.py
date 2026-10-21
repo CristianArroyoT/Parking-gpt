@@ -93,6 +93,16 @@ def seccion() -> str:
             ruta_doc = ruta.replace("/api/v1", "")
             lineas.append(f"| {metodo} | `{ruta_doc}` | {quien} |")
         lineas.append("")
+
+    # El endpoint de salud no vive en un router de la API: lo define
+    # ``create_app`` en ``app/main.py`` y va fuera del prefijo.
+    numero += 1
+    lineas.append("### 3.%d Salud — `meta` (`main.py`)" % numero)
+    lineas.append("")
+    lineas.append("| Método | Ruta | Quién |")
+    lineas.append("|---|---|---|")
+    lineas.append("| GET | `/health` | Público |")
+    lineas.append("")
     return "\n".join(lineas)
 
 
