@@ -139,6 +139,30 @@ jobs:
         # registradas dos veces).
         run: python ../tools/verificar_api_doc.py
 
+      - name: Las migraciones y los modelos coinciden
+        # POR QUÉ (2026-10-21): los tests crean el esquema con
+        # ``Base.metadata.create_all``, es decir, **NO ejecutan las
+        # migraciones**: una migración rota sólo se habría discovered en
+        # producción. Aquí se levanta una base VACÍA, se migra de cero
+        # y se comprueba con ``alembic check`` que el esquema resultante
+        # coincide con los modelos.
+        #
+        # Esto ya encontró una deriva real: los modelos declaraban
+        # cuatro índices que ninguna migración había creado, y la base
+        # tenía cuatro restricciones UNIQUE redundantes que el modelo
+        # no produce (migración 0014).
+        run: |
+          set -o pipefail
+          # CREATE DATABASE no puede ir dentro de una transaccion: cada
+          # -c se manda por separado, pero mejor no depender de eso.
+          PGPASSWORD=parking psql -h localhost -U parking -d parking_test \
+            -c "DROP DATABASE IF EXISTS solidapp_migraciones" >/dev/null
+          PGPASSWORD=parking psql -h localhost -U parking -d parking_test \
+            -c "CREATE DATABASE solidapp_migraciones" >/dev/null
+          export DATABASE_URL="postgresql+psycopg://parking:parking@localhost:5432/solidapp_migraciones"
+          alembic upgrade head
+          alembic check
+
   # ── Build de las imágenes Docker ────────────────────────────────────────
   # POR QUÉ este job existe (T-05, 2026-10-21): el ``backend/Dockerfile``
   # estuvo roto mucho tiempo (``RUN mkdir -p /var/log/solidapp`` después
