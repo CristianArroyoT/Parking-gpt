@@ -14,7 +14,6 @@ Lo que se fija aquí, en orden de importancia:
 
 from __future__ import annotations
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 

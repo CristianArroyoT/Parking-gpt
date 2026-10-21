@@ -73,13 +73,12 @@ def listar_operadores(
     ids = select(ParkingMembership.user_id).where(
         ParkingMembership.parking_id == parking_id
     )
-    usuarios = (
+    return (
         db.query(User)
         .filter(User.id.in_(ids), User.role == UserRole.OPERADOR)
         .order_by(User.id)
         .all()
     )
-    return usuarios
 
 
 @router.post(
