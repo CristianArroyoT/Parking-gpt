@@ -25,7 +25,7 @@ Casos cubiertos:
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy.orm import sessionmaker
@@ -401,8 +401,18 @@ def test_probe_heartbeats_persists_last_heartbeat_ok(heartbeat_env) -> None:
     # last_heartbeat_at debe ser reciente (hace < 5 s). SQLite devuelve
     # datetimes naive; Postgres los devuelve tz-aware. Normalizamos a naive
     # en ambos casos con ``.replace(tzinfo=None)`` (no-op si ya es naive).
+    #
+    # OJO (2026-10-21): el instante de la comparación tiene que ser
+    # también UTC. El heartbeat guarda ``datetime.now(timezone.utc)``;
+    # comparar ese valor (naive) con ``datetime.now()`` (hora LOCAL)
+    # dejaba un desfase de una o dos horas según la zona del servidor, y
+    # el test fallaba con "last_heartbeat_at demasiado antiguo" en
+    # cualquier máquina que no estuviera en UTC. En CI y en el
+    # contenedor pasaba (los dos en UTC), así que el fallo sólo se veía
+    # al ejecutar la suite en el portátil del equipo.
     last_at_naive = refreshed.last_heartbeat_at.replace(tzinfo=None)
-    age = (datetime.now() - last_at_naive).total_seconds()
+    ahora_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    age = (ahora_utc - last_at_naive).total_seconds()
     assert 0 <= age < 5, f"last_heartbeat_at demasiado antiguo: {age}s"
 
 
