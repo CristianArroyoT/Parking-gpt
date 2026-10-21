@@ -40,9 +40,32 @@ Efecto medido en la referencia: 3 caídas del worker en 180 s → 36 peticiones
 fallidas (`HTTP 0`, el servidor estaba caído) y el p95 de `lectura_tickets`
 subió de 15 ms (mediana) a 1,1 s.
 
-**Arreglo propuesto**: no liberar la captura desde el hilo del event loop
-mientras hay un `grab()` en vuelo (o hacer el `release()` en el mismo hilo que
-leyó el frame, con un flag de "cerrando" para que el hilo lector salga antes).
+**Estado: CORREGIDO** (ver `app/services/cameras/stream.py`). El arreglo
+envuelve el `cv2.VideoCapture` en `CapturaSincronizada`, que serializa con un
+`threading.Lock` **todas** las llamadas a OpenCV (`grab`, `retrieve`,
+`release`): el `release()` del `finally` espera a que termine la lectura en
+vuelo en vez de competir con ella. El lock es de `threading` y no de asyncio
+porque las dos partes viven en hilos distintos (el `grab()` en el thread pool,
+el `release()` en el event loop).
+
+Verificado antes/después con la misma reproducción
+(`backend/tests/manual_repro_cierre_preview.py`, 20 cierres abruptos del
+preview contra un uvicorn **sin** `--reload`):
+
+| código | resultado |
+|---|---|
+| anterior al arreglo | el worker **muere con SIGSEGV (exit -11) tras 5 cierres** |
+| con el arreglo | **20 cierres y el proceso sigue vivo**, `/health` → 200 |
+
+El test de regresión unitario está en
+`backend/tests/test_mjpeg_capture_safety.py`: falla si alguien vuelve a
+soltar el lock.
+
+La reproducción manual queda en
+`backend/tests/manual_repro_cierre_preview.py` (levanta un uvicorn sin
+`--reload`, cierra el preview 20 veces de golpe y comprueba que el
+proceso sobrevive). Con `APP_DIR` se le puede apuntar a otra copia del
+código para comparar el antes y el después.
 
 ### 1.2 · P1 — cada stream abierto retiene (y a veces filtra) una conexión de PostgreSQL
 
@@ -64,9 +87,16 @@ select state, count(*) from pg_stat_activity where datname='parking' group by st
 --  idle in transaction | 5   <-- filtradas
 ```
 
-**Arreglo propuesto**: no inyectar la sesión de BD en los endpoints de
-streaming (basta con abrir y cerrar la conexión antes de empezar a emitir), y
-cerrar la sesión en el `finally` del generador.
+**Estado: CORREGIDO** (ver `app/api/v1/cameras_live.py` y
+`app/api/v1/events.py`). Los endpoints de streaming ya **no** declaran
+`db: Session = Depends(get_db)`: resuelven la autenticación, el RBAC y la
+lectura que necesitan con una **sesión corta**, abierta y cerrada *antes*
+de empezar a emitir. El generador del preview recibe un `CameraRef` (sólo
+`id` y `rtsp_url`), no un modelo ORM vivo.
+
+Medido después del arreglo: durante el preview hay **0** conexiones en
+`idle in transaction` (antes: 1 por stream), que es lo que hace el objetivo
+de 50 streams simultáneos caber en el pool.
 
 ### 1.3 · P2 — reabrir el preview da 409 durante hasta ~8 s
 
