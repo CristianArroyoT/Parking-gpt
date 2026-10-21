@@ -442,6 +442,11 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
 de sus ficheros (para que dos agentes nunca tocaran el mismo a la vez), más
 trabajo directo de la sesión principal en los puntos de integración.
 
+**Cómo acabó**: tres PR mergeados en `main` con commit de merge (para
+conservar el historial y el "por qué" de cada commit):
+PR #13 (`899ec1f`, R5) · PR #14 (`d0ae543`, bloques 0-1-2) ·
+PR #15 (`f84bf55e`, bloque 3).
+
 | Ítem | Cómo | Resultado |
 |---|---|---|
 | T-01, T-02 | sesión principal | Commits y push hechos; CI remoto bloqueado por facturación |
