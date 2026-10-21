@@ -326,6 +326,16 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
 - **Nota de alcance**: el arreglo es el desplazamiento horizontal en la
   tarjeta, no un rediseño. Con ventana ancha se ve exactamente igual que
   antes.
+- **Ampliado a 1024 px** (el ancho de tablet, con el menú colapsado): salió
+  un defecto más, la etiqueta **"Minutos/fracción"** de Tarifas, que era un
+  único token sin espacios (98 px) en una caja de 86 px y se salía de su
+  columna. Ahora dice "Minutos por fracción", que parte en dos palabras como
+  la etiqueta de al lado. Con la QA a 1024, 1232 y 1440 px: **0 desbordes y
+  0 errores de consola** en las 21 pantallas.
+- **El detector excluye a propósito** los controles de formulario
+  (`select`, `input`, `textarea`), que el navegador recorta de forma nativa
+  con puntos suspensivos, y los elementos posicionados en absoluto o fijo.
+  Sin esas exclusiones el detector marcaría ruido y nadie lo miraría.
 
 ### T-14 · I3 — OCR con GPU
 

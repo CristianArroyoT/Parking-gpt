@@ -187,6 +187,18 @@ recorrer las pantallas con la medida del panel lateral. Sale con código
 1 si encuentra algo. Resultado: de **5 contenidos desbordados a 0** a
 1232 px, y 0 a 1440 px (sin regresión).
 
+Al revisar además a **1024 px** (tablet, con el menú colapsado) salió el
+último defecto: la etiqueta **"Minutos/fracción"** de Tarifas era un
+único token sin espacios (98 px) en una caja de 86 px, y se salía de su
+columna. Ahora dice "Minutos por fracción", que parte en dos palabras como
+la etiqueta de al lado. Los tres anchos (1024, 1232 y 1440) quedan con
+**0 desbordes y 0 errores de consola**.
+
+El detector **excluye a propósito** los controles de formulario
+(`select`, `input`, `textarea`), que el navegador recorta de forma nativa
+con puntos suspensivos: no es un defecto de maquetación, y marcarlo
+haría que la comprobación dejara de servir como puerta.
+
 
 | Modelo | Tabla | Notas |
 |---|---|---|

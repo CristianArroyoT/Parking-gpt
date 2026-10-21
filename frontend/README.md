@@ -75,12 +75,35 @@ contenido y se puedan desplazar.
 Vistas arregladas: Operadores, Cámaras, Planes, Usuarios y Tarifas. A 1232
 px la QA pasa de **5 contenidos desbordados a 0**.
 
+El detector **excluye a propósito** tres cosas que no son defectos:
+
+- Los controles de formulario (`select`, `input`, `textarea`): el navegador
+  los recorta de forma nativa (el texto seleccionado sale con puntos
+  suspensivos y el desplegable muestra el valor completo).
+- Los elementos posicionados en absoluto o fijo: menús, desplegables y
+  tooltips, que desbordan a propósito.
+- Los contenedores con scroll propio: su contenido es más ancho porque el
+  usuario lo desplaza.
+
+### Anchos que se revisan
+
+| Ancho | Qué representa | Resultado |
+|---|---|---|
+| 1440 px | Referencia de escritorio | 0 desbordes |
+| 1232 px | Panel lateral del navegador integrado | 0 desbordes (antes 5) |
+| 1024 px | Tablet con el menú colapsado | 0 desbordes (antes 1) |
+
+A 1024 px salió el último defecto: la etiqueta **"Minutos/fracción"** de
+Tarifas era un único token sin espacios (98 px) en una caja de 86 px, así
+que se salía de su columna. Ahora dice "Minutos por fracción", que parte en
+dos palabras como la etiqueta de al lado.
+
 Resultado de la última ejecución (2026-10-21, con el stack completo):
-**19 pantallas sin incidencias y 0 errores de consola**, tanto a 1440 px
-como a 1232 px. Quedan dos avisos que **no son fallos**: `/mapa` y `/vivo`
-agotan el tiempo de espera de `networkidle` porque mantienen una conexión
-abierta (el SSE del mapa y el preview MJPEG), así que la red nunca queda en
-reposo. Es inherente a esas dos pantallas; el resto se captura bien.
+**19 pantallas sin incidencias y 0 errores de consola**, en los tres
+anchos. Quedan dos avisos que **no son fallos**: `/mapa` y `/vivo` agotan el
+tiempo de espera de `networkidle` porque mantienen una conexión abierta (el
+SSE del mapa y el preview MJPEG), así que la red nunca queda en reposo. Es
+inherente a esas dos pantallas; el resto se captura bien.
 
 > Si el script falla con `ERR_CONNECTION_RESET` en la pantalla de login,
 > casi siempre es que hay otra cosa comiéndose la CPU (un build de Docker,
