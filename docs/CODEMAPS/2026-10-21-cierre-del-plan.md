@@ -562,6 +562,36 @@ La tercera vía se descartó a propósito: el propio plan avisa de que
 de dejar el CI en rojo sin querer". Y con la factura arreglada, el
 workflow actual pasa entero (probado en local, paso a paso).
 
+### 3-quadragesima. La red de seguridad del repo, en un comando (2026-10-21)
+
+Con el CI remoto muerto, el repo no tenía forma de saber si estaba
+sano: cada comprobación era un comando aparte, con su recordatorio, y
+olvidarse de una era fácil. `tools/verificar_repo.py` es esa puerta:
+
+```bash
+python tools/verificar_repo.py            # rapido: ~1 min
+python tools/verificar_repo.py --completo # + CI local y QA visual: ~26 min
+```
+
+| Comprobación | Resultado medido |
+|---|---|
+| Texto versionado sin corrupción | 0 problemas |
+| Sin secretos (árbol e historial) | 0 |
+| El inventario de la API coincide con el código | 101 rutas |
+| Todo endpoint con test | `SIN ningun test: 0` |
+| Esquemas Create/Update simétricos | OK |
+| Modelos y migraciones coinciden | `alembic check` limpio |
+| SLO de carga | 14/14 reglas |
+| El PWA es instalable y arranca sin red | OK |
+| CI local (los 4 jobs del workflow) | **Todos los jobs pasan en local** (19 min) |
+| QA visual en 414 / 768 / 1024 / 1232 / 1440 px | 5 × 21 pantallas, 0 desbordes |
+| CI remoto en `main` | rechazado por la cuenta (facturación) → **aviso**, no fallo |
+
+Sale con 0 si todo está bien y 1 si algo falla, como haría el CI. Cada
+comprobación tiene su propio límite de tiempo, y antes de las pesadas
+comprueba que el stack esté en marcha y avisa (`docker compose up -d`)
+en vez de fallar con errores confusos de navegador o de backend.
+
 Y con el IPv4 arreglado, la réplica local pasó a poder ejecutar **el CI
 completo**, incluidos los dos pasos de test que antes se saltaban
 porque el host no resolvía los nombres de servicio de Docker:
