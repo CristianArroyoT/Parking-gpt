@@ -54,5 +54,8 @@ backend/celerybeat-schedule.db
 # MinGW / Git Bash crash dumps (no son parte del proyecto)
 *.stackdump
 
+# Informe generado por tools/escanear_texto.py (se regenera al usarlo)
+tools/_informe_texto.txt
+
 # Claude / local memory
 .claude/
