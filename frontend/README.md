@@ -92,11 +92,50 @@ El detector **excluye a propósito** tres cosas que no son defectos:
 | 1440 px | Referencia de escritorio | 0 desbordes |
 | 1232 px | Panel lateral del navegador integrado | 0 desbordes (antes 5) |
 | 1024 px | Tablet con el menú colapsado | 0 desbordes (antes 1) |
+| 768 px | Tablet vertical / móvil | 0 desbordes |
 
 A 1024 px salió el último defecto: la etiqueta **"Minutos/fracción"** de
 Tarifas era un único token sin espacios (98 px) en una caja de 86 px, así
 que se salía de su columna. Ahora dice "Minutos por fracción", que parte en
 dos palabras como la etiqueta de al lado.
+
+## QA del PWA (instalabilidad y modo sin red)
+
+`scripts/qa_pwa.py` comprueba lo que la QA visual no mira: que la app sea
+**instalable** y que **arranque sin red**.
+
+```bash
+npm run build          # el PWA sólo se registra en producción
+python scripts/qa_pwa.py
+```
+
+Comprueba:
+
+1. El manifiesto se descarga y se parsea, con los campos que Chrome exige
+   para ofrecer "Instalar app" (`name`, `start_url`, `display`, `icons`) y
+   los tamaños de icono obligatorios (192 y 512).
+2. **Cada icono del manifiesto se sirve con 200** y no está vacío: un icono
+   que devuelve 404 sólo se detecta cuando el usuario intenta instalar.
+3. El *service worker* se registra, queda activo y **toma el control** de la
+   página.
+4. La **app arranca sin red**: se corta la red, se recarga y la pantalla
+   tiene que salir desde la caché del SW.
+
+Resultado de la última ejecución (2026-10-21, sobre `dist/`):
+
+```
+manifiesto OK: solidAPP · Cliente | 4 iconos | display=standalone
+service worker OK: activo, controlando, 44 entradas precacheadas en 1 cache(s)
+sin red: la app arranca desde la cache del service worker
+```
+
+> **Por qué no está en el CI**: el job de frontend corre en una imagen de
+> Node sin Python ni navegadores. Añadirlo exigiría instalar Playwright y
+> Chromium en la imagen del CI (+~500 MB y minutos de descarga), y ahora
+> mismo no se puede validar un cambio del workflow porque la
+> facturación de la cuenta impide que los jobs arranquen. Está
+> documentado como propuesta (T-24+1) para cuando el CI vuelva a estar
+> en marcha.
 
 Resultado de la última ejecución (2026-10-21, con el stack completo):
 **19 pantallas sin incidencias y 0 errores de consola**, en los tres

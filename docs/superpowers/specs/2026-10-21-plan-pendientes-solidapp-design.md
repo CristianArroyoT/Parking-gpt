@@ -337,6 +337,30 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   con puntos suspensivos, y los elementos posicionados en absoluto o fijo.
   Sin esas exclusiones el detector marcaría ruido y nadie lo miraría.
 
+### T-24+1 · Verificar que el PWA es instalable y arranca sin red (propuesto, no ejecutado en CI)
+
+- **Estado**: **completado en local** · **pendiente de meter en el CI**
+- **Contexto**: la QA visual recorre las pantallas del cliente, pero nadie
+  miraba lo que hace que una PWA sea instalable. Un icono que devuelve 404,
+  un manifiesto mal formado o un service worker que no toma el control sólo
+  se ven cuando el usuario intenta instalar la app: y entonces ya es tarde.
+- **Qué se ha hecho**: `frontend/scripts/qa_pwa.py` comprueba el manifiesto
+  (campos que Chrome exige y tamaños 192/512), que **cada icono se sirva
+  con 200**, que el *service worker* se registre, quede activo y **tome el
+  control**, y que **la app arranque sin red** (se corta la red, se recarga
+  y la pantalla tiene que salir de la caché).
+- **Resultado medido (2026-10-21)**: manifiesto OK con 4 iconos y
+  `display=standalone`; service worker activo y controlando con 44 entradas
+  precacheadas; la app **arranca sin red**. El PWA es instalable.
+- **Por qué no entra en el CI todavía**: el job de frontend corre en una
+  imagen de Node sin Python ni navegadores; hacer la comprobación allí
+  exigiría instalar Playwright y Chromium (+~500 MB y minutos de descarga).
+  Y con la facturación de la cuenta resuelta **no se puede validar un
+  cambio del workflow**, porque los jobs no arrancan: meter algo que no se
+  ha podido probar en el CI es exactamente la forma de dejar el CI en rojo
+  sin querer. Queda documentado para cuando el CI vuelva a estar en
+  marcha.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.

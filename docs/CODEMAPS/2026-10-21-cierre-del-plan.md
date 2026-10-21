@@ -199,6 +199,28 @@ El detector **excluye a propósito** los controles de formulario
 con puntos suspensivos: no es un defecto de maquetación, y marcarlo
 haría que la comprobación dejara de servir como puerta.
 
+El barrido responsive queda cerrado en cuatro anchos (768, 1024, 1232 y
+1440 px), todos con **0 desbordes y 0 errores de consola**.
+
+### 3-quinquies. El PWA, verificado de verdad (2026-10-21)
+
+Nadie comprobaba lo que hace que una PWA sea instalable. Nueva
+`frontend/scripts/qa_pwa.py`, que verifica:
+
+| Qué | Resultado medido |
+|---|---|
+| Manifiesto con los campos que Chrome exige (`name`, `start_url`, `display`, `icons`) y los tamaños 192/512 | OK: 4 iconos, `display=standalone` |
+| **Cada icono se sirve con 200** y no está vacío | OK (un icono en 404 sólo se ve al instalar) |
+| El *service worker* se registra, queda activo y **toma el control** | OK: activo, controlando, **44 entradas precacheadas** |
+| **La app arranca sin red** (se corta la red y se recarga) | OK: la pantalla sale desde la caché del SW |
+
+**No entra en el CI todavía**, a propósito: el job de frontend corre en
+una imagen de Node sin Python ni navegadores, y añadirlo exigiría
+instalar Playwright y Chromium (+~500 MB). Con la facturación de la cuenta
+resuelta **no se puede validar un cambio del workflow** (los jobs no
+arrancan), así que meter algo sin probar dejaría el CI en rojo sin
+querer. Queda como T-24+1 para cuando el CI vuelva a estar en marcha.
+
 
 | Modelo | Tabla | Notas |
 |---|---|---|
