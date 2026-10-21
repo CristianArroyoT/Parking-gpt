@@ -1,0 +1,133 @@
+# Codemap — cierre del plan de pendientes (2026-10-21)
+
+> Mapa del código **después** del cierre del plan de pendientes. Para la
+> superficie de API con su RBAC, ver [`../API-INTERNAL.md`](../API-INTERNAL.md).
+> Para el estado de cada ítem, ver
+> [`../superpowers/specs/2026-10-21-plan-pendientes-solidapp-design.md`](../superpowers/specs/2026-10-21-plan-pendientes-solidapp-design.md).
+>
+> Convención: un codemap por trabajo grande, en `docs/CODEMAPS/AAA-MM-DD-<slug>.md`.
+
+## 1. Mapa del backend
+
+```
+backend/app/
+├── api/v1/                    100 endpoints en 22 routers
+│   ├── __init__.py            el concentrador (registra todos los routers)
+│   ├── auth.py                login, oauth, refresh, logout
+│   ├── password_reset.py      recuperación de contraseña (T-22)
+│   ├── users.py               CRUD de usuarios (admin) + ámbito /me
+│   ├── gestor_operadores.py   alta/listado de operadores por sucursal (T-20)
+│   ├── planes.py              planes y suscripciones (T-18)
+│   ├── cliente.py             "mi plaza" y "mis tickets" del cliente (T-24)
+│   ├── incidents.py           incidentes + adjuntos/fotos (T-21)
+│   ├── face_templates.py      biometría PREPARADA, deshabilitada (T-23)
+│   ├── cameras_live.py        preview MJPEG (T-06)
+│   ├── events.py              bus de eventos SSE (T-17)
+│   └── reports.py             exportes PDF/CSV (T-16)
+├── core/
+│   ├── config.py              settings (pydantic-settings) — incluye FACE_TEMPLATES_ENABLED
+│   ├── deps.py                auth y RBAC (get_current_user, parking_context, …)
+│   └── middleware.py           AuditMiddleware (T-11)
+├── models/                    modelos SQLAlchemy
+│   ├── pricing.py             Plan, Subscription (ya existían)
+│   ├── incident.py            IncidentAttachment (T-21) ← NUEVO
+│   └── user.py                PasswordResetToken (T-22) ← NUEVO
+├── services/
+│   ├── cameras/
+│   │   ├── stream.py          mjpeg_generator + CapturaSincronizada (T-06+1/T-13+2)
+│   │   └── live_streams.py    registro de streams vivos con lock (T-10)
+│   ├── incident_attachments.py  almacenamiento de fotos en volumen (T-21) ← NUEVO
+│   ├── plans.py               suscripciones (T-18) ← NUEVO
+│   └── pricing.py             cálculo del descuento (NO tocar: T-18 lo replica)
+├── scripts/
+│   └── purge_incident_attachments.py  purga por retención (T-21) ← NUEVO
+└── alembic/versions/           0012_reset_and_face_templates, 0013_incident_attachments
+```
+
+## 2. Mapa del frontend
+
+```
+frontend/src/
+├── views/
+│   ├── admin/PlansView.vue        catálogo de planes (T-18) ← NUEVO
+│   ├── cliente/
+│   │   ├── MyPlanView.vue         "Mi plan" (T-18) ← NUEVO
+│   │   ├── MySpotView.vue         "Mi plaza" (T-24) ← NUEVO
+│   │   ├── PaymentsView.vue       "Pagos" (T-24) ← NUEVO
+│   │   ├── VehiclesView.vue       "Mis vehículos" (T-19) ← NUEVO
+│   │   └── ProfileView.vue        "Mi perfil" (T-19) ← NUEVO
+│   ├── gestor/
+│   │   ├── MovementsView.vue      entradas/salidas (T-20) ← NUEVO
+│   │   ├── AlertsView.vue         alertas activas (T-20) ← NUEVO
+│   │   └── OperatorsView.vue      operadores (T-20) ← NUEVO
+│   └── operador/IncidentModal.vue  selector de hasta 3 fotos (T-21)
+├── api/gestorOps.ts            cliente HTTP de las vistas de gestor
+├── pwa/                        modo PWA + registro del service worker (T-24) ← NUEVO
+├── router/index.ts             rutas + guard de rol + guard de PWA
+└── layouts/AppLayout.vue       menú por rol (en PWA, sólo cliente)
+```
+
+Rutas nuevas: `/admin/planes`, `/mi-plan`, `/mi-plaza`, `/pagos`, `/mis-vehiculos`,
+`/mi-perfil`, `/gestor/movimientos`, `/gestor/alertas`, `/gestor/operadores`.
+
+## 3. Cambios de contrato (lo que un consumidor nota)
+
+### Endpoints nuevos
+
+| Endpoint | Rol | Notas |
+|---|---|---|
+| `POST /api/v1/auth/forgot-password` | público | Respuesta **uniforme**: no revela si el email existe |
+| `POST /api/v1/auth/reset-password` | público (con token) | Invalida los JWT previos del usuario |
+| `GET /api/v1/plans` · `POST` · `GET/PATCH/DELETE /plans/{id}` | admin | |
+| `GET /api/v1/plans/me` | cliente | `billing_mode: contable` (decisión D2) |
+| `GET/POST /api/v1/plans/subscriptions` · `DELETE /plans/subscriptions/{id}` | admin | Un usuario, como mucho, una suscripción vigente |
+| `GET /api/v1/parkings/{id}/operadores` | gestor/admin | Acotado a las sucursales del gestor |
+| `POST /api/v1/parkings/{id}/operadores` | gestor/admin | Rol **forzado** a `operador` |
+| `GET /api/v1/cliente/plazas` · `/cliente/tickets` | cliente | |
+| `POST /api/v1/incidents/{alert_id}/attachments` | operador | Hasta 3 ficheros, validados **por bytes** |
+| `GET /api/v1/incidents/attachments/{id}/thumbnail` · `/download` | gestor/admin | `nosniff` + `Content-Disposition: attachment` |
+| `GET /api/v1/users/me/vehicles` (+ `POST/PATCH`) · `/users/me/tickets` · `/users/me/profile` | cliente | Ámbito propio |
+| `POST/DELETE /api/v1/face-templates` | — | **404**: `FACE_TEMPLATES_ENABLED` apagado (T-23) |
+| `GET /api/v1/admin/reports/{informe}.pdf` · `.csv` | admin | ingresos, ocupacion, tickets, alertas, margins |
+
+### Cambios de comportamiento (los importantes)
+
+| Cambio | Por qué |
+|---|---|
+| **`GET /api/v1/tickets` acota por vehículos para el rol `cliente`** (antes por membresía de sucursal) | Fuga de datos entre clientes: un cliente con membresía veía los tickets de **todos** los vehículos de la sucursal |
+| `GET /api/v1/users` y `POST /users/{id}/memberships` **siguen siendo admin-only** | No se han relajado al abrir el router de operadores |
+| El preview MJPEG va a **5 fps** (`LIVE_PREVIEW_FPS`; `0` = sin limitador) | Decisión D1: −85,5 % de ancho de banda |
+| Los streams de preview y SSE **no retienen sesión de BD** | Con 50 streams se agotaba el pool de conexiones |
+| El stream SSE y el MJPEG **se cierran al apagar el servidor** | Uvicorn se quedaba esperando conexiones abiertas para siempre |
+| `UserUpdate.full_name` exige `min_length=2` | Un nombre de 1 carácter hacía fallar con 500 `GET /users` |
+| El login con `?token=` funciona en `/parkings/{id}/events` (antes 401 siempre) | El endpoint lo anunciaba pero no lo cumplía |
+
+## 4. Modelos de datos nuevos
+
+| Modelo | Tabla | Notas |
+|---|---|---|
+| `IncidentAttachment` | `incident_attachments` | `alert_id` con `ON DELETE CASCADE`; el binario **no** está en la BD, vive en el volumen `incident_attachments` |
+| `PasswordResetToken` | `password_reset_tokens` | Se guarda el **hash SHA-256** del token, nunca el token en claro |
+
+Migraciones: `0012_reset_and_face_templates` (T-22 + T-23) y `0013_incident_attachments` (T-21).
+
+## 5. Variables de entorno nuevas
+
+| Variable | Default | Para qué |
+|---|---|---|
+| `LIVE_PREVIEW_FPS` | `5` | fps del preview (0 = sin limitador) |
+| `FACE_TEMPLATES_ENABLED` | `false` | estructura de biometría preparada (fuera del MVP) |
+| `INCIDENT_ATTACHMENTS_DIR` | `/var/lib/solidapp/incident-attachments` | volumen de las fotos |
+| `INCIDENT_ATTACHMENT_MAX_BYTES` | `10485760` | tope por fichero |
+| `INCIDENT_ATTACHMENT_MAX_FILES` | `3` | ficheros por incidente |
+| `INCIDENT_ATTACHMENT_RETENTION_DAYS` | `90` | retención y purga |
+
+## 6. Documentación relacionada
+
+- `docs/adr/0001-orquestacion-produccion.md` — Compose en el edge, K8s en el central.
+- `docs/adr/0002-ocr-cpu-vs-gpu.md` — la GPU no aporta con la carga real.
+- `docs/API-INTERNAL.md` — los 100 endpoints con su RBAC y la política de deprecación.
+- `infra/backup/README.md` — procedimiento de backup, restauración y simulacro trimestral.
+- `backend/locust/README.md` — escenarios de carga y SLO.
+- `docker/vehicle-detector/README.md` — el modelo real y el bug de canales BGR/RGB.
+- `frontend/README.md` — PWA, QA visual y la trampa del HMR en Docker Desktop/Windows.
