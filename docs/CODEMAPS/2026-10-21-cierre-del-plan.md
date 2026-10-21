@@ -394,6 +394,40 @@ no está en verde** (78 errores en 33 ficheros, en modo `strict`). No es
 una regresión: el paso del CI lleva `continue-on-error: true` desde el
 primer commit. La cabecera del plan lo daba por bueno sin serlo.
 
+### 3-undecies. El CI llevaba más de tres meses sin validar nada (2026-10-21)
+
+El último criterio del plan pedía `gh pr checks 14`. Al comprobarlo con
+la API de GitHub, el **PR #14 está fusionado desde el 2026-07-07** y no
+queda ningún PR abierto: el criterio apuntaba a un PR que ya no existía.
+La referencia correcta es el CI sobre `main`.
+
+Y al mirarlo de verdad, la cosa es bastante más seria de lo que parecía:
+
+| Medición (con la API de GitHub) | Resultado |
+|---|---|
+| Runs revisados | los 100 más recientes |
+| Runs que **ejecutaron** algún paso | 56 |
+| Runs **rechazados sin ejecutar ninguno** | **44** |
+| Último run que ejecutó un paso | **2026-07-07T20:52:15Z** (rama `feat/live-preview-cameras`: Backend en rojo por el `F401`, Frontend en verde) |
+| Commits de `main` sin validar por el CI | **87** |
+
+La firma del rechazo es inequívoca: los 4 jobs terminan en `failure` con
+**0 pasos**, en 3-5 segundos. Eso no es el código fallando — un job
+rechazado nunca llega a un runner.
+
+Herramienta nueva: **`tools/estado_ci.py`**, que distingue los tres casos
+que se confundían:
+
+| Código de salida | Significado |
+|---|---|
+| 0 | El CI de `main` está **en verde** |
+| 1 | **Rojo de verdad**: algún job ejecutó pasos y falló → es el código |
+| 2 | **Rechazado por la cuenta**: los jobs mueren con 0 pasos → es la facturación |
+
+Sale con 0 / 1 / 2 para poder encadenarlo en un script, y escribe el
+informe en `tools/_informe_ci.txt` (UTF-8) porque la consola de Windows
+se come los acentos.
+
 
 | Modelo | Tabla | Notas |
 |---|---|---|

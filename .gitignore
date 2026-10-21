@@ -57,5 +57,8 @@ backend/celerybeat-schedule.db
 # Informe generado por tools/escanear_texto.py (se regenera al usarlo)
 tools/_informe_texto.txt
 
+# Informe generado por tools/estado_ci.py (se regenera al usarlo)
+tools/_informe_ci.txt
+
 # Claude / local memory
 .claude/

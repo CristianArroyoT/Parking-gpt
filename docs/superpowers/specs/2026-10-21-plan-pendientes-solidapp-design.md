@@ -22,6 +22,15 @@
 >    marcar el último criterio, que es precisamente el que depende del
 >    CI. **Todos** los jobs del workflow están replicados a mano y en
 >    verde, así que deberían pasar en cuanto lo arregles.
+>    - Ojo al alcance: el **último run que ejecutó un solo paso** fue el
+>      del **2026-07-07**; desde entonces **ningún** run ha llegado a
+>      arrancar un job. De los 100 runs revisados, **44** fueron
+>      rechazados así. El CI lleva **más de tres meses sin validar nada**
+>      (no es sólo que hoy falle), así que esto no es un trámite menor:
+>      es la única red de seguridad que le queda al repo, y **87 commits
+>      de `main` siguen sin pasar por ella**.
+>    - Para comprobarlo de un vistazo: `python tools/estado_ci.py`
+>      (distingue verde / rojo de verdad / rechazado por la cuenta).
 > 2. **La decisión de producto del cobro con pasarela** (D2): hoy es
 >    contable, a la espera de que haya un cliente piloto.
 >
@@ -89,11 +98,13 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
 - **Criterios de aceptación**:
   - [x] `ruff check app tests` → *All checks passed!*
   - [x] `mypy app` no empeora (hoy va con `continue-on-error: true`).
-  - [ ] `gh pr checks 14` → todos los checks en SUCCESS.
-- **Cómo verificarlo**: `cd backend && ruff check app tests && gh pr checks 14`
+  - [ ] Los **4 checks del CI sobre `main`** en SUCCESS (Backend, Integration, Build de imágenes Docker y Frontend).
+      > El criterio original decía `gh pr checks 14`, pero **el PR #14 está fusionado desde el 2026-07-07** y no queda ningún PR abierto: la referencia correcta hoy es el CI sobre `main`. Ver `python tools/estado_ci.py`.
+- **Cómo verificarlo**: `cd backend && ruff check app tests && python tools/estado_ci.py`
 - **Depende de**: T-01 (el fix está en `test_vehicle_detector.py`, sin commitear).
 
 - **Nota (bloqueo externo, no de codigo)**: los jobs de GitHub Actions de esta cuenta **no arrancan**: *"The job was not started because recent account payments have failed or your spending limit needs to be increased"*. Es un problema de **facturacion de la cuenta de GitHub**, no del repositorio: el workflow es valido y su equivalente local pasa (ruff en verde, suite completa en verde, build de imagen en verde, YAML parseado con `yaml.safe_load`). **Requiere una accion del usuario**: revisar *Billing & plans* en la cuenta de GitHub.
+- **El alcance real del bloqueo (medido el 2026-10-21)**: no es sólo "ahora falla". Revisados los **100 runs** más recientes: **56** llegaron a ejecutar pasos y **44** fueron **rechazados sin ejecutar ninguno**. El **último run que ejecutó un solo paso** fue el del **2026-07-07T20:52:15Z** (en la rama `feat/live-preview-cameras`: Backend en rojo por el `F401`, Frontend en verde) — el de PR #14 justo antes de fusionarlo. Los 44 runs posteriores (todos de hoy) terminan en `failure` **con 0 pasos** en los 4 jobs, que es la firma de un job **rechazado antes de asignarle un runner** (no de un fallo del código). Consecuencia: **87 commits de `main` nunca los ha validado el CI**, sólo la verificación local. `tools/estado_ci.py` distingue los tres casos (verde / rojo de verdad / rechazado por la cuenta) para que no se confundan.
 
 ### T-03 · Cerrar PR #13 (R5) y PR #14 (live preview)
 

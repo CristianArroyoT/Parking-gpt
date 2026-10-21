@@ -15,6 +15,7 @@ Utilidades del repo que no forman parte de la aplicación.
 | `escanear_secretos.py` | Busca credenciales en el **árbol versionado** (`--historial` para el historial completo de commits). El repositorio es público: un secreto commiteado no es un inconveniente, es una credencial filtrada. |
 | `envolver_tablas.py` | Envuelve las tablas de las vistas del frontend en un contenedor desplazable (`overflow-x-auto min-w-0`) y les añade `min-w-max` **dentro** del atributo `class`. Sin esto, en el móvil la tabla se sale de su tarjeta y arrastra a la página entera en el scroll lateral. Muta la directiva `v-if`/`v-else` al envoltorio: si se deja en la tabla, Vue no compila. |
 | `ejecutar_ci_local.py` | Ejecuta un job del workflow de GitHub Actions **leyendo el YAML** (sin duplicar los pasos a mano), con su `working-directory` y sus variables. Es la forma de comprobar el CI mientras la cuenta no tiene los jobs activados por facturación. |
+| `estado_ci.py` | Estado del CI remoto sobre `main`, con **diagnóstico**: distingue *verde*, *rojo de verdad* (un job ejecutó pasos y falló → es el código) y *rechazado por la cuenta* (los jobs terminan en `failure` **con 0 pasos** → es la facturación, no el código). Sale con 0 / 1 / 2 respectivamente. |
 
 ## Uso
 
@@ -52,6 +53,9 @@ python tools/envolver_tablas.py
 # Ejecutar un job del CI en local (lee el YAML del workflow)
 python tools/ejecutar_ci_local.py --list
 python tools/ejecutar_ci_local.py --job integration
+
+# Estado del CI remoto sobre main, con diagnostico
+python tools/estado_ci.py
 ```
 
 Los scripts devuelven codigo de salida 0 si no hay nada que mirar y 1 si lo
