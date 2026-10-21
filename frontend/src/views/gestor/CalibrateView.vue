@@ -19,6 +19,7 @@ import { useRoute } from 'vue-router'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { getAccessToken, http } from '@/api/client'
 import { useUiStore } from '@/stores/ui'
+import { useParkingEvents } from '@/composables/useParkingEvents'
 
 interface ParkingSpace { id: number; lane: string; number: string; is_active: boolean }
 interface Geofence {
@@ -112,6 +113,38 @@ async function loadGeofences(): Promise<void> {
   geofences.value = data
 }
 
+// ── Eventos en vivo (SSE) ────────────────────────────────────────────
+// T-17: la vista de calibración se suscribe al bus de eventos de la
+// sucursal para reflejar sin F5 los cambios que llegan de otras vistas.
+//
+// Qué reacciona:
+//   camera_health_changed (sólo si es la cámara abierta) → recargar el
+//     badge de salud. El worker de heartbeats publica este evento cuando
+//     el estado de la cámara cambia.
+//   space_broken_changed → recargar la lista de plazas: una plaza puede
+//     marcarse como averiada desde la vista del operador.
+//
+// Qué NO reacciona (y por qué):
+//   ticket_created / ticket_closed / ticket_cancelled → la calibración no
+//     muestra tickets.
+//   Geocercas → el backend no publica ningún evento al crear, editar o
+//     borrar una geocerca; además esta vista es la única que las modifica
+//     y un refresco podría pisar el borrador en curso.
+const { connected: liveConnected } = useParkingEvents(parkingId, (ev) => {
+  switch (ev.type) {
+    case 'camera_health_changed': {
+      const camId = Number(ev.payload.camera_id)
+      if (camId === cameraId.value) void loadHealth()
+      break
+    }
+    case 'space_broken_changed':
+      void loadSpaces()
+      break
+    default:
+      break
+  }
+})
+
 onMounted(async () => {
   try {
     await Promise.all([loadCamera(), loadSpaces(), loadGeofences(), loadHealth()])
@@ -120,7 +153,10 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-  // Polling ligero del endpoint /health cada 15 s. Patrón idéntico al
+  // Polling ligero del endpoint /health cada 15 s como red de seguridad:
+  // el evento SSE `camera_health_changed` ya refresca el badge en cuanto
+  // cambia el estado, pero el poll mantiene fresco el timestamp del
+  // último heartbeat (que el evento no reenvía). Patrón idéntico al
   // usado en MapView.vue (setInterval + cleanup en onBeforeUnmount).
   healthPoll = window.setInterval(loadHealth, HEALTH_POLL_MS)
 })
@@ -420,34 +456,50 @@ async function runVehicleDetection(): Promise<void> {
         </p>
       </div>
 
-      <!-- Sprint Camera Health (2026-07-01): badge de salud -->
-      <span
-        v-if="health"
-        class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium"
-        :class="{
-          'bg-slate-100 text-slate-700': health.status === 'never_probed',
-          'bg-emerald-100 text-emerald-700': health.status === 'healthy',
-          'bg-amber-100 text-amber-700': health.status === 'degraded',
-          'bg-rose-100 text-rose-700': health.status === 'offline',
-        }"
-        :title="health.last_heartbeat_at
-          ? new Date(health.last_heartbeat_at).toLocaleString('es-ES')
-          : 'Nunca se ha probado esta cámara'"
-      >
-        <span class="h-2 w-2 rounded-full" :class="{
-          'bg-slate-400': health.status === 'never_probed',
-          'bg-emerald-500': health.status === 'healthy',
-          'bg-amber-500': health.status === 'degraded',
-          'bg-rose-500': health.status === 'offline',
-        }" />
-        <template v-if="health.status === 'never_probed'">Nunca probada</template>
-        <template v-else-if="health.status === 'healthy'">En línea</template>
-        <template v-else-if="health.status === 'degraded'">Sin actualización reciente</template>
-        <template v-else>Cámara caída</template>
-        <span v-if="health.consecutive_failures > 0" class="text-rose-700">
-          · {{ health.consecutive_failures }} fallo(s)
+      <div class="flex items-center gap-2">
+        <!-- T-17: indicador de la suscripción al bus de eventos SSE -->
+        <span
+          class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
+          :class="liveConnected
+            ? 'bg-emerald-50 text-emerald-700'
+            : 'bg-slate-100 text-slate-500'"
+          :title="liveConnected
+            ? 'Suscrito al bus de eventos de la sucursal'
+            : 'Sin conexión con el bus de eventos (la salud se refresca cada 15 s)'"
+        >
+          <span class="h-2 w-2 rounded-full" :class="liveConnected ? 'bg-emerald-500' : 'bg-slate-400'" />
+          {{ liveConnected ? 'En vivo' : 'Sin SSE' }}
         </span>
-      </span>
+
+        <!-- Sprint Camera Health (2026-07-01): badge de salud -->
+        <span
+          v-if="health"
+          class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium"
+          :class="{
+            'bg-slate-100 text-slate-700': health.status === 'never_probed',
+            'bg-emerald-100 text-emerald-700': health.status === 'healthy',
+            'bg-amber-100 text-amber-700': health.status === 'degraded',
+            'bg-rose-100 text-rose-700': health.status === 'offline',
+          }"
+          :title="health.last_heartbeat_at
+            ? new Date(health.last_heartbeat_at).toLocaleString('es-ES')
+            : 'Nunca se ha probado esta cámara'"
+        >
+          <span class="h-2 w-2 rounded-full" :class="{
+            'bg-slate-400': health.status === 'never_probed',
+            'bg-emerald-500': health.status === 'healthy',
+            'bg-amber-500': health.status === 'degraded',
+            'bg-rose-500': health.status === 'offline',
+          }" />
+          <template v-if="health.status === 'never_probed'">Nunca probada</template>
+          <template v-else-if="health.status === 'healthy'">En línea</template>
+          <template v-else-if="health.status === 'degraded'">Sin actualización reciente</template>
+          <template v-else>Cámara caída</template>
+          <span v-if="health.consecutive_failures > 0" class="text-rose-700">
+            · {{ health.consecutive_failures }} fallo(s)
+          </span>
+        </span>
+      </div>
     </div>
 
     <div v-if="loading" class="text-sm text-slate-500">Cargando…</div>

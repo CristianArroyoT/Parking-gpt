@@ -12,7 +12,7 @@
  * averiadas. Ahora ``stateFor()`` devuelve 'alerta' antes que
  * 'ocupada' y el chip rosa ``plaza-alerta`` se renderiza.
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { http } from '@/api/client'
 import { useUiStore } from '@/stores/ui'
@@ -36,7 +36,6 @@ const spaces = ref<ParkingSpace[]>([])
 const tickets = ref<Ticket[]>([])
 const loading = ref(true)
 const selected = ref<ParkingSpace | null>(null)
-const liveConnected = ref(false)
 
 let pollHandle: number | null = null
 
@@ -64,38 +63,23 @@ async function tick(): Promise<void> {
   }
 }
 
-// Sprint O2: suscripción SSE reactiva al parking actual. Re-suscribe
-// automáticamente cuando el operador cambia de sucursal en el <select>.
-const eventStream = ref<{ disconnect: () => void; connected: { value: boolean } } | null>(null)
-
-function subscribeEvents(parkingId: number): void {
-  // Limpia la suscripción anterior si existe.
-  if (eventStream.value) eventStream.value.disconnect()
-  const es = useParkingEvents(parkingId, (ev) => {
-    // Cualquier cambio relevante → refetch completo. El servidor es la
-    // fuente de verdad y MapView es pequeño (≈N plazas, M tickets
-    // activos), así que un GET entero es más simple que mantener
-    // estado derivado.
-    if (
-      ev.type === 'ticket_created'
-      || ev.type === 'ticket_closed'
-      || ev.type === 'ticket_cancelled'
-      || ev.type === 'space_broken_changed'
-    ) {
-      tick()
-    }
-    // camera_health_changed → no afecta al mapa visual de plazas.
-  })
-  eventStream.value = es
-  liveConnected.value = es.connected.value
-  // El composable no expone connected como ref reactivo en tiempo real;
-  // lo capturamos en cada cambio de parking. Suficiente para el chip.
-}
-
-watch(selectedId, (newId, oldId) => {
-  if (newId !== null && newId !== oldId) {
-    subscribeEvents(newId)
+// Sprint O2: suscripción SSE reactiva al parking actual. El composable
+// (T-17) se encarga de re-suscribir cuando el gestor cambia de sucursal
+// en el <select> y de cerrar el stream al desmontar la vista.
+const { connected: liveConnected } = useParkingEvents(selectedId, (ev) => {
+  // Cualquier cambio relevante → refetch completo. El servidor es la
+  // fuente de verdad y MapView es pequeño (≈N plazas, M tickets
+  // activos), así que un GET entero es más simple que mantener
+  // estado derivado.
+  if (
+    ev.type === 'ticket_created'
+    || ev.type === 'ticket_closed'
+    || ev.type === 'ticket_cancelled'
+    || ev.type === 'space_broken_changed'
+  ) {
+    tick()
   }
+  // camera_health_changed → no afecta al mapa visual de plazas.
 })
 
 onMounted(async () => {
@@ -103,7 +87,6 @@ onMounted(async () => {
     await loadParkings()
     if (selectedId.value) {
       await loadSnapshot(selectedId.value)
-      subscribeEvents(selectedId.value)
     }
   } catch {
     ui.pushToast('error', 'No se pudieron cargar las sucursales')
@@ -118,7 +101,6 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (pollHandle !== null) window.clearInterval(pollHandle)
-  if (eventStream.value) eventStream.value.disconnect()
 })
 
 const LANES = ['A', 'B', 'C', 'D'] as const
