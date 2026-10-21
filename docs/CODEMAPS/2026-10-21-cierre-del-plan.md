@@ -239,6 +239,32 @@ Tres cosas salieron de ahí:
    determinista (venía de un `set`) y la sección podía cambiar entre
    ejecuciones. Corregido.
 
+### 3-septies. Los modelos y las migraciones contaban dos historias (2026-10-21)
+
+Salió al ejecutar `alembic check`, la herramienta estándar para comparar los
+modelos con el esquema. Antes de eso, `alembic check` no servía para nada:
+comparaba contra la base entera, incluidas las tablas TIGER/Line de la imagen
+de PostGIS y la geometría que crea `infra/seed.sql`. Con el filtro puesto,
+la deriva real era de 8 puntos, **en los dos sentidos**:
+
+| Sentido | Qué | Por qué importa |
+|---|---|---|
+| Los modelos declaraban 4 índices que la BD no tenía (`cameras.code`, `parking_spaces.number`, `camera_geofences.parking_space_id`, `tickets.parking_space_id`) | Ninguna migración los creó: se crearon las columnas y ya | Cada listado con filtro es un Seq Scan |
+| La BD tenía 4 restricciones `UNIQUE` que el modelo no produce (`users_email_key`, `vehicles_plate_key`, `parkings_code_key`, `plans_code_key`) | La migración 0001 creó la restricción **y** el índice único; el modelo con `unique=True, index=True` produce sólo el índice | `alembic check` fallaba, así que la siguiente migración autogenerada se habría llevado un `DROP CONSTRAINT`: **emails, matrículas y códigos habrían dejado de ser únicos** |
+| La BD tenía 3 índices que el modelo no declaraba (`ix_audit_logs_created_at`, `ix_audit_logs_user_id_created_at`, `ix_plates_detected_detected_at`) | Las migraciones 0007/0008/0002 los crearon a propósito (consultas de auditoría) y el modelo no los recogió | `alembic check` quería borrarlos |
+
+**Arreglo**: los tres índices se declaran ahora en los modelos; la
+migración `0014_indices_y_uniques` (escrita a mano, con `downgrade` que
+restituye las restricciones) crea los 4 que faltaban y quita las 4
+redundantes. **La unicidad no se pierde** —la garantiza el índice único—
+comprobado insertando un email duplicado: rechazado con `ix_users_email`.
+
+**Y en el CI**: los tests crean el esquema con `Base.metadata.create_all`,
+así que **no ejecutan las migraciones**: una migración rota sólo se habría
+visto en producción. El job de integración ahora levanta una base vacía,
+migra de cero y comprueba con `alembic check` que el esquema resultante
+coincide con los modelos.
+
 ### 3-quinquies. El PWA, verificado de verdad (2026-10-21)
 
 Nadie comprobaba lo que hace que una PWA sea instalable. Nueva

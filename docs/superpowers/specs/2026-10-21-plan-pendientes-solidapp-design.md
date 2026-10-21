@@ -12,6 +12,7 @@
 > | QA visual (Chromium) | 21 pantallas a **4 anchos** (768, 1024, 1232, 1440 px): 0 desbordes, 0 errores de consola |
 > | PWA | verificado: instalable y **arranca sin red** |
 > | API | **99 de 99 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
+> | Esquema | Los modelos y las migraciones coinciden: `alembic check` limpio y **el CI migra una base vacía** |
 > | Carga / SLO | 491 peticiones, 0 fallos → **14 de 14 reglas** |
 > | Lint y tipos | `ruff` y `mypy` en verde, `vue-tsc` y `npm run build` en verde, `actionlint` exit 0 |
 >
@@ -436,6 +437,25 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   sección generada podía cambiar entre ejecuciones. Corregido ordenando.
 - **Validado**: `actionlint` sobre el workflow (exit 0) y el comando exacto
   del CI ejecutado desde `backend/`, que es el `working-directory` del job.
+
+### T-25+3 · P2 — los modelos y las migraciones contaban dos historias distintas
+
+- **Estado**: **completado** — deriva cerrada, migración `0014` y comprobación en el CI
+- **Contexto**: no estaba en el plan. Salió al ejecutar `alembic check` (la herramienta estándar para comparar los modelos con el esquema) y descubrir dos cosas:
+  1. **`alembic check` no servía para nada**: comparaba los modelos contra la base ENTERA, incluidas las tablas TIGER/Line que trae la imagen de PostGIS y la geometría que crea `infra/seed.sql`. Faltaba el `include_object` que filtra por las tablas del proyecto.
+  2. **Con el filtro puesto, la deriva real era de 8 puntos, en los dos sentidos**:
+     - Los modelos declaraban `index=True` en `cameras.code`, `parking_spaces.number`, `camera_geofences.parking_space_id` y `tickets.parking_space_id`, y **ninguna migración creó esos índices**: se crearon las columnas y ya. Sin índice, cada listado es un Seq Scan.
+     - La migración inicial (0001) creó en las columnas con unicidad *las dos cosas*: la restricción `UNIQUE` (`users_email_key`…) **y** un índice único (`ix_users_email`…). El modelo, con `unique=True, index=True`, produce **sólo** el índice. La base arrastraba cuatro restricciones de sobra.
+  3. Y al revés: las migraciones 0007 y 0008 crearon `ix_audit_logs_user_id_created_at` e `ix_audit_logs_created_at` **a propósito** (son consultas de auditoría), pero el modelo no los declaraba → `alembic check` quería borrarlos.
+- **Lo que habría pasado si nadie lo miraba**: `alembic check` fallaba, así que el siguiente que autogenerase una migración se habría llevado por delante un `DROP CONSTRAINT` de las cuatro unicidades: **emails, matrículas y códigos habrían dejado de ser únicos** sin que nadie se enterase. Por eso la migración va escrita a mano, con un `downgrade` que las restituye.
+- **Criterios de aceptación**:
+  - [x] `alembic/env.py` filtra la comparación: sólo las tablas del proyecto, y ni `parkings.geom` ni su índice espacial (los crea `infra/seed.sql`).
+  - [x] Los tres índices que las migraciones crearon a propósito están declarados en los modelos.
+  - [x] Migración `0014_indices_y_uniques`: crea los 4 índices que faltaban y quita las 4 restricciones `UNIQUE` redundantes. **La unicidad no se pierde**: la garantiza el índice único, comprobado insertando un email duplicado (rechazado con `ix_users_email`).
+  - [x] `alembic upgrade head` sobre una base **vacía** aplica las 14 migraciones sin error, y `alembic check` responde *No new upgrade operations detected*.
+  - [x] El `downgrade` de la 0014 se probó (restaura las restricciones y quita los índices) y se vuelve a subir.
+  - [x] **El CI lo vigila**: los tests crean el esquema con `create_all`, es decir, **no ejecutan las migraciones** (una migración rota sólo se habría visto en producción). El job de integración ahora levanta una base vacía, migra de cero y comprueba que el esquema coincide con los modelos.
+- **Nota**: `alembic check` sólo funciona contra PostgreSQL (las migraciones usan `CREATE EXTENSION postgis`).
 
 ### T-14 · I3 — OCR con GPU
 
