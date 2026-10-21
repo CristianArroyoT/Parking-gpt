@@ -89,7 +89,20 @@ def compute_ticket_summary(db: Session, parking_id: int, *, now: Optional[dateti
     # 6) Duración media en minutos sobre cerrados en ventana.
     #    Calculamos en segundos vía epoch y luego /60 — evita unidades
     #    ambiguas que dependen del dialect (SQLite vs Postgres).
-    duration_seconds = func.strftime("%s", Ticket.exit_at) - func.strftime("%s", Ticket.entry_at)
+    #    OJO: ``strftime()`` es la función de SQLite y NO existe en
+    #    Postgres → el endpoint devolvía 500 en Docker
+    #    (``function strftime(character varying, timestamp with time
+    #    zone) does not exist``). Los tests no lo detectaban porque
+    #    corren contra SQLite. ``func.extract('epoch', ...)`` se
+    #    renderiza como ``EXTRACT(epoch FROM ...)`` en Postgres y como
+    #    ``CAST(STRFTIME('%s', ...) AS INTEGER)`` en SQLite: portable.
+    #    OJO: hay que extraer el epoch de CADA columna y restar en SQL.
+    #    ``extract('epoch', exit_at - entry_at)`` en SQLite aplicaba
+    #    ``STRFTIME`` a una resta (que no es una fecha) y devolvía un
+    #    epoch basura (``average_duration_minutes`` = -3514446000).
+    duration_seconds = (
+        func.extract("epoch", Ticket.exit_at) - func.extract("epoch", Ticket.entry_at)
+    )
     avg_row = db.query(func.avg(duration_seconds)).filter(
         Ticket.parking_id == parking_id,
         Ticket.status == TicketStatus.CERRADO,

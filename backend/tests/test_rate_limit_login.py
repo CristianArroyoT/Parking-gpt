@@ -245,11 +245,20 @@ def test_rate_limit_resets_after_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Pasada la ventana, los buckets se resetean (EXPIRE no es sliding)."""
+    # La ventana real se deja en su valor por defecto (300 s) a propósito.
+    # Con una ventana de 10 s, los tres intentos de login de este test
+    # (cada uno con un hash bcrypt) podían tardar más de 10 s en una
+    # máquina cargada: el bucket expiraba ENTRE intentos, el contador se
+    # reiniciaba y el 429 nunca llegaba. Era un flake dependiente de la
+    # carga del equipo, no un fallo del código.
+    #
+    # El paso de la ventana se simula igual que antes, pero de forma
+    # determinista: borrando las claves de los buckets a mano (más abajo).
     monkeypatch.setattr(
         "app.services.rate_limit.get_settings",
-        lambda: _patched_settings(max_attempts=2, window_seconds=10),
+        lambda: _patched_settings(max_attempts=2),
     )
-    _force_settings_max(monkeypatch, max_attempts=2, window_seconds=10)
+    _force_settings_max(monkeypatch, max_attempts=2)
     email = "ttl@example.com"
     _clean_email_buckets(email)
 

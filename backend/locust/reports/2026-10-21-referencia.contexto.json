@@ -1,0 +1,57 @@
+{
+  "fecha": "2026-10-21T02:56:25.817608+00:00",
+  "host": "http://parking-carga:8000",
+  "usuarios": 6,
+  "duracion_s": 179.4,
+  "parking_id": 11,
+  "camaras": [
+    81,
+    136,
+    137,
+    138,
+    139,
+    140,
+    141,
+    142,
+    143,
+    144
+  ],
+  "ventana_sse_s": 2.0,
+  "ventana_mjpeg_s": 8.0,
+  "presupuesto_logins": 5,
+  "logins_realizados": 5,
+  "fallos": {
+    "GET preview_mjpeg_primer_frame": {
+      "ocurrencias": 3,
+      "error": "sin datos en 8.0 s (no llegó el primer frame/evento)"
+    },
+    "GET preview_mjpeg": {
+      "ocurrencias": 3,
+      "error": "preview_mjpeg cortado: sin datos en 8.0 s (no llegó el primer frame/evento)"
+    },
+    "GET lectura_tickets": {
+      "ocurrencias": 10,
+      "error": "lectura_tickets -> HTTP 0"
+    },
+    "GET lectura_plazas": {
+      "ocurrencias": 11,
+      "error": "lectura_plazas -> HTTP 0"
+    },
+    "GET sse_mapa": {
+      "ocurrencias": 10,
+      "error": "sse_mapa -> HTTP 0"
+    },
+    "POST ticket_crear": {
+      "ocurrencias": 3,
+      "error": "ticket_crear -> HTTP 0"
+    },
+    "POST login": {
+      "ocurrencias": 1,
+      "error": "login admin@solidapp.es -> HTTP 0"
+    },
+    "GET lectura_camaras": {
+      "ocurrencias": 1,
+      "error": "lectura_camaras -> HTTP 0"
+    }
+  }
+}

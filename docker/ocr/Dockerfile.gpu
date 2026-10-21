@@ -1,0 +1,119 @@
+# Variante GPU del servicio OCR (T-14 del plan de pendientes).
+#
+# El Dockerfile de CPU (Dockerfile) usa `paddlepaddle` (CPU). Esta variante
+# usa `paddlepaddle-gpu` sobre CUDA 11.8 + cuDNN 8 para poder MEDIR si la
+# GPU aporta algo de verdad antes de decidir si se activa en producción.
+#
+# No es la imagen por defecto del compose: el compose sigue usando la de
+# CPU. Esta variante se construye a mano y se compara con
+# `docker/ocr/benchmark.py` (ver docs/adr/0002-ocr-cpu-vs-gpu.md).
+#
+# Construir:
+#   docker build -f docker/ocr/Dockerfile.gpu -t solidapp-ocr:gpu docker/ocr
+#
+# Ejecutar (el runtime nvidia expone la GPU del host):
+#   docker run -d --name parking-ocr-gpu --runtime=nvidia --gpus all \
+#     -p 8890:8800 -v parking_ocr_models:/models solidapp-ocr:gpu
+#
+# Limitación conocida: el wheel de PaddlePaddle 2.6.x para CUDA es
+# `cu118`. Con un driver más nuevo (CUDA 13) el **driver** es compatible
+# hacia atrás, pero la imagen debe traer sus propias librerías CUDA 11.8 +
+# cuDNN 8: de ahí la base `nvidia/cuda:11.8.1-cudnn8-runtime-ubuntu22.04`.
+
+FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DEBIAN_FRONTEND=noninteractive \
+    LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu:/usr/local/nvidia/lib:/usr/local/nvidia/lib64 \
+    OCR_ENGINE=paddle \
+    OCR_PORT=8800 \
+    OCR_MODELS_DIR=/models
+
+# Las imágenes `nvidia/cuda:*-runtime` traen las librerías CUDA **con
+# versión** (libcublas.so.11, libcudart.so.11.0…) en /usr/local/cuda/lib64
+# y cuDNN con versión (libcudnn.so.8) en /usr/lib/x86_64-linux-gnu. Pero
+# PaddlePaddle las carga con `dlopen("libcublas.so")` / `dlopen("libcudnn.so")`,
+# es decir, **sin versión**, y sin eso falla con:
+#
+#   RuntimeError: (PreconditionNotMet) Cannot load cudnn shared library.
+#   Cannot invoke method cudnnGetVersion.
+#
+# Se crean los enlaces sin versión que Paddle espera.
+RUN ln -sf /usr/lib/x86_64-linux-gnu/libcudnn.so.8 \
+        /usr/local/cuda/lib64/libcudnn.so \
+    && ln -sf /usr/local/cuda/lib64/libcublas.so.11 \
+        /usr/local/cuda/lib64/libcublas.so \
+    && ln -sf /usr/local/cuda/lib64/libcublasLt.so.11 \
+        /usr/local/cuda/lib64/libcublasLt.so \
+    && ln -sf /usr/local/cuda/lib64/libcudart.so.11.0 \
+        /usr/local/cuda/lib64/libcudart.so \
+    && ln -sf /usr/local/cuda/lib64/libcufft.so.10 \
+        /usr/local/cuda/lib64/libcufft.so \
+    && ln -sf /usr/local/cuda/lib64/libcurand.so.10 \
+        /usr/local/cuda/lib64/libcurand.so \
+    && ln -sf /usr/local/cuda/lib64/libcusolver.so.11 \
+        /usr/local/cuda/lib64/libcusolver.so \
+    && ln -sf /usr/local/cuda/lib64/libcusparse.so.11 \
+        /usr/local/cuda/lib64/libcusparse.so \
+    && ldconfig
+
+# Deps de sistema: OpenMP (PaddlePaddle), OpenGL (OpenCV), curl (healthcheck).
+#
+# Nota sobre Python: ubuntu 22.04 trae Python 3.10 de serie y el wheel
+# `paddlepaddle-gpu` 2.6.2.post118 lo publica para cp310. La variante CPU
+# usa python:3.11-slim; la diferencia de intérprete no afecta a la
+# inferencia (el trabajo pesado está en las librerías nativas de Paddle),
+# pero se documenta para que la comparación sea honesta.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        libgomp1 \
+        libgl1 \
+        libglib2.0-0 \
+        curl \
+        tini \
+    && rm -rf /var/lib/apt/*
+
+WORKDIR /app
+
+# paddlepaddle-gpu se instala desde el mirror oficial de Paddle (no está en
+# PyPI). Se fija la versión exacta para que la imagen sea reproducible.
+#
+# Orden importante: `requirements.txt` pide `paddlepaddle` (CPU) porque es
+# lo que necesita la variante de CPU. Aquí se instala primero (para que
+# paddleocr resuelva sus dependencias) y después se **desinstala** el
+# paquete CPU y se pone el GPU, que es una distribución distinta
+# (`paddlepaddle-gpu`) que provee el mismo módulo `paddle`. Si se deja el
+# CPU instalado, el `import paddle` puede acabar cargando las librerías de
+# CPU y la GPU no se usaría sin avisar.
+ARG PADDLE_INDEX=https://www.paddlepaddle.org.cn/packages/stable/cu118/
+# El mirror cu118 publica 2.6.2 sin el sufijo ".postNN" (las versiones
+# con sufijo sólo aparecen en los índices cu126/cu123 de Paddle 3.x).
+ARG PADDLE_VERSION=2.6.2
+
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt \
+    && pip uninstall -y paddlepaddle \
+    && pip install --no-cache-dir --no-deps "paddlepaddle-gpu==${PADDLE_VERSION}" -i "${PADDLE_INDEX}" \
+    && rm /tmp/requirements.txt \
+    && python3 -c "import paddle; print('paddle', paddle.__version__); print('compiled with cuda:', paddle.is_compiled_with_cuda())"
+
+# La app FastAPI vive en /app/app.py.
+COPY app.py /app/app.py
+
+# Crea el usuario no-root para correr el servicio (LOPDGDD: mínimo privilegio).
+RUN useradd --create-home --shell /bin/bash ocr \
+    && mkdir -p /models \
+    && chown -R ocr:ocr /app /models
+USER ocr
+
+EXPOSE 8800
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+    CMD curl -fsS http://localhost:${OCR_PORT}/health || exit 1
+
+ENTRYPOINT ["tini", "--"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8800", "--workers", "1"]

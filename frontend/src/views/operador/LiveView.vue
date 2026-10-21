@@ -9,6 +9,7 @@ import AppLayout from '@/layouts/AppLayout.vue'
 import IncidentModal from '@/views/operador/IncidentModal.vue'
 import { http } from '@/api/client'
 import { useUiStore } from '@/stores/ui'
+import { useParkingEvents } from '@/composables/useParkingEvents'
 
 interface Parking { id: number; name: string }
 interface Space { id: number; parking_id: number; lane: string; number: string; is_active?: boolean; is_broken?: boolean }
@@ -103,6 +104,40 @@ async function refreshAll(): Promise<void> {
   await Promise.all([refreshTickets(), refreshRecentAlerts()])
 }
 
+// ── Eventos en vivo (SSE) ────────────────────────────────────────────
+// T-17: la vista en vivo del operador se suscribe al bus de eventos de
+// la sucursal. El operador ya no necesita recargar (F5) para ver un
+// ticket nuevo, un cierre de ticket o una plaza averiada.
+//
+// Qué reacciona a cada tipo de evento:
+//   ticket_created / ticket_closed / ticket_cancelled → recargar la tabla
+//     de tickets activos.
+//   space_broken_changed → recargar tickets, alertas (incidentes) y la
+//     lista de plazas que usa el modal de incidentes.
+//
+// Qué NO reacciona (y por qué):
+//   camera_health_changed → esta vista no muestra cámaras ni su salud.
+//   Cualquier otro tipo futuro → se ignora sin romper la suscripción.
+const { connected: liveConnected, reconnecting: liveReconnecting } = useParkingEvents(
+  selectedId,
+  (ev) => {
+    switch (ev.type) {
+      case 'ticket_created':
+      case 'ticket_closed':
+      case 'ticket_cancelled':
+        void refreshTickets()
+        break
+      case 'space_broken_changed':
+        void refreshTickets()
+        void refreshRecentAlerts()
+        if (selectedId.value) void loadContext(selectedId.value)
+        break
+      default:
+        break
+    }
+  },
+)
+
 function openIncident(tab: 'broken' | 'robery' | 'unbroken'): void {
   incidentTab.value = tab
   incidentOpen.value = true
@@ -116,7 +151,10 @@ onMounted(async () => {
   await load()
   if (selectedId.value) await loadContext(selectedId.value)
   await refreshAll()
-  pollHandle = window.setInterval(refreshAll, 5000)
+  // Red de seguridad: si el SSE no conecta (firewall corporativo o el
+  // navegador no puede mantener el stream), seguimos refrescando cada
+  // 30 s. Con SSE activo la latencia real es <1 s.
+  pollHandle = window.setInterval(refreshAll, 30000)
 })
 
 onBeforeUnmount(() => {
@@ -130,8 +168,11 @@ onBeforeUnmount(() => {
       <div>
         <h1 class="text-2xl font-semibold tracking-tight">Operador · En vivo</h1>
         <p class="mt-1 text-sm text-slate-500 flex items-center gap-3">
-          <span class="pulse-dot text-emerald-700">En vivo</span>
-          <span>· Refresco automático cada 5 s</span>
+          <span :class="['pulse-dot', liveConnected ? 'text-emerald-700' : 'text-slate-500']">
+            {{ liveConnected ? 'En vivo'
+              : liveReconnecting ? 'Reconectando…' : 'Sin conexión SSE' }}
+          </span>
+          <span>· Actualización en vivo por SSE (fallback 30 s)</span>
         </p>
       </div>
       <select v-model.number="selectedId" class="input w-auto"

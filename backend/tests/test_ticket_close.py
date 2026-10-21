@@ -10,11 +10,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from app.core.db import Base, get_db
+from app.core.db import get_db
 from app.core.security import hash_password
 from app.main import create_app
 from app.models.enums import UserRole
@@ -25,13 +23,8 @@ from app.models.user import User
 from app.models.vehicle import Vehicle
 
 
-def test_close_ticket_computes_pricing():
-    engine = create_engine(
-        "sqlite+pysqlite:///:memory:", future=True,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
+def test_close_ticket_computes_pricing(motor_de_test):
+    engine = motor_de_test
     SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     db = SessionLocal()
 

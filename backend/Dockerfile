@@ -37,12 +37,15 @@ WORKDIR /app
 COPY --from=builder /install /install
 COPY --from=builder /app/app ./app
 
-USER app
-
 # Sprint Fase 3A: directorio donde el RotatingFileHandler escribe
 # /var/log/solidapp/backend.log (scrapeado por Promtail → Loki).
+# El mkdir debe correr como root: /var/log es root:root y el usuario
+# no-root no puede crear directorios dentro. Por eso va ANTES de
+# ``USER app`` (si va después, falla con "Permission denied").
 RUN mkdir -p /var/log/solidapp && chown -R app:app /var/log/solidapp
 VOLUME ["/var/log/solidapp"]
+
+USER app
 
 EXPOSE 8000
 

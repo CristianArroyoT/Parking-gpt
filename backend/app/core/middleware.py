@@ -72,9 +72,30 @@ class AuditMiddleware(BaseHTTPMiddleware):
         token_type: str | None = None
         decode_error: bool = False
         auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header.split(None, 1)[1].strip()
+        # Parseo DEFENSIVO del header ``Authorization``. Casos reales:
+        #   "Bearer <token>"  → camino normal
+        #   "Bearer"          → prefijo sin token (antes ``split(None, 1)[1]``
+        #                       lanzaba IndexError → 500)
+        #   "Bearer "         → prefijo con espacio pero sin token
+        #   "bearer <token>"  → esquema en minúsculas (RFC 7235: el
+        #                       esquema es case-insensitive)
+        #   ""                → request anónimo: NO es error de decode
+        #
+        # OJO: el bloque de decodificación DEBE quedar FUERA de cualquier
+        # ``if``/``elif`` del parseo del esquema. Si queda anidado en la
+        # rama del caso raro, el camino normal "Bearer <token>" deja de
+        # decodificar el JWT → ``user_id``/``jti``/``exp`` a None → la
+        # auditoría se queda sin user_id y la blacklist de tokens nunca
+        # se aplica (48 tests en rojo, detectado en QA 2026-10-21).
+        token: str | None = None
+        if auth_header.strip():
+            scheme, _, rest = auth_header.strip().partition(" ")
+            if scheme.lower() == "bearer":
+                token = rest.strip() or None
             try:
+                if token is None:
+                    # Header presente pero sin un token Bearer utilizable.
+                    raise ValueError("Authorization sin token Bearer utilizable")
                 payload = decode_token(token)
                 sub = payload.get("sub")
                 if sub is not None:

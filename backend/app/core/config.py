@@ -60,6 +60,20 @@ class Settings(BaseSettings):
     camera_health_stale_threshold_seconds: int = Field(
         default=120, alias="CAMERA_HEALTH_STALE_THRESHOLD_SECONDS"
     )
+    # Sprint Live-Preview T-07 (2026-10-21): fps objetivo del preview en vivo.
+    #
+    # Decisión D1 (el código anunciaba "5 fps" pero corría a 35 fps reales):
+    # el preview NO necesita ir al ritmo de la cámara. A 5 fps se ahorra
+    # ~85 % de CPU y de ancho de banda del backend, y la latencia útil
+    # que ve el operador sigue siendo <400 ms (el frame llega al cliente
+    # en cuanto se emite).
+    #
+    # Configurable por entorno para poder volver al "flujo libre" del
+    # sprint Latencia-Mínima (2026-07-07) sin tocar código: 0 (o un
+    # valor no positivo) = SIN limitador, el preview va tan rápido como
+    # la cámara + la red lo permitan.
+    live_preview_fps: float = Field(default=5.0, alias="LIVE_PREVIEW_FPS")
+
     # URL del servicio OCR separado (PaddleOCR en su propio contenedor).
     # Si el servicio no responde, el cliente devuelve [] y el caller
     # decide qué hacer. NO usar en tests salvo que se inyecte MockTransport.
@@ -68,6 +82,16 @@ class Settings(BaseSettings):
     )
     ocr_service_timeout: float = Field(
         default=4.0, alias="OCR_SERVICE_TIMEOUT"
+    )
+
+    # Sprint Vehicle-Detect (2026-07-07): detector cenital de vehículos
+    # (Ultralytics YOLO) en su propio contenedor. Timeout generoso
+    # porque YOLO en CPU puede tardar 300-500 ms por imagen 960x540.
+    vehicle_detector_url: str = Field(
+        default="http://localhost:8801", alias="VEHICLE_DETECTOR_URL"
+    )
+    vehicle_detector_timeout: float = Field(
+        default=8.0, alias="VEHICLE_DETECTOR_TIMEOUT"
     )
 
     # Sprint Fase 3A (2026-07-01): observabilidad y auditoría.
@@ -138,6 +162,20 @@ class Settings(BaseSettings):
     smtp_user: str = Field(default="", alias="SMTP_USER")
     smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
     smtp_from: str = Field(default="solidAPP <no-reply@solidapp.es>", alias="SMTP_FROM")
+
+    # T-23 (plan maestro 2026-10-21): **el reconocimiento facial está FUERA
+    # del MVP**. Se deja la estructura de datos (``face_templates``) y los
+    # endpoints de alta/baja preparados, pero DESHABILITADOS: con el flag a
+    # ``False`` (valor por defecto) el router de ``/face-templates``
+    # responde ``404`` y el login sigue siendo usuario + contraseña, sin
+    # tocar esta tabla en ningún momento.
+    #
+    # El flag existe para que la activación sea una decisión explícita
+    # (y auditable) cuando se implemente el reconocimiento real, no un
+    # simple borrado de código.
+    face_templates_enabled: bool = Field(
+        default=False, alias="FACE_TEMPLATES_ENABLED",
+    )
 
     environment: Literal["development", "staging", "production", "test"] = Field(default="development", alias="ENVIRONMENT")
 

@@ -73,6 +73,9 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "postgres: tests que sólo tienen sentido contra PostgreSQL (el motor de producción)",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

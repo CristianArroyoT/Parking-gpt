@@ -98,6 +98,8 @@ D:\Parking\
 | Método | Ruta                                | Rol          |
 | ------ | ----------------------------------- | ------------ |
 | POST   | `/api/v1/auth/login`                | público      |
+| POST   | `/api/v1/auth/forgot-password`      | público      |
+| POST   | `/api/v1/auth/reset-password`       | público      |
 | POST   | `/api/v1/auth/refresh`              | auth         |
 | POST   | `/api/v1/auth/logout`               | auth         |
 | GET    | `/api/v1/users`                     | admin        |
@@ -113,6 +115,23 @@ D:\Parking\
 | GET    | `/health`                           | público      |
 
 Documentación interactiva en `http://localhost:8000/docs`.
+
+## Fuera del MVP
+
+- **Reconocimiento facial: fuera del MVP.** Se deja únicamente la
+  *estructura* preparada —la tabla `face_templates` y los endpoints
+  `POST /api/v1/face-templates` y `DELETE /api/v1/face-templates/{id}`—
+  pero **no se usa para autenticar a nadie**: el login sigue siendo
+  exclusivamente usuario + contraseña y ninguna ruta de autenticación lee
+  esa tabla. Los endpoints están **deshabilitados por feature flag**
+  (`FACE_TEMPLATES_ENABLED`, valor por defecto `false`); con el flag
+  apagado responden **404 Not Found**. No hay captura, ni extracción de
+  vectores, ni comparación biométrica implementados. Cuando se active,
+  habrá que revisar su base legal y su retención (LOPDGDD/GDPR).
+- **Recuperación de contraseña por correo**: el enlace de restablecimiento
+  apunta a `/recuperar-contrasena` del frontend, una pantalla que todavía
+  no existe. Hasta que se implemente, el token se puede usar llamando
+  directamente a `POST /api/v1/auth/reset-password`.
 
 ## Pruebas
 

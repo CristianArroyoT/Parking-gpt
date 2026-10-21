@@ -9,12 +9,15 @@ from app.api.v1 import (
     alerts,
     auth,
     cameras,
+    cameras_live,
     costs,
     dashboard,
     events,
+    face_templates,
     incidents,
     logout_all,
     parkings,
+    password_reset,
     plates,
     reports,
     spaces,
@@ -28,10 +31,16 @@ from app.api.v1 import (
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(auth.router)
 api_router.include_router(logout_all.router)
+# T-22 (2026-10-21): recuperación de contraseña por correo (token de un
+# solo uso, hasheado en BD). Routers separados para no tocar auth.py.
+api_router.include_router(password_reset.router)
 api_router.include_router(users.router)
 api_router.include_router(parkings.router)
 api_router.include_router(spaces.router)
 api_router.include_router(cameras.router)
+# Sprint Live-Preview (2026-07-07): stream MJPEG en vivo, requiere
+# ?token=... porque se consume desde <img> del navegador.
+api_router.include_router(cameras_live.router)
 api_router.include_router(vehicles.router)
 api_router.include_router(tariffs.router)
 api_router.include_router(tickets.router)
@@ -49,5 +58,10 @@ api_router.include_router(reports.router)
 api_router.include_router(dashboard.router)
 # Sprint O2 (2026-07-06): stream SSE por sucursal para refresco live de MapView.
 api_router.include_router(events.router)
+# T-23 (2026-10-21): estructura de reconocimiento facial PREPARADA pero
+# FUERA del MVP. El router responde 404 mientras el feature flag
+# FACE_TEMPLATES_ENABLED esté apagado (valor por defecto) y NO se usa en
+# el login.
+api_router.include_router(face_templates.router)
 
 __all__ = ["api_router"]

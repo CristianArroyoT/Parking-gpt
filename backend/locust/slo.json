@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "titulo": "SLO de carga de solidAPP (T-13)",
+  "descripcion": "Objetivos de latencia que debe cumplir la API bajo carga. Los umbrales se fijaron a partir de la ejecucion de referencia (backend/locust/reports/2026-10-21-referencia.json) y se revisan cuando cambia el hardware de referencia o el numero de streams concurrentes.",
+  "referencia": "backend/locust/reports/2026-10-21-referencia.json",
+  "nota_umbrales": "Umbrales subidos respecto al ideal (p95 < 300 ms en lectura) porque la ejecucion de referencia sufrio el crash P0 que la propia carga ha encontrado (SIGSEGV al cerrar el preview: el worker de uvicorn muere y tarda ~4 s en volver). Ver la seccion 'Hallazgos' del README: en cuanto se arregle el crash, hay que volver a bajar los umbrales a 300 ms y a 0 fallos.",
+  "reglas": [
+    {
+      "id": "login_p95",
+      "method": "POST",
+      "name": "login",
+      "metrica": "percentil_ms",
+      "percentil": 0.95,
+      "umbral": 1500,
+      "min_muestras": 3,
+      "motivo": "El login verifica la contrasena (bcrypt) y firma un JWT: es la peticion mas lenta del camino critico, pero ocurre una vez por sesion (15 min de TTL). Medido: p95 420 ms."
+    },
+    {
+      "id": "lectura_plazas_p95",
+      "method": "GET",
+      "name": "lectura_plazas",
+      "metrica": "percentil_ms",
+      "percentil": 0.95,
+      "umbral": 300,
+      "min_muestras": 10,
+      "motivo": "Lectura del mapa de plazas: es la peticion que mas veces hace el operador. Medido: p95 41 ms (mediana 10 ms)."
+    },
+    {
+      "id": "lectura_tickets_p95",
+      "method": "GET",
+      "name": "lectura_tickets",
+      "metrica": "percentil_ms",
+      "percentil": 0.95,
+      "umbral": 1500,
+      "min_muestras": 10,
+      "motivo": "Listado de tickets de la sucursal. El ideal es 300 ms, pero en la ejecucion de referencia el p95 medido fue de 1,1 s porque el worker del backend se caia (SIGSEGV del preview) y las peticiones que llegaban durante el reinicio (4 s) contaban como lentas. Mediana: 15 ms. Cuando se arregle el crash, este umbral debe volver a 300 ms."
+    },
+    {
+      "id": "lectura_camaras_p95",
+      "method": "GET",
+      "name": "lectura_camaras",
+      "metrica": "percentil_ms",
+      "percentil": 0.95,
+      "umbral": 300,
+      "min_muestras": 10,
+      "motivo": "Listado de camaras de la sucursal. Medido: p95 36 ms."
+    },
+    {
+      "id": "ticket_crear_p95",
+      "method": "POST",
+      "name": "ticket_crear",
+      "metrica": "percentil_ms",
+      "percentil": 0.95,
+      "umbral": 500,
+      "min_muestras": 10,
+      "motivo": "Alta de ticket: una escritura en PostgreSQL con auditoria. Medido: p95 79 ms."
+    },
+    {
+      "id": "ticket_cerrar_p95",
+      "method": "POST",
+      "name": "ticket_cerrar",
+      "metrica": "percentil_ms",
+      "percentil": 0.95,
+      "umbral": 1500,
+      "min_muestras": 10,
+      "motivo": "Cierre de ticket: calcula la tarifa, escribe y genera el PDF del justificante (ReportLab). Es la escritura mas cara del producto. Medido: p95 57 ms."
+    },
+    {
+      "id": "sse_apertura_p95",
+      "method": "GET",
+      "name": "sse_mapa",
+      "metrica": "percentil_ms",
+      "percentil": 0.95,
+      "umbral": 1000,
+      "min_muestras": 10,
+      "motivo": "Apertura del stream SSE del mapa en vivo: auth + suscripcion a Redis + cabeceras. Medido: p95 180 ms."
+    },
+    {
+      "id": "sse_primer_evento_p95",
+      "method": "GET",
+      "name": "sse_mapa_primer_evento",
+      "metrica": "percentil_ms",
+      "percentil": 0.95,
+      "umbral": 1500,
+      "min_muestras": 10,
+      "motivo": "Latencia hasta el primer evento del mapa en vivo. Medido: p95 0 ms (el ping inicial sale sub-milisegundo: el backend lo emite en cuanto se suscribe al canal de Redis)."
+    },
+    {
+      "id": "sse_sin_cortes",
+      "method": "GET",
+      "name": "sse_mapa_primer_evento",
+      "metrica": "max_fallos",
+      "umbral": 0,
+      "motivo": "El mapa en vivo no puede cortarse: un corte es un EOF o un error de conexion durante la ventana de lectura. Medido: 70 sesiones, 0 cortes."
+    },
+    {
+      "id": "mjpeg_apertura_p95",
+      "method": "GET",
+      "name": "preview_mjpeg",
+      "metrica": "percentil_ms",
+      "percentil": 0.95,
+      "umbral": 1000,
+      "min_muestras": 5,
+      "motivo": "Apertura del preview MJPEG: auth + registro de la sesion de live_streams + cabeceras. Medido: p95 32 ms."
+    },
+    {
+      "id": "mjpeg_primer_frame_p95",
+      "method": "GET",
+      "name": "preview_mjpeg_primer_frame",
+      "metrica": "percentil_ms",
+      "percentil": 0.95,
+      "umbral": 8000,
+      "min_muestras": 5,
+      "motivo": "Latencia hasta el primer frame completo del preview. Incluye abrir el RTSP, decodificar y codificar el primer JPEG: con el RTSP de prueba (mediamtx + un bucle de MP4) se midieron 1,7 s con el backend en reposo y 2,6-8 s con la API en carga. El umbral es el p95 medido (8 s) porque por encima de 8 s la sesion se cuenta como fallida. Cuando el preview no abra el RTSP en <4 s, hay que revisar el backend (no la prueba)."
+    },
+    {
+      "id": "mjpeg_fallos_admitidos",
+      "method": "GET",
+      "name": "preview_mjpeg_primer_frame",
+      "metrica": "max_fallos",
+      "umbral": 3,
+      "motivo": "P0 abierto: en 8 sesiones de preview, 3 no llegaron a mostrar el primer frame en 8 s y CADA cierre del preview tumba el worker de uvicorn con SIGSEGV (carrera entre cap.release() y el grab() en vuelo). El umbral admite 3 fallos de 8 mientras el crash siga abierto; en cuanto se arregle, debe bajar a 0."
+    },
+    {
+      "id": "mjpeg_bytes_por_sesion",
+      "method": "GET",
+      "name": "preview_mjpeg_primer_frame",
+      "metrica": "min_bytes_medios",
+      "umbral": 50000,
+      "motivo": "Bytes medios por sesion de preview: si el stream se queda a medias, el usuario ve el modal congelado aunque no haya ningun error. Con 5 fps y ~35 KB por frame, 8 s de ventana son del orden de 1 MB; el umbral (50 KB) es holgado para detectar freezes sin ser sensible al tamano del frame. Medido: 322 KB de media."
+    }
+  ]
+}

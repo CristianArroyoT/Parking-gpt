@@ -14,8 +14,10 @@ from app.models.enums import (
     UserRole,
     VehicleRole,
 )
+from app.models.face_template import FaceTemplate
 from app.models.geofence import CameraGeofence
 from app.models.parking import Camera, Parking, ParkingSpace
+from app.models.password_reset_token import PasswordResetToken
 from app.models.plates_detected import PlatesDetected
 from app.models.pricing import Plan, Subscription, Tariff
 from app.models.ticket import Ticket
@@ -32,10 +34,12 @@ __all__ = [
     "Cost",
     "CostCategory",
     "CostPeriod",
+    "FaceTemplate",
     "ManualEntryReason",
     "Parking",
     "ParkingMembership",
     "ParkingSpace",
+    "PasswordResetToken",
     "Plan",
     "PlatesDetected",
     "Subscription",
