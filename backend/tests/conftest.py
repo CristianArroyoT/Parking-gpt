@@ -75,6 +75,18 @@ os.environ["ASYNC_DATABASE_URL"] = _url_async(URL_BD_TEST)
 os.environ.setdefault("JWT_SECRET", "test-secret")
 os.environ.setdefault("ENVIRONMENT", "test")
 
+# La suite usa una base de Redis APARTE (la 15) para que los buckets de
+# rate-limit no se mezclen con los de la app que está en marcha en el
+# mismo Redis (backend en :8000, worker de Celery, QA manual). Con la
+# base compartida, un POST de la app real incrementa el mismo bucket que
+# mide el test y éste ve un 429 antes de tiempo (fallo intermitente, medido
+# el 2026-10-21). En CI el job tiene su propio Redis, pero aun así se
+# aísla: si la suite y la app comparten base, el resultado de los tests
+# depende de lo que esté haciendo la app en ese momento.
+# Redis tiene 16 bases por defecto (0-15).
+_URL_REDIS_REAL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+os.environ["REDIS_URL"] = _URL_REDIS_REAL.rsplit("/", 1)[0] + "/15"
+
 import pytest  # noqa: E402 — debe ir después de fijar las variables de entorno
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import create_engine, text  # noqa: E402
