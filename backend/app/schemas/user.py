@@ -22,6 +22,19 @@ class UserCreate(UserBase):
     password: str = Field(min_length=8, max_length=128)
 
 
+class OperadorCreate(ORMModel):
+    """Alta de operador por parte de un gestor (T-20).
+
+    A diferencia de ``UserCreate``, **no acepta ``role`` ni ``is_active``**:
+    el usuario creado es siempre un ``operador`` y queda activo. Un gestor
+    no puede crear admins ni desactivarlos (eso sigue siendo del admin).
+    """
+    email: EmailStr
+    full_name: str = Field(min_length=2, max_length=255)
+    phone: Optional[str] = Field(default=None, max_length=32)
+    password: str = Field(min_length=8, max_length=128)
+
+
 class UserUpdate(ORMModel):
     # T-19 (2026-10-21): ``full_name`` arrastra el mismo ``min_length``
     # que ``UserBase``/``UserRead``. Sin él, un PATCH podía guardar un

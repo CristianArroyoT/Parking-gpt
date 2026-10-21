@@ -362,9 +362,8 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] Vista de operadores con alta y asignación a la sucursal.
   - [x] Todo filtrado por sucursal según el RBAC del gestor.
 - **Verificado**: rutas `/gestor/movimientos`, `/gestor/alertas` y `/gestor/operadores` con `meta.roles` (`admin`, `gestor`) y entradas de menú por rol. El backend acota (membresía de sucursal) y el selector de sucursal sólo ofrece las del gestor.
-- **Dos límites del backend asumidos y documentados en la UI** (no se inventan endpoints):
-  - La API de alertas sólo tiene `acknowledge` (idempotente): **no existe "resolver" ni "ignorar"**; la vista lo llama "Marcar como revisada" y lo explica en pantalla.
-  - `GET/POST /users` y `POST /users/{id}/memberships` son **admin-only**: el gestor recibe 403 y la vista muestra un panel explicando que el alta de operadores es del admin, en vez de fallar. Para cumplir el wireframe al pie de la letra habría que abrir esos tres endpoints al gestor **con scope por sucursal** (decisión de producto pendiente).
+- **Alta de operadores por el gestor: resuelta** con una API **nueva y acotada por sucursal** (`backend/app/api/v1/gestor_operadores.py`): `GET/POST /parkings/{parking_id}/operadores`. El gestor sólo puede actuar sobre sucursales de las que es miembro (403 si no), el rol creado es **forzado** a `operador` (el payload no tiene campo `role`, así que ni siquiera se puede pedir un admin) y la única membresía que se crea es la del path. Los endpoints globales de admin (`/users`) **siguen siendo admin-only**: no se han abierto. Verificado en vivo: listado 200, alta 201, `role: "admin"` en el payload ignorado, un operador recibe 403 y `GET /users` con gestor sigue dando 403. 8 tests nuevos.
+- **Un límite del backend que sí se documenta**: la API de alertas sólo tiene `acknowledge` (idempotente): **no existe "resolver" ni "ignorar"**; la vista lo llama "Marcar como revisada" y lo explica en pantalla. Traer un usuario **que ya existe** a una sucursal sigue siendo tarea del administrador (asignarlo a una sucursal ajena al gestor es justo lo que la API acotada evita).
 
 ### T-21 · Adjuntos/fotos en incidentes (hasta 3)
 
@@ -510,16 +509,16 @@ arregle la **facturación de la cuenta de GitHub** para que el CI remoto pueda
 ejecutar jobs.
 
 Quedan además **dos decisiones de producto** que esta sesión dejó
-documentadas y no implementadas, porque son cambios de permisos y de alcance:
+documentadas y no implementadas, porque son cambios de alcance:
 
-1. **Alta de operadores por parte del gestor** (T-20): la API de usuarios es
-   `admin-only`. Para cumplir el wireframe al pie de la letra hay que abrir
-   `GET/POST /users` y `POST /users/{id}/memberships` al gestor **con scope
-   por sucursal**. Hoy la vista explica la limitación en pantalla.
-2. **Cobro real** (T-18, T-24): con la decisión D2 el cobro es **contable**,
+1. **Cobro real** (T-18, T-24): con la decisión D2 el cobro es **contable**,
    sin pasarela. Cuando haya un cliente piloto habrá que añadir el cobro
    real (el punto de enganche son `billing_mode`/`billing_note` de la API de
    planes y la pantalla de pagos).
+2. **Traer un usuario ya existente a una sucursal**: es tarea del
+   administrador por diseño (un gestor no asigna usuarios a sucursales
+   ajenas). El alta de operadores por parte del gestor sí está resuelta
+   (T-20), con la API acotada por sucursal.
 
 
 

@@ -15,6 +15,7 @@ from app.api.v1 import (
     dashboard,
     events,
     face_templates,
+    gestor_operadores,
     incidents,
     logout_all,
     parkings,
@@ -74,5 +75,9 @@ api_router.include_router(face_templates.router)
 # cliente. El router de planes (T-18) expone su propio "mi plan" con el
 # mismo criterio de vigencia que aplica el descuento al cerrar el ticket.
 api_router.include_router(cliente.router)
+# T-20 (2026-10-21): alta y listado de operadores **acotados a la sucursal
+# del path**. Es un router nuevo y más estrecho: los endpoints de admin
+# (`/users`) siguen siendo admin-only y no se tocan.
+api_router.include_router(gestor_operadores.router)
 
 __all__ = ["api_router"]
