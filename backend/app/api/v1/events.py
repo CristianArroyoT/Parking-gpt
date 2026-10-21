@@ -30,7 +30,10 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.deps import get_current_user_or_query_token, parking_context
+from app.core.deps import (
+    enforce_parking_membership,
+    get_current_user_or_query_token,
+)
 from app.core.redis_async import get_async_redis
 from app.models.user import User
 from app.services.event_bus import channel_for_parking
@@ -40,12 +43,39 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/parkings/{parking_id}", tags=["events"])
 
 
+def _parking_context_for_events(
+    parking_id: int,
+    current: User = Depends(get_current_user_or_query_token),
+    db: Session = Depends(get_db),
+) -> User:
+    """Dep local: RBAC de sucursal + auth por header O ``?token=...``.
+
+    Por qué NO el ``parking_context`` global: ese dep depende de
+    ``get_current_user`` (sólo ``Authorization: Bearer``), así que
+    combinándolo con ``get_current_user_or_query_token`` el resultado
+    era un **401 siempre**: el ``?token=`` se aceptaba en la primera
+    dependencia pero la segunda exigía la cabecera. O sea, el endpoint
+    anunciaba en su docstring que aceptaba ``?token=`` y en la práctica
+    no lo aceptaba.
+
+    Es el mismo patrón (y el mismo criterio de seguridad) que usa el
+    endpoint MJPEG ``/cameras/{id}/live``: la ampliación a query token
+    es **opt-in por endpoint**, no global. Aquí la ampliación tiene
+    sentido porque el consumidor natural del SSE es ``EventSource``, que
+    no puede mandar cabeceras.
+
+    ``enforce_parking_membership`` mantiene el RBAC: 403 si el usuario no
+    es miembro de la sucursal (o es admin, que pasa siempre).
+    """
+    return enforce_parking_membership(current, parking_id, db)
+
+
 @router.get("/events")
 async def stream_parking_events(
     request: Request,
     parking_id: int,
     _user: User = Depends(get_current_user_or_query_token),
-    _ctx: User = Depends(parking_context),
+    _ctx: User = Depends(_parking_context_for_events),
     _db: Session = Depends(get_db),
 ) -> StreamingResponse:
     """Stream SSE con eventos de la sucursal.

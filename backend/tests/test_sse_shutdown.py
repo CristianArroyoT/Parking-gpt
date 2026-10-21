@@ -131,3 +131,57 @@ def test_el_endpoint_sse_sigue_requiriendo_autenticacion(
     """Sin token, el SSE sigue devolviendo 401 (no se afloja nada)."""
     r = client.get(ruta)
     assert r.status_code == 401
+
+
+def test_sse_acepta_el_token_por_query_param(
+    client: TestClient, db_session: Session
+) -> None:
+    """``?token=`` debe funcionar: el endpoint lo anunciaba y daba 401.
+
+    El dep ``parking_context`` global exige cabecera ``Authorization:
+    Bearer``, así que combinándolo con ``get_current_user_or_query_token``
+    el ``?token=`` se aceptaba en una dependencia y se rechazaba en la
+    otra. Ahora el SSE usa el mismo patrón opt-in por endpoint que el
+    preview MJPEG: query token + ``enforce_parking_membership``.
+    """
+    admin = _seed_admin(db_session)
+    parking = _seed_parking(db_session, code="P-SSE-QS")
+    token = _login(client, admin.email, "admin12345")
+
+    async def _escenario() -> int:
+        transport = httpx.ASGITransport(app=client.app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as ac:
+            url = f"/api/v1/parkings/{parking.id}/events?token={token}"
+            estado: dict[str, int] = {}
+
+            async def _leer() -> None:
+                async with ac.stream("GET", url) as resp:
+                    estado["status"] = resp.status_code
+                    estado["content_type"] = resp.headers.get("content-type", "")
+                    async for _chunk in resp.aiter_bytes():
+                        pass
+
+            # OJO: bajo ``ASGITransport`` las cabeceras de respuesta no
+            # llegan hasta que el cuerpo termina, así que hay que marcar el
+            # apagado desde una tarea concurrente: si se espera a que
+            # llegue la respuesta antes de marcarlo, el generador nunca
+            # termina y la petición se queda colgada.
+            tarea = asyncio.create_task(_leer())
+            await asyncio.sleep(0.5)
+            client.app.state.shutdown_event.set()
+            await asyncio.wait_for(tarea, timeout=5)
+            return estado.get("status", 0)
+
+    codigo = asyncio.run(_escenario())
+    assert codigo == 200
+
+
+def test_sse_con_query_param_invalido_devuelve_401(
+    client: TestClient, db_session: Session
+) -> None:
+    """Un ``?token=`` inválido no abre el stream."""
+    parking = _seed_parking(db_session, code="P-SSE-QS-MALO")
+    r = client.get(f"/api/v1/parkings/{parking.id}/events?token=no-es-un-jwt")
+    assert r.status_code == 401
