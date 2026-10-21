@@ -267,6 +267,17 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] El generador recibe un `CameraRef` (id + rtsp_url), no un modelo ORM vivo.
   - [x] Medido en el stack: durante el preview, **0** conexiones *idle in transaction* (antes: 1 por stream).
 
+### T-13+4 · El heartbeat sondeaba en serie y hacía parpadear el worker de Celery
+
+- **Estado**: **completado** — sondeo en paralelo y margen en el healthcheck
+- **Contexto**: el healthcheck del worker es `celery inspect ping`, un **comando de control**: lo responde un worker cuando tiene un slot libre del pool. La ronda de heartbeat sondeaba las cámaras **de una en una** (5 s de timeout cada una), así que con 50 cámaras la ronda tardaba hasta ~250 s y **monopolizaba un slot**: el ping no se respondía dentro del límite y el contenedor pasaba a *unhealthy*. En Swarm/K8s eso significa **reemplazar el worker en bucle**, sin que la ronda llegue a terminar nunca.
+- **Medido en este entorno**: el ping tardaba **16,5 s** con un healthcheck que admitía 10 s, y el contenedor alternaba entre `healthy` y `unhealthy`.
+- **Criterios de aceptación**:
+  - [x] Las cámaras se sondean **en paralelo** (`asyncio.gather` sobre `probe_camera`, que ya es async y delega en `to_thread`).
+  - [x] El timeout del `inspect` es **menor** que el del healthcheck (`-t 20` con `timeout: 30s`), para que Docker no mate al contenedor que responde tarde.
+  - [x] Test determinista que falla con el bucle secuencial (la tercera cámara sólo termina si las tres estaban a la vez).
+- **Verificado**: con 2 cámaras la ronda bajó de 11,7 s a 9,6 s (y las dos a la vez); con 50 cámaras la diferencia es de ~250 s a ~5 s. El test nuevo falla con el código secuencial (0 ok en 3 s) y pasa con el paralelo (3 ok al instante). El worker queda `healthy` de forma sostenida.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.
