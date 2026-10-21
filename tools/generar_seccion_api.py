@@ -1,0 +1,120 @@
+"""Genera la sección 3 de ``docs/API-INTERNAL.md`` a partir del código.
+
+Sustituye a mano lo que se escribió en su día: el inventario sale de
+los routers, no de la memoria. La columna "Quién" sale de las
+dependencias que declara cada endpoint.
+
+Uso:
+    python tools/generar_seccion_api.py            # imprime la sección
+    python tools/generar_seccion_api.py --escribir # la deja en el doc
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+RAIZ = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(RAIZ / "tools"))
+
+from extraer_api import extraer_de_modulo  # noqa: E402
+
+V1 = RAIZ / "backend" / "app" / "api" / "v1"
+DOC = RAIZ / "docs" / "API-INTERNAL.md"
+
+#: Modulo -> (titulo legible, fichero del router)
+TITULOS = {
+    "admin": ("Administración — auditoría", "admin.py"),
+    "alerts": ("Alertas", "alerts.py"),
+    "auth": ("Autenticación", "auth.py"),
+    "cameras": ("Cámaras, geocercas y salud", "cameras.py"),
+    "cameras_live": ("Preview en vivo (MJPEG)", "cameras_live.py"),
+    "cliente": ("Cliente final (PWA)", "cliente.py"),
+    "costs": ("Costes operativos", "costs.py"),
+    "dashboard": ("KPIs de dirección", "dashboard.py"),
+    "events": ("Eventos (SSE)", "events.py"),
+    "face_templates": ("Plantillas faciales (fuera del MVP)", "face_templates.py"),
+    "gestor_operadores": ("Operadores de la sucursal", "gestor_operadores.py"),
+    "incidents": ("Incidentes y adjuntos", "incidents.py"),
+    "logout_all": ("Cierre de sesión global", "logout_all.py"),
+    "parkings": ("Sucursales", "parkings.py"),
+    "password_reset": ("Recuperación de contraseña", "password_reset.py"),
+    "plans": ("Planes y suscripciones", "plans.py"),
+    "plates": ("Placas (OCR)", "plates.py"),
+    "reports": ("Informes", "reports.py"),
+    "spaces": ("Plazas", "spaces.py"),
+    "tariffs": ("Tarifas", "tariffs.py"),
+    "ticket_summary": ("Resumen de tickets", "ticket_summary.py"),
+    "tickets": ("Tickets", "tickets.py"),
+    "users": ("Usuarios y membresías", "users.py"),
+    "vehicles": ("Vehículos", "vehicles.py"),
+}
+
+#: Todos los routers son grupos propios del inventario: los que cuelgan
+#: de otro (costs va dentro de admin, reports dentro de admin...) siguen
+#: siendo endpoints de la API y tienen que aparecer.
+SUBNO_MODULOS: set[str] = set()
+
+
+def _rutas_por_modulo() -> dict[str, list[tuple[str, str, str]]]:
+    por_modulo: dict[str, list[tuple[str, str, str]]] = {}
+    for fichero in sorted(V1.glob("*.py")):
+        if fichero.stem == "__init__":
+            continue
+        filas = extraer_de_modulo(fichero)
+        if filas:
+            por_modulo[fichero.stem] = [(m, r, q) for m, r, q, _ in filas]
+    return por_modulo
+
+
+def seccion() -> str:
+    por_modulo = _rutas_por_modulo()
+    lineas: list[str] = []
+    total = sum(len(v) for v in por_modulo.values())
+    grupos = len([m for m in por_modulo if m not in SUBNO_MODULOS])
+    lineas.append("## 3. Mapa de recursos y RBAC")
+    lineas.append("")
+    lineas.append(
+        f"{total} endpoints en {grupos + 1} grupos. La columna «Quién» es la "
+        "autorización efectiva **hoy**, extraída del código (no de la "
+        "intención) con `tools/extraer_api.py`."
+    )
+    lineas.append("")
+    numero = 0
+    for modulo, (titulo, fichero) in TITULOS.items():
+        if modulo in SUBNO_MODULOS or modulo not in por_modulo:
+            continue
+        numero += 1
+        lineas.append(f"### 3.{numero} {titulo} — `{modulo}` (`{fichero}`)")
+        lineas.append("")
+        lineas.append("| Método | Ruta | Quién |")
+        lineas.append("|---|---|---|")
+        for metodo, ruta, quien in por_modulo[modulo]:
+            ruta_doc = ruta.replace("/api/v1", "")
+            lineas.append(f"| {metodo} | `{ruta_doc}` | {quien} |")
+        lineas.append("")
+    return "\n".join(lineas)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--escribir", action="store_true",
+                    help="Sustituye la sección 3 del documento")
+    args = ap.parse_args()
+
+    texto = seccion()
+    if not args.escribir:
+        print(texto)
+        return 0
+
+    contenido = DOC.read_text(encoding="utf-8")
+    inicio = contenido.index("## 3. Mapa de recursos y RBAC")
+    fin = contenido.index("## 4. Versionado y política de deprecación")
+    nuevo = contenido[:inicio] + texto + "\n" + contenido[fin:]
+    DOC.write_text(nuevo, encoding="utf-8")
+    print(f"Seccion 3 actualizada en {DOC}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
