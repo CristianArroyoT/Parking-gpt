@@ -246,6 +246,7 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] Ventana real la del default en los dos tests que simulaban el reset a mano.
   - [x] 5 ejecuciones seguidas en verde.
   - [x] Explicado en el commit por qué el bug **no** era del código de producción (la ventana fija, no sliding, es el comportamiento correcto).
+- **Segundo caso, resuelto después (T-13+5)**: los tests de rate-limit de endpoints fallaban de forma intermitente porque el bucket `rl:users_create:actor:1` **se saltaba un valor** (2 → 4 en un solo POST) y el test veía un 429 antes de tiempo. La causa era que la suite **compartía Redis con la app en marcha** (backend en `:8000`, worker de Celery, QA manual): cualquier `POST /users` real hecho como admin —que en la BD de test también es el actor 1— incrementaba el mismo bucket. La suite pasa ahora a su **propia base de Redis (la 15)**: con la app real bombardeando `POST /users` como admin, el fichero de tests de rate-limit pasa **6/6** en dos pasadas (antes ese mismo escenario lo hacía fallar).
 
 ### T-13+2 · P0 — cerrar el preview tumbaba el backend (SIGSEGV)
 
@@ -277,6 +278,16 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] El timeout del `inspect` es **menor** que el del healthcheck (`-t 20` con `timeout: 30s`), para que Docker no mate al contenedor que responde tarde.
   - [x] Test determinista que falla con el bucle secuencial (la tercera cámara sólo termina si las tres estaban a la vez).
 - **Verificado**: con 2 cámaras la ronda bajó de 11,7 s a 9,6 s (y las dos a la vez); con 50 cámaras la diferencia es de ~250 s a ~5 s. El test nuevo falla con el código secuencial (0 ok en 3 s) y pasa con el paralelo (3 ok al instante). El worker queda `healthy` de forma sostenida.
+
+### T-13+5 · La suite compartía Redis con la app en marcha (rate-limit intermitente)
+
+- **Estado**: **completado** — la suite usa su propia base de Redis
+- **Contexto**: los tests de rate-limit de endpoints fallaban de forma **intermitente** (2 o 4 fallos según la pasada). El contador del bucket `rl:users_create:actor:1` **se saltaba un valor** (2 → 4 en un solo POST) y el test veía un 429 antes de tiempo.
+- **Causa**: la suite **compartía Redis con la app que está en marcha** en el mismo entorno (backend en `:8000`, worker de Celery, QA manual). Cualquier `POST /users` real hecho como admin —que en la BD de test también es el actor 1— incrementaba **el mismo bucket** que mide el test. Con el monitor de Redis se vio que los INCRaban del mismo proceso, pero el salto de +2 sólo se reproducía con tráfico de la app en paralelo.
+- **Criterios de aceptación**:
+  - [x] La suite apunta a una **base de Redis propia** (la 15) mediante `REDIS_URL`.
+  - [x] Con la app real bombardeando `POST /users` como admin —la contaminación exacta que provocaba los fallos— el fichero de tests de rate-limit pasa **6/6** en dos pasadas.
+- **Nota**: en CI el job ya tenía su propio Redis, pero aislar también allí hace que el resultado de los tests **no dependa de lo que esté haciendo la app** en ese momento.
 
 ### T-14 · I3 — OCR con GPU
 
