@@ -457,6 +457,17 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] **El CI lo vigila**: los tests crean el esquema con `create_all`, es decir, **no ejecutan las migraciones** (una migración rota sólo se habría visto en producción). El job de integración ahora levanta una base vacía, migra de cero y comprueba que el esquema coincide con los modelos.
 - **Nota**: `alembic check` sólo funciona contra PostgreSQL (las migraciones usan `CREATE EXTENSION postgis`).
 
+### T-25+4 · P2 — nadie había probado un despliegue limpio de verdad
+
+- **Estado**: **completado** — smoke test en local y en el CI
+- **Contexto**: las migraciones se ejecutaban sobre la base de QA (que ya estaba sembrada) y el seed se ejecutaba a mano, pero **nunca los tres juntos sobre una base vacía**. Un despliegue roto —una migración que no aplica sobre el esquema limpio, o un seed que usa una columna que ya no existe— sólo se habría visto en el primer cliente.
+- **Criterios de aceptación**:
+  - [x] `tools/verificar_despliegue_limpio.py`: crea una base **vacía**, la migra de cero, la siembra, levanta la aplicación y comprueba que la API responde con los datos del seed. Borra la base al terminar.
+  - [x] Resultado medido: 14 migraciones aplicadas, seed completo (5 parkings × 60 plazas, 4 usuarios, 3 planes, 5 tarifas, 2 membresías) y la API respondiendo (login 200, `/parkings` 5, `/plans` 3, `/users` 4, resumen de tickets 200).
+  - [x] El seed es **idempotente**: ejecutarlo dos veces da los mismos recuentos.
+  - [x] El CI lo ejecuta en el job de integración.
+- **Nota**: el script usa `psycopg` (que ya es dependencia del backend) y no `psql`, para que no dependa de que el cliente esté en la imagen.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.

@@ -239,6 +239,27 @@ Tres cosas salieron de ahí:
    determinista (venía de un `set`) y la sección podía cambiar entre
    ejecuciones. Corregido.
 
+### 3-octies. Un despliegue limpio, probado de verdad (2026-10-21)
+
+Las migraciones se ejecutaban sobre la base de QA (ya sembrada) y el seed
+por separado, pero **nunca los tres juntos sobre una base vacía**. Un
+despliegue roto (una migración que no aplica sobre el esquema limpio, o un
+seed que usa una columna que ya no existe) sólo se habría visto en el
+primer cliente.
+
+`tools/verificar_despliegue_limpio.py` lo cubre entero:
+
+| Paso | Qué comprueba | Resultado medido |
+|---|---|---|
+| 1 | Base de datos **vacía** | creada de cero |
+| 2 | `alembic upgrade head` | 14 migraciones, sin error |
+| 3 | `python -m app.scripts.seed` | 5 parkings × 60 plazas, 50 cámaras, 4 usuarios, 3 planes, 5 tarifas, 2 membresías |
+| 4 | La aplicación, contra esa base | arranca y responde 200 en `/health` |
+| 5 | La API con los datos del seed | login 200, `/parkings` 5, `/plans` 3, `/users` 4, resumen de tickets 200 |
+
+Y el seed resultó ser **idempotente** (ejecutarlo dos veces da los mismos
+recuentos). El CI lo ejecuta en el job de integración.
+
 ### 3-septies. Los modelos y las migraciones contaban dos historias (2026-10-21)
 
 Salió al ejecutar `alembic check`, la herramienta estándar para comparar los
