@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+# Hook de commit: no deja pasar texto corrupto.
+#
+# POR QUÉ (2026-10-22): el modelo de lenguaje introduce con facilidad
+# caracteres de otros alfabetos (CJK, cirílico, coreano) al escribir en
+# español, y han llegado al commit cuatro veces en un solo día. Una vez
+# tocó un identificador de JavaScript y dejó una vista entera en blanco
+# con un 500.
+#
+# El escáner (`tools/escanear_texto.py`) también es un paso del CI, pero
+# el CI no corre en este repositorio (la facturación de la cuenta lo
+# bloquea), así que **el hook es la red inmediata**.
+#
+# Para activarlo en un clon (una vez):
+#     git config core.hooksPath .githooks
+#
+# Para saltárselo puntualmente:
+#     git commit --no-verify
+# ─────────────────────────────────────────────────────────────────────────────
+set -Eeuo pipefail
+
+RAIZ="$(git rev-parse --show-toplevel)"
+cd "$RAIZ"
+
+# Sólo los ficheros de texto: el escáner daría un falso positivo con un
+# binario (un PNG no es UTF-8 válido).
+FICHEROS=()
+while IFS= read -r fichero; do
+    case "$fichero" in
+        *.py|*.md|*.ts|*.vue|*.js|*.yml|*.yaml|*.txt|*.json|*.html|*.css)
+            FICHEROS+=("$fichero")
+            ;;
+    esac
+done < <(git diff --cached --name-only --diff-filter=ACMR)
+
+if (( ${#FICHEROS[@]} == 0 )); then
+    exit 0
+fi
+
+# El escáner escribe su informe en tools/_informe_texto.txt (va al
+# .gitignore) y sale con código 1 si encuentra algo.
+INFORME="tools/_informe_texto.txt"
+if ! python tools/escanear_texto.py "${FICHEROS[@]}" >/dev/null 2>&1; then
+    printf '\n[pre-commit] HAY TEXTO CORRUPTO en lo que quieres commitear:\n\n' >&2
+    if [[ -f "$INFORME" ]]; then
+        # El informe va en UTF-8; se imprime con el detalle de cada
+        # problema (fichero, línea y el carácter sospechoso).
+        sed 's/^/    /' "$INFORME" >&2
+    fi
+    printf '\n[pre-commit] Repáralo antes de commitear (o usa --no-verify si\n' >&2
+    printf '[pre-commit] es un falso positivo y lo revisas aparte).\n' >&2
+    exit 1
+fi
+
+exit 0

@@ -678,6 +678,20 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] La QA visual sigue en verde (21 pantallas × 5 anchos, 0 desbordes) tras tocar `MovementsView.vue` y `CalibrateView.vue`.
   - [x] La configuración usa `flat/essential`: el linter no exige reformatear el código.
 
+### T-31 · P2 — hook de commit: el texto corrupto no vuelve a entrar por la puerta de atrás
+
+- **Estado**: **completado** — probado en los dos sentidos (bloquea lo sucio, deja pasar lo limpio)
+- **Contexto**: el escáner de texto es un paso del CI desde T-13+10, pero **el CI no corre en este repositorio** (la facturación de la cuenta lo bloquea desde el 2026-07-07). Es decir: la puerta contra la corrupción de texto llevaba días sin efficacy. Y la corrupción había llegado al commit **cuatro veces en un solo día**; una de ellas tocó un identificador de JavaScript y dejó una vista en blanco con un 500.
+- **Qué se ha hecho**: `.githooks/pre-commit` escanea **los ficheros que se van a versionar** y rechaza el commit si detecta texto corrupto, indicando fichero, línea y carácter sospechoso.
+  - Se filtra por **extensión** antes de escanear: el escáner da un falso positivo con un binario (un PNG no es UTF-8 válido) y eso bloquearía commits de imágenes legítimas.
+  - El detalle se lee del **informe UTF-8** que deja el escáner, no de su salida por consola (que en Windows se come los acentos).
+- **Cómo se activa** (una vez por clon): `git config core.hooksPath .githooks`. Está documentado en el README raíz y en `tools/README.md`. Para saltarlo: `git commit --no-verify`.
+- **Criterios de aceptación**:
+  - [x] Con un fichero corrupto en el índice, el commit **se rechaza** (código 1) con el fichero, la línea y el carácter señalados.
+  - [x] Con un fichero limpio, el commit **pasa** (código 0).
+  - [x] Los ficheros binarios no bloquean el commit.
+  - [x] Documentado cómo activarlo en los dos README.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.

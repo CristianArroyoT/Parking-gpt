@@ -205,8 +205,41 @@ Variables de entorno (todas con valor por defecto razonable):
 docker compose exec backend pytest
 docker compose exec backend ruff check app
 docker compose exec backend mypy app
+docker compose exec frontend npm run lint
 docker compose exec frontend npm run type-check
 ```
+
+### La puerta de una vez
+
+```bash
+python tools/verificar_repo.py            # comprobaciones rápidas (~1 min)
+python tools/verificar_repo.py --completo # + CI replicado y QA visual (~40 min)
+```
+
+Comprueba de una vez lo que el CI remoto comprobaría (texto corrupto,
+secretos, inventario de la API, cobertura de endpoints, esquemas,
+migraciones, SLO, PWA y **simulacro de restauración de backups**) y sale
+con código 0 si todo está bien. Es la red de seguridad mientras la
+facturación de la cuenta de GitHub no permita ejecutar los jobs de
+Actions; en cuanto esté resuelta, el CI remoto es el que manda.
+
+### El hook de commit (texto corrupto)
+
+Al escribir en español, el modelo de lenguaje introduce con facilidad
+caracteres de otros alfabetos (CJK, cirílico, coreano). Cuatro veces en
+un solo día acabaron en un commit, y una de ellas tocó un identificador
+de JavaScript que dejó una vista en blanco con un 500.
+
+Para blindar el repositorio, activa el hook (una vez por clon):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+A partir de ahí, cada commit escanea **los ficheros que se van a
+versionar** y **rechaza** el commit si detecta texto corrupto, indicando
+el fichero, la línea y el carácter sospechoso. Para saltarlo (si lo
+revisas aparte y es un falso positivo): `git commit --no-verify`.
 
 ## Roadmap
 
