@@ -22,12 +22,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from app.api.v1 import cameras_live
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.models.parking import Camera
 from app.services.cameras import stream
 
@@ -145,24 +146,35 @@ def test_el_default_es_5_fps_con_un_intervalo_de_200_ms() -> None:
 
 
 def test_la_variable_de_entorno_cambia_el_fps(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``LIVE_PREVIEW_FPS`` es el interruptor: 12 → intervalo 1/12 s."""
+    """``LIVE_PREVIEW_FPS`` es el interruptor: 12 → intervalo 1/12 s.
+
+    Se construye una Settings NUEVA (no la cacheada) para leer el
+    entorno sin tocar la caché global de la app: la suite es compartida
+    con otros tests y vaciar ``get_settings`` aquí contaminaría a los
+    que vengan después.
+    """
     monkeypatch.setenv("LIVE_PREVIEW_FPS", "12")
-    get_settings.cache_clear()
-    try:
-        assert get_settings().live_preview_fps == 12.0
-        assert stream.resolve_frame_interval_s() == pytest.approx(1 / 12)
-    finally:
-        get_settings.cache_clear()
+    ajustes = Settings()
+    assert ajustes.live_preview_fps == 12.0
+    assert stream.resolve_frame_interval_s(ajustes.live_preview_fps) == pytest.approx(1 / 12)
+
+
+def test_resolve_usa_la_configuracion_cuando_no_se_le_pasa_fps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sin fps explícito, el intervalo sale de ``LIVE_PREVIEW_FPS``."""
+    monkeypatch.setattr(
+        stream, "get_settings", lambda: SimpleNamespace(live_preview_fps=12.0),
+    )
+    assert stream.resolve_frame_interval_s() == pytest.approx(1 / 12)
 
 
 def test_fps_no_positivo_significa_sin_limitador(monkeypatch: pytest.MonkeyPatch) -> None:
     """``LIVE_PREVIEW_FPS=0`` → intervalo 0 = flujo libre (cámara)."""
     monkeypatch.setenv("LIVE_PREVIEW_FPS", "0")
-    get_settings.cache_clear()
-    try:
-        assert stream.resolve_frame_interval_s() == 0.0
-    finally:
-        get_settings.cache_clear()
+    ajustes = Settings()
+    assert ajustes.live_preview_fps == 0.0
+    assert stream.resolve_frame_interval_s(ajustes.live_preview_fps) == 0.0
     # Y también con un valor negativo (interpretado igual que 0).
     assert stream.resolve_frame_interval_s(-1.0) == 0.0
 
@@ -193,14 +205,18 @@ def test_el_generador_no_emite_mas_frames_que_el_fps_marca(
 def test_el_generador_toma_el_fps_de_la_configuracion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Sin ``frame_interval_s`` explícito, manda ``LIVE_PREVIEW_FPS``."""
+    """Sin ``frame_interval_s`` explícito, manda ``LIVE_PREVIEW_FPS``.
+
+    Se parchea el ``get_settings`` ENLAZADO en
+    ``app.services.cameras.stream`` (no la caché global) para no depender
+    del entorno ni tocar el estado compartido de la app.
+    """
     monkeypatch.setattr(stream, "_open_capture", lambda _url: _CapturaFalsa())
-    monkeypatch.setenv("LIVE_PREVIEW_FPS", "10")
-    get_settings.cache_clear()
-    try:
-        frames = asyncio.run(_contar_en_ventana(_camara(), None, 0.5))
-    finally:
-        get_settings.cache_clear()
+    monkeypatch.setattr(
+        stream, "get_settings", lambda: SimpleNamespace(live_preview_fps=10.0),
+    )
+
+    frames = asyncio.run(_contar_en_ventana(_camara(), None, 0.5))
 
     assert 1 <= frames <= 7, f"se emitieron {frames} frames en 0,5 s con LIVE_PREVIEW_FPS=10"
 
