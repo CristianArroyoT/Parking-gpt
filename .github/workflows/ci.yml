@@ -129,6 +129,57 @@ jobs:
       - name: Test de funciones sólo de SQLite
         run: pytest -q tests/test_sqlite_only_functions.py
 
+  # ── Build de las imágenes Docker ────────────────────────────────────────
+  # POR QUÉ este job existe (T-05, 2026-10-21): el ``backend/Dockerfile``
+  # estuvo roto mucho tiempo (``RUN mkdir -p /var/log/solidapp`` después
+  # de ``USER app`` ⇒ *Permission denied*) y nadie se enteró porque el CI
+  # NUNCA construía la imagen: instalaba el paquete con ``pip install -e``.
+  # Además el comando de build local usaba ``| tail -40``, que se tragaba
+  # el exit code. Aquí se construye sin pipe (con ``set -o pipefail``) y se
+  # comprueba que el contenedor corre como el usuario no-root ``app`` y que
+  # el RotatingFileHandler escribe en ``/var/log/solidapp/backend.log``.
+  docker-build:
+    name: Build de imágenes Docker
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build de la imagen del backend
+        run: |
+          set -o pipefail
+          docker build --tag solidapp-backend:ci backend/
+
+      - name: El contenedor corre como el usuario no-root "app"
+        run: |
+          set -o pipefail
+          usuario="$(docker run --rm --entrypoint id solidapp-backend:ci -un)"
+          echo "usuario del contenedor: $usuario"
+          test "$usuario" = "app"
+
+      - name: El RotatingFileHandler escribe en /var/log/solidapp/backend.log
+        run: |
+          set -o pipefail
+          docker run -d --name solidapp-log-check solidapp-backend:ci
+          # Espera a que el backend arranque y escriba en el log rotado.
+          for _ in $(seq 1 30); do
+            if docker exec solidapp-log-check sh -c 'test -s /var/log/solidapp/backend.log'; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec solidapp-log-check sh -c '
+            id
+            ls -l /var/log/solidapp/backend.log
+            cat /var/log/solidapp/backend.log
+          '
+          docker rm -f solidapp-log-check
+
+      - name: Build de la imagen del frontend
+        run: |
+          set -o pipefail
+          docker build --tag solidapp-frontend:ci frontend/
+
   # ── Frontend: type-check + build ──────────────────────────────────────
   frontend:
     name: Frontend (vue-tsc, build)
