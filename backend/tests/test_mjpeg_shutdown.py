@@ -178,12 +178,23 @@ def test_hook_de_señal_cierra_los_streams_vivos() -> None:
     async def _escenario() -> tuple[bool, list[int]]:
         loop = asyncio.get_running_loop()
         recibidos: list[int] = []
+
+        class _Estado:
+            """Estado mínimo de la app: el hook de señal marca el evento."""
+
+            shutdown_event = asyncio.Event()
+
+        class _AppFalsa:
+            state = _Estado()
+
+        app = _AppFalsa()
+
         original = signal.getsignal(signal.SIGTERM)
         # Handler previo "de mentira": hace de uvicorn, que es quien
         # realmente ordena el apagado. Lo comprobamos al final.
         signal.signal(signal.SIGTERM, lambda s, f: recibidos.append(s))
         try:
-            main_mod._instalar_hook_cierre_streams(loop)
+            main_mod._instalar_hook_cierre_streams(loop, app)
             session = await live_streams.try_acquire(_CAMERA_FICTICIA)
             assert session is not None
             handler = signal.getsignal(signal.SIGTERM)
@@ -194,7 +205,10 @@ def test_hook_de_señal_cierra_los_streams_vivos() -> None:
             # mataría el proceso de pytest.
             handler(signal.SIGTERM, None)
             ok = await _esperar(lambda: session.shutdown_event.is_set())
-            return ok, recibidos
+            # T-06+1: el mismo hook marca el evento de apagado de la app,
+            # que es lo que cierra los streams SSE.
+            ok_evento_app = await _esperar(lambda: app.state.shutdown_event.is_set())
+            return ok and ok_evento_app, recibidos
         finally:
             main_mod._restaurar_hook_cierre_streams()
             signal.signal(signal.SIGTERM, original)
