@@ -40,7 +40,7 @@ class PlatesDetected(Base, TimestampMixin):
     # la app (no server_default) para que sea determinista en tests y
     # para que coincida con la lógica de negocio, no con el reloj de la BD.
     detected_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
+        DateTime(timezone=True), index=True, nullable=False
     )
     raw_response: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 

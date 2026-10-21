@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -21,6 +21,16 @@ class AuditLog(Base, TimestampMixin):
     """Registro exhaustivo de operaciones sensibles. Retención 1 año."""
 
     __tablename__ = "audit_logs"
+
+    # Índices que las migraciones 0007 y 0008 crearon a propósito (son
+    # consultas de auditoría por usuario y por fecha) y que el modelo no
+    # declaraba: ``alembic check`` los veía como índices "de más" en la
+    # base de datos y quería borrarlos al autogenerar. Declararlos aquí
+    # deja el modelo y el esquema de acuerdo.
+    __table_args__ = (
+        Index("ix_audit_logs_created_at", "created_at"),
+        Index("ix_audit_logs_user_id_created_at", "user_id", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int | None] = mapped_column(
