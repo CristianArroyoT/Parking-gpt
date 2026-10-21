@@ -183,6 +183,43 @@ export async function assignUserToParking(
   return data
 }
 
+// ── Operadores de la sucursal (T-20) ──────────────────────────────────────
+//
+// API **acotada por sucursal** (`backend/app/api/v1/gestor_operadores.py`):
+// el gestor sólo puede ver y dar de alta operadores de las sucursales de las
+// que es miembro, y el rol creado es siempre `operador`. Los endpoints
+// globales de admin (`/users`) **no** se abren: siguen siendo admin-only.
+//
+// Por eso aquí no se usa `listStaffUsers()`: ésa devuelve 403 al gestor.
+
+/** Operadores asignados a una sucursal. */
+export async function listParkingOperators(parkingId: number): Promise<StaffUser[]> {
+  const { data } = await http.get<StaffUser[]>(`/parkings/${parkingId}/operadores`)
+  return data
+}
+
+/**
+ * Crea un operador **y** lo deja asignado a la sucursal indicada.
+ *
+ * El payload no lleva `role`: el backend lo fuerza a `operador`, así que un
+ * gestor no puede crear un admin por aquí.
+ */
+export async function createParkingOperator(
+  parkingId: number,
+  payload: {
+    email: string
+    full_name: string
+    password: string
+    phone?: string | null
+  },
+): Promise<StaffUser> {
+  const { data } = await http.post<StaffUser>(
+    `/parkings/${parkingId}/operadores`,
+    payload,
+  )
+  return data
+}
+
 // ── Filtros puros del log de movimientos ────────────────────────────────
 
 /** Filtros del log de entradas/salidas (todos opcionales). */
