@@ -115,7 +115,7 @@ def _camaras_ids() -> list[int]:
     """Cámaras del escenario de preview, leídas **en runtime**.
 
     POR QUÉ no se lee al importar el módulo: al importar, la variable de
-    entorno ``SOLIDAPP_CAMERA_IDS`` se quedaba con su valor por defecto
+    entorno ``SOLIDAPP_CAMARA_IDS`` se quedaba con su valor por defecto
     (la cámara 81) aunque en el proceso sí estuviera bien puesta; en
     cambio, al leerla cuando ya ha arrancado el escenario, sí llega el
     valor. Se comprobó con la ejecución de referencia: con la lectura
@@ -124,13 +124,18 @@ def _camaras_ids() -> list[int]:
 
     El valor se cachea en ``CAMARA_IDS`` para no releer el entorno en
     cada iteración.
+
+    NOMBRE DE LA VARIABLE: se acepta el nombre documentado
+    (``SOLIDAPP_CAMARA_IDS``, una R) y, por compatibilidad, el alternativo
+    con dos R (``SOLIDAPP_CAMERA_IDS``). Antes sólo se leía el segundo, así
+    que poner la variable como dice el README no surtía efecto y la
+    ejecución se quedaba siempre con la cámara 81.
     """
     global CAMARA_IDS
-    ids = [
-        int(x)
-        for x in os.environ.get("SOLIDAPP_CAMERA_IDS", "81").split(",")
-        if x.strip()
-    ]
+    bruto = os.environ.get("SOLIDAPP_CAMARA_IDS") or os.environ.get(
+        "SOLIDAPP_CAMERA_IDS", "81",
+    )
+    ids = [int(x) for x in bruto.split(",") if x.strip()]
     if ids:
         CAMARA_IDS = ids
     return CAMARA_IDS
