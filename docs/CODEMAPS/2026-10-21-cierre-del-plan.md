@@ -328,9 +328,13 @@ querer. Queda como T-24+1 para cuando el CI vuelva a estar en marcha.
 
 La QA visual recorría cuatro anchos (768, 1024, 1232 y 1440 px), pero
 **ninguno era de móvil**: el más estrecho era una tablet vertical. Al
-añadir el ancho de un móvil (414 px) salieron **26 contenidos desbordados**
-en 10 de las 21 pantallas, y 10 pantallas con la **página entera
-desplazable** de lado a lado.
+añadir el ancho de un móvil (414 px) salieron **26 contenidos desbordados
+en 6 de las 21 pantallas**, y **3 pantallas con la página entera
+desplazable** de lado a lado (Movimientos, Operadores y Tickets).
+
+La línea base está medida sobre el commit anterior al arreglo
+(`8315d2f`), no de memoria: se restauró ese código, se pasó la QA a
+414 px y el resultado fueron 26 desbordes en 6 pantallas.
 
 **La causa tiene dos capas**, y es por eso que arreglar sólo una no sirve:
 

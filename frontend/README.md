@@ -111,8 +111,11 @@ dos palabras como la etiqueta de al lado.
 ### El móvil (414 px): la página entera se desplazaba
 
 La QA siempre se había corrido a 1440 px, así que **nunca se vio el
-móvil**: a 414 px, 10 de las 21 pantallas tenían la página entera
-desplazable de lado a lado y 26 contenidos se salían de su caja.
+móvil**: a 414 px, **6 de las 21 pantallas** tenían contenido que se salía
+de su caja (**26 desbordes** en total) y **3 de ellas** tenían además la
+página entera desplazable de lado a lado (Movimientos, Operadores y
+Tickets). En un teléfono, el usuario tenía que mover la ventana para ver
+el final de una tabla.
 
 El arreglo tiene **dos** partes, y con una sola no basta:
 

@@ -367,7 +367,7 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
 ### T-13+9 · P2 — en el móvil (414 px) la página entera se desplazaba de lado a lado
 
 - **Estado**: **completado** — corregido y verificado a 414 px
-- **Contexto**: la QA visual recorría cuatro anchos (768, 1024, 1232 y 1440 px), pero **ninguno era de móvil**: el más estrecho era una tablet vertical. Al añadir el ancho de un móvil (414 px) aparecieron **26 contenidos desbordados** repartidos en 10 de las 21 pantallas, y **10 pantallas con la página entera desplazable** de lado a lado. En un teléfono, el usuario tenía que mover la ventana para ver el final de una tabla.
+- **Contexto**: la QA visual recorría cuatro anchos (768, 1024, 1232 y 1440 px), pero **ninguno era de móvil**: el más estrecho era una tablet vertical. Al añadir el ancho de un móvil (414 px) aparecieron **26 contenidos desbordados en 6 de las 21 pantallas**, y **3 pantallas con la página entera desplazable** de lado a lado (Movimientos, Operadores y Tickets). En un teléfono, el usuario tenía que mover la ventana para ver el final de una tabla.
 - **Por qué**: un `<table>` no baja del ancho de su contenido. Sin un contenedor con `overflow-x-auto`, la tabla se sale de su tarjeta; y dentro de una rejilla o de un flex, el `min-width: auto` del ítem lo ata a la anchura mínima de su contenido, así que la columna no encoge y la página hereda el desbordamiento.
 - **El arreglo tiene dos partes y con una sola no basta**:
   1. Envolver la tabla en un `div` con `overflow-x-auto` y `min-w-max` **dentro** del atributo `class` de la tabla.
@@ -378,7 +378,7 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] La QA visual recorre el ancho de móvil (414 px).
   - [x] Las 8 tablas que no caben están envueltas en un contenedor `overflow-x-auto min-w-0`.
   - [x] Los ítems de rejilla que contienen tablas llevan `min-w-0`.
-  - [x] **0 desbordes a 414 px** (antes 26) y **0 pantallas con scroll horizontal de página** (antes 10).
+  - [x] **0 desbordes a 414 px** (antes 26, en 6 pantallas) y **0 pantallas con scroll horizontal de página** (antes 3).
   - [x] Sin regresión: **0 desbordes** en las 21 pantallas a 768, 1024, 1232 y 1440 px.
   - [x] 0 errores de consola y 0 peticiones fallidas en los **cinco** anchos.
   - [x] `vue-tsc --noEmit` y `npm run build` en verde.
