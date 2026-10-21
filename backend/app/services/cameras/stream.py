@@ -65,7 +65,7 @@ import threading
 import time
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import AsyncIterator
+from typing import AsyncIterator, Callable
 
 import cv2
 
@@ -264,11 +264,57 @@ class CapturaSincronizada:
             self._cap.release()
 
 
+def _liberar_slot(on_session_end: Callable[[], None] | None, camera_id: int) -> None:
+    """Invoca el callback de fin de sesión sin dejar que reviente.
+
+    Es deliberadamente **síncrono** y sin ``await``: la liberación del
+    slot de la cámara tiene que ocurrir aunque el generador se esté
+    cerrando **por cancelación** (el caso real: el navegador aborta la
+    petición ``<img>`` y Starlette cancela la tarea del stream). Con un
+    ``await`` dentro, la cancelación podría cortarlo y el slot se
+    quedaría ocupado hasta el barrido de huérfanas (8 s de 409 para
+    quien quisiera reabrir la cámara).
+    """
+    if on_session_end is None:
+        return
+    try:
+        on_session_end()
+    except Exception as exc:  # noqa: BLE001 — defensiva
+        log.warning(
+            "mjpeg: fallo liberando el slot de la cámara camera=%s: %s",
+            camera_id, exc,
+        )
+
+
+async def _cerrar_captura(cap: CapturaSincronizada, camera_id: int) -> None:
+    """Cierra el ``VideoCapture`` FUERA del hilo del event loop.
+
+    Por qué: ``CapturaSincronizada.release()`` espera a que termine la
+    lectura en vuelo (el ``threading.Lock``), y esa lectura puede
+    quedarse colgada hasta el timeout de FFmpeg (5 s). Si el
+    ``release()`` se hiciera en el hilo del event loop, **todo** el
+    backend quedaría congelado durante ese tiempo: no sólo ese stream,
+    sino cada request en curso.
+
+    El ``await asyncio.to_thread`` delega el trabajo a un hilo del
+    pool; si la tarea está siendo cancelada, el ``await`` puede
+    cortarse, pero el hilo sigue y el ``release()`` se completa igual.
+    """
+    try:
+        await asyncio.to_thread(cap.release)
+    except Exception as exc:  # noqa: BLE001 — defensiva
+        log.warning(
+            "mjpeg: fallo liberando VideoCapture camera=%s: %s",
+            camera_id, exc,
+        )
+
+
 async def mjpeg_generator(
     camera: Camera | CameraRef,
     shutdown_event: asyncio.Event,
     is_disconnected_callable,
     frame_interval_s: float | None = None,
+    on_session_end: Callable[[], None] | None = None,
 ) -> AsyncIterator[bytes]:
     """Genera frames JPEG multipart hasta que el cliente desconecte.
 
@@ -286,10 +332,30 @@ async def mjpeg_generator(
         frame_interval_s: intervalo mínimo entre frames (segundos).
             ``None`` → se usa el valor de ``LIVE_PREVIEW_FPS`` (5 fps por
             defecto). ``0.0`` → sin limitador, al ritmo de la cámara.
+        on_session_end: callable **síncrono** que se invoca cuando la
+            sesión termina, ANTES de la limpieza del ``VideoCapture``.
+            Es el sitio donde el endpoint libera el slot de la cámara en
+            el registro de streams (ver el módulo de ``live_streams`` y
+            el P2 documentado más abajo).
 
     Yields:
         Chunk ``multipart/x-mixed-replace`` con la cabecera
         ``--frame\\r\\nContent-Type: image/jpeg\\r\\n...``.
+
+    ORDEN DE LAS FASES AL TERMINAR (P2 del preview, 2026-10-21):
+
+    1. **Liberar el slot del registro** (``on_session_end``). Es
+       instantáneo y no puede ser interrumpido por una cancelación.
+    2. **Cerrar el ``VideoCapture``**. Puede tardar (el teardown de
+       FFmpeg/RTSP espera a la lectura en vuelo) y por eso va **fuera**
+       del hilo del event loop.
+
+    El orden importa: si el slot se liberase después del teardown, un
+    operador que cerrase el modal y volviese a abrirlo recibiría un
+    409 durante todo el teardown (hasta ~8 s con el barrido de
+    huérfanas). Y si el teardown se hiciese en el hilo del event loop,
+    el backend entero quedaría congelado mientras espera a la lectura en
+    vuelo (hasta 5 s: el timeout de FFmpeg).
     """
     # Intervalo efectivo: configuración de la app salvo que el caller
     # pase uno explícito (los tests lo hacen para no depender del env).
@@ -303,6 +369,8 @@ async def mjpeg_generator(
             "mjpeg: no se pudo instanciar VideoCapture camera=%s: %s",
             camera.id, exc,
         )
+        if on_session_end is not None:
+            _liberar_slot(on_session_end, camera.id)
         return
 
     # Todas las llamadas a OpenCV pasan por el wrapper con lock: así
@@ -315,7 +383,8 @@ async def mjpeg_generator(
             "mjpeg: stream no abierto camera=%s url=%s",
             camera.id, camera.rtsp_url,
         )
-        cap.release()
+        _liberar_slot(on_session_end, camera.id)
+        await _cerrar_captura(cap, camera.id)
         placeholder = _placeholder_jpeg()
         yield (
             b"--frame\r\n"
@@ -403,13 +472,13 @@ async def mjpeg_generator(
             # produce + cv2 codifica + la red entrega (modo "tiempo real"
             # del sprint Latencia-Mínima 2026-07-07).
     finally:
-        try:
-            cap.release()
-        except Exception as exc:  # noqa: BLE001 — defensiva
-            log.warning(
-                "mjpeg: fallo liberando VideoCapture camera=%s: %s",
-                camera.id, exc,
-            )
+        # FASE 1: liberar el slot de la cámara (instantáneo, no se puede
+        # interrumpir). Va PRIMERO para que quien quiera reabrir la
+        # cámara no tenga que esperar al teardown del RTSP.
+        _liberar_slot(on_session_end, camera.id)
+        # FASE 2: cerrar la captura. Puede tardar y va fuera del hilo
+        # del event loop (ver ``_cerrar_captura``).
+        await _cerrar_captura(cap, camera.id)
         log.info(
             "mjpeg: stream cerrado camera=%s url=%s",
             camera.id, camera.rtsp_url,

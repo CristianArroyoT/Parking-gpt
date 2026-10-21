@@ -129,11 +129,11 @@ def test_shutdown_all_señala_todas_las_sesiones() -> None:
 
     async def _escenario() -> tuple[bool, bool, int]:
         registry = LiveStreamRegistry()
-        s1 = await registry.try_acquire(1)
-        s2 = await registry.try_acquire(2)
+        s1 = registry.try_acquire(1)
+        s2 = registry.try_acquire(2)
         assert s1 is not None
         assert s2 is not None
-        notified = await registry.shutdown_all()
+        notified = registry.shutdown_all()
         return (
             s1.shutdown_event.is_set(),
             s2.shutdown_event.is_set(),
@@ -156,14 +156,14 @@ def test_lifespan_cierra_los_streams_vivos(
     monkeypatch.setattr(main_mod, "configure_logging", lambda: None)
 
     async def _escenario() -> bool:
-        session = await live_streams.try_acquire(_CAMERA_FICTICIA)
+        session = live_streams.try_acquire(_CAMERA_FICTICIA)
         assert session is not None
         try:
             async with main_mod.lifespan(main_mod.app):
                 pass
             return session.shutdown_event.is_set()
         finally:
-            await live_streams.release(_CAMERA_FICTICIA)
+            live_streams.release(_CAMERA_FICTICIA)
 
     assert asyncio.run(_escenario()) is True
 
@@ -195,7 +195,7 @@ def test_hook_de_señal_cierra_los_streams_vivos() -> None:
         signal.signal(signal.SIGTERM, lambda s, f: recibidos.append(s))
         try:
             main_mod._instalar_hook_cierre_streams(loop, app)
-            session = await live_streams.try_acquire(_CAMERA_FICTICIA)
+            session = live_streams.try_acquire(_CAMERA_FICTICIA)
             assert session is not None
             handler = signal.getsignal(signal.SIGTERM)
             assert getattr(handler, "_solidapp_live_shutdown_hook", False), (
@@ -212,7 +212,7 @@ def test_hook_de_señal_cierra_los_streams_vivos() -> None:
         finally:
             main_mod._restaurar_hook_cierre_streams()
             signal.signal(signal.SIGTERM, original)
-            await live_streams.release(_CAMERA_FICTICIA)
+            live_streams.release(_CAMERA_FICTICIA)
 
     ok, recibidos = asyncio.run(_escenario())
     assert ok is True, "SIGTERM no cerró los streams vivos"

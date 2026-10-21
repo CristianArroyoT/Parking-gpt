@@ -38,9 +38,13 @@ El placeholder gris del SVG NO se sustituye — sólo se añade este botón.
 """
 from __future__ import annotations
 
+import logging
+from typing import Any, Callable
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from starlette.types import Receive, Scope, Send
 
 from app.core import db as db_mod
 from app.core.db import get_db
@@ -53,6 +57,8 @@ from app.models.parking import Camera
 from app.models.user import User
 from app.services.cameras.live_streams import live_streams
 from app.services.cameras.stream import CameraRef, mjpeg_generator
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/parkings", tags=["cámaras-live"])
 
@@ -112,6 +118,46 @@ async def _usuario_con_membrescia(parking_id: int, request: Request) -> User:
         return enforce_parking_membership(current, parking_id, db)
 
 
+class _PreviewResponse(StreamingResponse):
+    """``StreamingResponse`` que suelta el slot de la cámara al terminar.
+
+    POR QUÉ UNA SUBCLASE Y NO EL ``finally`` DEL GENERADOR (P2 del
+    preview, 2026-10-21): cuando el cliente aborta la petición —el
+    navegador cerrando el modal— Starlette cancela la tarea del stream.
+    El generador asíncrono **no** se cierra en ese momento: su cierre
+    lo dispara el finalizador de generadores asíncronos del event loop,
+    que puede tardar hasta que el recolector de basura recoge el ciclo
+    de referencias. Durante ese hueco el slot de la cámara seguía
+    ocupado y el siguiente cliente recibía un 409.
+
+    Aquí la liberación es **determinista**: ``__call__`` termina (por
+    el camino normal o por cancelación) y el ``finally`` suelta el
+    slot. Además ocurre **antes** de la limpieza bloqueante del
+    ``VideoCapture``, que es lo que hace que reabrir la cámara sea
+    inmediato.
+    """
+
+    def __init__(
+        self,
+        *args: Any,
+        on_finish: Callable[[], None],
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._on_finish = on_finish
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            try:
+                self._on_finish()
+            except Exception as exc:  # noqa: BLE001 — defensiva
+                log.warning(
+                    "live_preview: no se pudo liberar el slot de la cámara: %s", exc,
+                )
+
+
 @router.get("/{parking_id}/cameras/{camera_id}/live")
 async def live_preview(
     parking_id: int,
@@ -153,12 +199,26 @@ async def live_preview(
             raise HTTPException(status_code=404, detail="Cámara no encontrada")
         ref = CameraRef(id=cam.id, rtsp_url=cam.rtsp_url)
 
-    session = await live_streams.try_acquire(camera_id)
+    session = live_streams.try_acquire(camera_id)
     if session is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Ya hay una vista en vivo abierta para esta cámara",
         )
+
+    def _liberar_slot() -> None:
+        """Libera el slot de la cámara en el registro de streams.
+
+        Se pasa al generador para que la liberación ocurra ANTES de la
+        limpieza bloqueante del ``VideoCapture`` (el teardown del RTSP).
+        Sin esto, un operador que cerrase el modal y volviese a
+        abrirlo recibiría un 409 durante todo el teardown (P2 del
+        preview, 2026-10-21).
+
+        El ``session`` identifica **a quién** pertenece el slot: si otro
+        cliente ya lo ha tomado, esta llamada no lo toca.
+        """
+        live_streams.release(camera_id, session)
 
     async def safe_gen():
         try:
@@ -166,6 +226,7 @@ async def live_preview(
                 ref,
                 session.shutdown_event,
                 request.is_disconnected,
+                on_session_end=_liberar_slot,
             ):
                 # Sprint Fix-Stale-Sessions (2026-07-08): tras emitir
                 # cada chunk (típicamente un frame MJPEG), marcamos la
@@ -178,12 +239,17 @@ async def live_preview(
                 # cierre abrupto). El balance: si pasan >8 s sin
                 # emitir NINGÚN chunk (cliente muerto), la sesión se
                 # libera para evitar 409 falsos al siguiente cliente.
-                await live_streams.heartbeat(camera_id)
+                live_streams.heartbeat(camera_id, session)
                 yield chunk
         finally:
-            await live_streams.release(camera_id)
+            # Red de seguridad: el generador ya liberó el slot en su
+            # ``finally``, pero si el stream ni siquiera llegó a
+            # arrancar, esta llamada es la que lo suelta. Es
+            # idempotente y va con la sesión, así que no puede matar el
+            # stream de otro cliente que ya haya tomado la cámara.
+            live_streams.release(camera_id, session)
 
-    return StreamingResponse(
+    return _PreviewResponse(
         safe_gen(),
         media_type="multipart/x-mixed-replace; boundary=frame",
         headers={
@@ -191,4 +257,5 @@ async def live_preview(
             "Pragma": "no-cache",
             "X-Accel-Buffering": "no",
         },
+        on_finish=_liberar_slot,
     )

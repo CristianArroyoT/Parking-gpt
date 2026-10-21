@@ -58,13 +58,8 @@ def _cleanup_live_registry():
     """Vacía el ``LiveStreamRegistry`` entre tests para que la prueba
     409 no contamine a las siguientes."""
     yield
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
     for cam_id in list(live_streams._active.keys()):  # noqa: SLF001
-        loop.run_until_complete(live_streams.release(cam_id))
+        live_streams.release(cam_id)
 
 
 def test_live_requires_auth(
@@ -183,8 +178,7 @@ def test_live_409_when_already_active(
     cam = _seed_camera(db_session, parking.id, code="CAM-LIVE-409")
     headers = _login_headers(client, admin.email, "admin12345")
 
-    loop = asyncio.get_event_loop()
-    session = loop.run_until_complete(live_streams.try_acquire(cam.id))
+    session = live_streams.try_acquire(cam.id)
     assert session is not None
 
     try:
@@ -197,7 +191,7 @@ def test_live_409_when_already_active(
         )
         assert "vista en vivo abierta" in r.text
     finally:
-        loop.run_until_complete(live_streams.release(cam.id))
+        live_streams.release(cam.id)
 
 
 def test_live_release_allows_new_session(
@@ -210,13 +204,12 @@ def test_live_release_allows_new_session(
     cam = _seed_camera(db_session, parking.id, code="CAM-LIVE-REL")
     _ = _login(client, admin.email, "admin12345")  # sólo limpia setup
 
-    loop = asyncio.get_event_loop()
-    s1 = loop.run_until_complete(live_streams.try_acquire(cam.id))
+    s1 = live_streams.try_acquire(cam.id)
     assert s1 is not None
-    loop.run_until_complete(live_streams.release(cam.id))
-    s2 = loop.run_until_complete(live_streams.try_acquire(cam.id))
+    live_streams.release(cam.id)
+    s2 = live_streams.try_acquire(cam.id)
     assert s2 is not None
-    loop.run_until_complete(live_streams.release(cam.id))
+    live_streams.release(cam.id)
 
 
 class _CaptureQueMantieneElStreamAbierto:
@@ -301,7 +294,7 @@ def test_live_concurrente_200_y_409(
             r2 = await asyncio.wait_for(segundo, timeout=10)
 
             # 3) Cerramos el stream del primer cliente para que termine.
-            await registry.shutdown_all()
+            registry.shutdown_all()
             r1 = await asyncio.wait_for(primero, timeout=10)
             return r1.status_code, r2.status_code
 

@@ -84,7 +84,10 @@ def _programar_cierre_streams(
         except (AttributeError, RuntimeError):  # pragma: no cover
             log.warning("No se pudo marcar el evento de apagado")
         try:
-            asyncio.ensure_future(live_streams.shutdown_all(), loop=loop)
+            # El registro de streams es **síncrono** (ver
+            # ``app/services/cameras/live_streams.py``): no hace falta
+            # encolar nada, el ``shutdown_all`` no espera a nada.
+            live_streams.shutdown_all()
         except RuntimeError:  # pragma: no cover — loop ya cerrado
             log.warning("No se pudieron cerrar los streams MJPEG: loop cerrado")
 
@@ -173,7 +176,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         app.state.shutdown_event.set()
         try:
-            cerradas = await live_streams.shutdown_all()
+            cerradas = live_streams.shutdown_all()
         finally:
             _restaurar_hook_cierre_streams()
         if cerradas:
