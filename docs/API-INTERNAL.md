@@ -42,136 +42,226 @@ Dependencias de autorización (en `backend/app/core/deps.py`):
 
 ## 3. Mapa de recursos y RBAC
 
-61 endpoints en 18 grupos. La columna «Quién» es la autorización efectiva
-**hoy**, extraída del código (no de la intención).
+99 endpoints en 25 grupos. La columna «Quién» es la autorización efectiva **hoy**, extraída del código (no de la intención) con `tools/extraer_api.py`.
 
-### 3.1 Autenticación — `auth`
+### 3.1 Administración — auditoría — `admin` (`admin.py`)
 
 | Método | Ruta | Quién |
 |---|---|---|
-| POST | `/auth/login` | Público (rate-limit por IP y por email) |
+| GET | `/admin/audit-logs` | `require_role('admin')` |
+
+### 3.2 Alertas — `alerts` (`alerts.py`)
+
+| Método | Ruta | Quién |
+|---|---|---|
+| GET | `/parkings/{parking_id}/alerts` | `parking_context` |
+| POST | `/parkings/{parking_id}/alerts/{alert_id}/acknowledge` | Autenticado |
+
+### 3.3 Autenticación — `auth` (`auth.py`)
+
+| Método | Ruta | Quién |
+|---|---|---|
+| POST | `/auth/login` | Público |
 | POST | `/auth/login/oauth` | Público |
-| POST | `/auth/refresh` | Público (refresh token) |
-| POST | `/auth/logout` | Autenticado (blacklistea el `jti`) |
-| POST | `/auth/logout/all` | Autenticado (invalida todos los tokens) |
+| POST | `/auth/refresh` | Público |
+| POST | `/auth/logout` | Autenticado (middleware de auditoría) |
 
-### 3.2 Sucursales — `sucursales` (`parkings.py`)
-
-| Método | Ruta | Quién |
-|---|---|---|
-| GET | `/parkings` | Autenticado (las de su ámbito) |
-| POST | `/parkings` | `admin` |
-| GET | `/parkings/{id}` | `parking_context` |
-| PATCH | `/parkings/{id}` | `parking_context` |
-| DELETE | `/parkings/{id}` | `admin` |
-
-### 3.3 Plazas — `plazas` (`spaces.py`)
+### 3.4 Cámaras, geocercas y salud — `cameras` (`cameras.py`)
 
 | Método | Ruta | Quién |
 |---|---|---|
-| GET, POST | `/parkings/{id}/spaces` | `parking_context` |
-| PATCH | `/parkings/{id}/spaces/{space_id}` | `parking_context` |
+| GET | `/parkings/{parking_id}/cameras` | `parking_context` |
+| POST | `/parkings/{parking_id}/cameras` | `parking_context` |
+| PATCH | `/parkings/{parking_id}/cameras/{camera_id}` | `parking_context` |
+| GET | `/parkings/{parking_id}/cameras/{camera_id}/geofences` | `parking_context` |
+| POST | `/parkings/{parking_id}/cameras/{camera_id}/geofences` | `parking_context` |
+| PATCH | `/parkings/{parking_id}/cameras/{camera_id}/geofences/{fence_id}` | `parking_context` |
+| DELETE | `/parkings/{parking_id}/cameras/{camera_id}/geofences/{fence_id}` | `parking_context` |
+| GET | `/parkings/{parking_id}/cameras/{camera_id}/health` | `parking_context` |
+| POST | `/parkings/{parking_id}/cameras/{camera_id}/detect-vehicles` | `parking_context` |
 
-### 3.4 Tarifas — `tarifas` (`tariffs.py`)
-
-| Método | Ruta | Quién |
-|---|---|---|
-| GET | `/parkings/{id}/tariffs` | Autenticado |
-| POST | `/parkings/{id}/tariffs` | `parking_context` |
-| PATCH | `/parkings/{id}/tariffs/{tariff_id}` | `parking_context` |
-| DELETE | `/parkings/{id}/tariffs/{tariff_id}` | `admin` |
-
-### 3.5 Cámaras, geocercas y salud — `cámaras` (`cameras.py`)
+### 3.5 Preview en vivo (MJPEG) — `cameras_live` (`cameras_live.py`)
 
 | Método | Ruta | Quién |
 |---|---|---|
-| GET, POST | `/parkings/{id}/cameras` | `parking_context` |
-| PATCH | `/parkings/{id}/cameras/{camera_id}` | `parking_context` |
-| GET, POST | `/parkings/{id}/cameras/{camera_id}/geofences` | `parking_context` |
-| PATCH, DELETE | `…/geofences/{fence_id}` | `parking_context` |
-| GET | `…/cameras/{camera_id}/health` | `parking_context` |
-| POST | `…/cameras/{camera_id}/detect-vehicles` | `parking_context` |
+| GET | `/parkings/{parking_id}/cameras/{camera_id}/live` | `get_current_user_or_query_token` + `enforce_parking_membership` |
 
-### 3.6 Preview en vivo — `cámaras-live` (`cameras_live.py`)
+### 3.6 Cliente final (PWA) — `cliente` (`cliente.py`)
 
 | Método | Ruta | Quién |
 |---|---|---|
-| GET | `/parkings/{id}/cameras/{camera_id}/live` | `get_current_user_or_query_token` + `enforce_parking_membership` |
+| GET | `/cliente/plazas` | Autenticado |
+| GET | `/cliente/tickets` | Autenticado |
 
-Devuelve `multipart/x-mixed-replace`. **409** si ya hay un stream vivo para esa
-cámara. Es el único endpoint que acepta `?token=`.
-
-### 3.7 Placas (OCR) — `placas` (`plates.py`)
+### 3.7 Costes operativos — `costs` (`costs.py`)
 
 | Método | Ruta | Quién |
 |---|---|---|
-| POST | `/parkings/{id}/cameras/{camera_id}/plates` | `parking_context` |
-| GET | `/parkings/{id}/plates-detected` | `parking_context` |
+| GET | `/admin/costs` | `require_role('admin')` |
+| POST | `/admin/costs` | `require_role('admin')` |
+| GET | `/admin/costs/{cost_id}` | `require_role('admin')` |
+| PATCH | `/admin/costs/{cost_id}` | `require_role('admin')` |
+| DELETE | `/admin/costs/{cost_id}` | `require_role('admin')` |
 
-### 3.8 Tickets — `tickets` (`tickets.py`, `ticket_summary.py`)
+### 3.8 KPIs de dirección — `dashboard` (`dashboard.py`)
 
 | Método | Ruta | Quién |
 |---|---|---|
-| GET | `/tickets` | Autenticado (filtrado por rol en el servicio) |
+| GET | `/admin/dashboard/kpis` | `require_role('admin')` |
+
+### 3.9 Eventos (SSE) — `events` (`events.py`)
+
+| Método | Ruta | Quién |
+|---|---|---|
+| GET | `/parkings/{parking_id}/events` | `get_current_user_or_query_token` + `enforce_parking_membership` |
+
+### 3.10 Plantillas faciales (fuera del MVP) — `face_templates` (`face_templates.py`)
+
+| Método | Ruta | Quién |
+|---|---|---|
+| POST | `/face-templates` | `_exigir_feature_flag` + Autenticado + `enforce_parking_membership` |
+| DELETE | `/face-templates/{template_id}` | `_exigir_feature_flag` + Autenticado |
+
+### 3.11 Operadores de la sucursal — `gestor_operadores` (`gestor_operadores.py`)
+
+| Método | Ruta | Quién |
+|---|---|---|
+| GET | `/parkings/{parking_id}/operadores` | Autenticado + `enforce_parking_membership` |
+| POST | `/parkings/{parking_id}/operadores` | Autenticado + `enforce_parking_membership` |
+
+### 3.12 Incidentes y adjuntos — `incidents` (`incidents.py`)
+
+| Método | Ruta | Quién |
+|---|---|---|
+| POST | `/incidents/parkings/{parking_id}` | `require_role('admin')` + Autenticado + `parking_context` |
+| DELETE | `/incidents/attachments/{attachment_id}` | `require_role('admin')` + Autenticado |
+| GET | `/incidents/attachments/{attachment_id}/download` | `_gestor_o_admin` |
+| GET | `/incidents/attachments/{attachment_id}/thumbnail` | `_gestor_o_admin` |
+| GET | `/incidents/attachments/{attachment_id}` | `_gestor_o_admin` |
+| POST | `/incidents/{alert_id}/attachments` | `require_role('admin')` + Autenticado + `enforce_parking_membership` |
+| GET | `/incidents/{alert_id}/attachments` | `require_role('admin')` + Autenticado + `enforce_parking_membership` |
+
+### 3.13 Cierre de sesión global — `logout_all` (`logout_all.py`)
+
+| Método | Ruta | Quién |
+|---|---|---|
+| POST | `/auth/logout/all` | Autenticado (middleware de auditoría) |
+
+### 3.14 Sucursales — `parkings` (`parkings.py`)
+
+| Método | Ruta | Quién |
+|---|---|---|
+| GET | `/parkings` | Autenticado |
+| POST | `/parkings` | `require_role('admin')` |
+| GET | `/parkings/{parking_id}` | `parking_context` |
+| PATCH | `/parkings/{parking_id}` | `parking_context` |
+| DELETE | `/parkings/{parking_id}` | `require_role('admin')` |
+
+### 3.15 Recuperación de contraseña — `password_reset` (`password_reset.py`)
+
+| Método | Ruta | Quién |
+|---|---|---|
+| POST | `/auth/forgot-password` | Público |
+| POST | `/auth/reset-password` | Público |
+
+### 3.16 Planes y suscripciones — `plans` (`plans.py`)
+
+| Método | Ruta | Quién |
+|---|---|---|
+| GET | `/plans` | Público |
+| POST | `/plans` | Público |
+| GET | `/plans/me` | Público |
+| GET | `/plans/subscriptions` | Público |
+| POST | `/plans/subscriptions` | Público |
+| DELETE | `/plans/subscriptions/{subscription_id}` | Público |
+| GET | `/plans/{plan_id}` | Público |
+| PATCH | `/plans/{plan_id}` | Público |
+| DELETE | `/plans/{plan_id}` | Público |
+
+### 3.17 Placas (OCR) — `plates` (`plates.py`)
+
+| Método | Ruta | Quién |
+|---|---|---|
+| GET | `/parkings/{parking_id}/plates-detected` | `parking_context` |
+| POST | `/parkings/{parking_id}/cameras/{camera_id}/plates` | `parking_context` |
+
+### 3.18 Informes — `reports` (`reports.py`)
+
+| Método | Ruta | Quién |
+|---|---|---|
+| GET | `/admin/reports/margins` | Autenticado |
+| GET | `/admin/reports/margins.csv` | Autenticado |
+| GET | `/admin/reports/ingresos.csv` | Autenticado |
+| GET | `/admin/reports/ingresos.pdf` | Autenticado |
+| GET | `/admin/reports/ocupacion.csv` | Autenticado |
+| GET | `/admin/reports/ocupacion.pdf` | Autenticado |
+| GET | `/admin/reports/tickets.csv` | Autenticado |
+| GET | `/admin/reports/tickets.pdf` | Autenticado |
+| GET | `/admin/reports/alertas.csv` | Autenticado |
+| GET | `/admin/reports/alertas.pdf` | Autenticado |
+| GET | `/admin/reports/margins.pdf` | Autenticado |
+
+### 3.19 Plazas — `spaces` (`spaces.py`)
+
+| Método | Ruta | Quién |
+|---|---|---|
+| GET | `/parkings/{parking_id}/spaces` | `parking_context` |
+| POST | `/parkings/{parking_id}/spaces` | `parking_context` |
+| PATCH | `/parkings/{parking_id}/spaces/{space_id}` | `parking_context` |
+
+### 3.20 Tarifas — `tariffs` (`tariffs.py`)
+
+| Método | Ruta | Quién |
+|---|---|---|
+| GET | `/parkings/{parking_id}/tariffs` | Autenticado |
+| POST | `/parkings/{parking_id}/tariffs` | `parking_context` |
+| PATCH | `/parkings/{parking_id}/tariffs/{tariff_id}` | `parking_context` |
+| DELETE | `/parkings/{parking_id}/tariffs/{tariff_id}` | `require_role('admin')` |
+
+### 3.21 Resumen de tickets — `ticket_summary` (`ticket_summary.py`)
+
+| Método | Ruta | Quién |
+|---|---|---|
+| GET | `/parkings/{parking_id}/tickets/summary` | `parking_context` + Autenticado |
+
+### 3.22 Tickets — `tickets` (`tickets.py`)
+
+| Método | Ruta | Quién |
+|---|---|---|
+| GET | `/tickets` | Autenticado |
 | POST | `/tickets` | Autenticado |
-| POST | `/tickets/manual` | `require_role(...)` de personal |
-| GET | `/tickets/{ticket_id}` | Autenticado + dueño/ámbito |
-| POST | `/tickets/{ticket_id}/close` | Autenticado + dueño/ámbito |
-| GET | `/parkings/{id}/tickets/summary` | `parking_context` |
+| POST | `/tickets/manual` | `require_role('admin')` + Autenticado + `parking_context` |
+| GET | `/tickets/{ticket_id}` | Autenticado |
+| POST | `/tickets/{ticket_id}/close` | Autenticado |
 
-### 3.9 Incidentes — `incidentes` (`incidents.py`)
-
-| Método | Ruta | Quién |
-|---|---|---|
-| POST | `/incidents/parkings/{parking_id}` | `require_role(...)` de personal |
-
-### 3.10 Alertas — `alertas` (`alerts.py`)
-
-| Método | Ruta | Quién |
-|---|---|---|
-| GET | `/parkings/{id}/alerts` | `parking_context` |
-| POST | `/parkings/{id}/alerts/{alert_id}/acknowledge` | `parking_context` |
-
-### 3.11 Eventos (SSE) — `events` (`events.py`)
-
-| Método | Ruta | Quién |
-|---|---|---|
-| GET | `/parkings/{id}/events` | `get_current_user_or_query_token` + `parking_context` |
-
-Server-Sent Events. Acepta `?token=` (mismo motivo que el preview).
-
-### 3.12 Usuarios — `usuarios` (`users.py`)
+### 3.23 Usuarios y membresías — `users` (`users.py`)
 
 | Método | Ruta | Quién |
 |---|---|---|
 | GET | `/users/me` | Autenticado |
 | PATCH | `/users/me/password` | Autenticado |
-| GET, POST | `/users` | `admin` |
-| GET, PATCH, DELETE | `/users/{user_id}` | `admin` |
-| POST | `/users/{user_id}/memberships` | `admin` |
+| PATCH | `/users/me/profile` | Autenticado |
+| GET | `/users/me/vehicles` | Autenticado |
+| POST | `/users/me/vehicles` | Autenticado |
+| PATCH | `/users/me/vehicles/{vehicle_id}` | Autenticado |
+| POST | `/users/me/vehicles/{vehicle_id}/links` | Autenticado |
+| DELETE | `/users/me/vehicles/{vehicle_id}/links/{user_id}` | Autenticado |
+| GET | `/users/me/tickets` | Autenticado |
+| GET | `/users` | `require_role('admin')` |
+| POST | `/users` | `require_role('admin')` |
+| GET | `/users/{user_id}` | `require_role('admin')` |
+| PATCH | `/users/{user_id}` | `require_role('admin')` |
+| DELETE | `/users/{user_id}` | `require_role('admin')` |
+| POST | `/users/{user_id}/memberships` | `require_role('admin')` |
 
-### 3.13 Vehículos — `vehículos` (`vehicles.py`)
-
-| Método | Ruta | Quién |
-|---|---|---|
-| GET, POST | `/vehicles` | Personal (`admin`/`gestor`/`operador`) |
-| PATCH | `/vehicles/{vehicle_id}` | Personal |
-| POST | `/vehicles/{vehicle_id}/users` | Personal |
-
-### 3.14 Administración — `admin*`
-
-| Método | Ruta | Quién |
-|---|---|---|
-| GET | `/admin/audit-logs` | `admin` |
-| GET | `/admin/dashboard/kpis` | `admin` |
-| GET, POST | `/admin/costs` · PATCH, DELETE `/admin/costs/{id}` | `admin` |
-| GET | `/admin/reports/margins` · `/admin/reports/margins.csv` | `get_current_user` + filtro por rol |
-
-### 3.15 Salud — `meta`
+### 3.24 Vehículos — `vehicles` (`vehicles.py`)
 
 | Método | Ruta | Quién |
 |---|---|---|
-| GET | `/health` | Público |
+| GET | `/vehicles` | `require_role('admin', 'gestor', 'operador')` |
+| POST | `/vehicles` | `require_role('admin', 'gestor', 'operador')` |
+| PATCH | `/vehicles/{vehicle_id}` | `require_role('admin', 'gestor', 'operador')` |
+| POST | `/vehicles/{vehicle_id}/users` | `require_role('admin', 'gestor', 'operador')` |
 
 ## 4. Versionado y política de deprecación
 
@@ -213,17 +303,30 @@ equipo y no se soporta como contrato público.
 
 ## 6. Comprobación de que este documento está al día
 
-El inventario sale del OpenAPI real, no de la memoria. Para regenerarlo:
+El inventario sale del código, no de la memoria. La sección 3 se
+**genera**:
 
 ```bash
-docker exec parking-backend-1 python -c "
-import json, urllib.request
-spec = json.load(urllib.request.urlopen('http://localhost:8000/openapi.json'))
-for path, ops in sorted(spec['paths'].items()):
-    for method in ops:
-        print(method.upper(), path)
-"
+# Ver las rutas y su RBAC (sale de los routers y del OpenAPI real)
+python tools/extraer_api.py
+
+# Regenerar la sección 3 de este documento
+python tools/generar_seccion_api.py --escribir
 ```
 
-Si ese listado no coincide con la sección 3, el documento está desfasado:
-se actualiza el documento, no al revés.
+`tools/extraer_api.py` lee los routers con `ast` (no con el
+introspection de FastAPI, que cambia entre versiones) y **comprueba
+contra el OpenAPI real** que no se le escape ninguna ruta: si el
+extractor y la aplicación no coinciden, el script sale con código 1.
+
+La columna «Quién» sale de las dependencias que declara cada endpoint,
+incluidos los dos patrones que no son un `Depends` en la firma:
+
+- La **llamada manual** a la dependencia dentro del cuerpo (el patrón
+  «opt-in por endpoint» del preview y del SSE).
+- La lectura de `request.state.audit`, que el `AuditMiddleware` rellena
+  **después** de validar el token Bearer (lo usan `logout` y
+  `logout/all`).
+
+Si el listado no coincide con la sección 3, el documento está
+desfasado: **se actualiza el documento, no al revés**.
