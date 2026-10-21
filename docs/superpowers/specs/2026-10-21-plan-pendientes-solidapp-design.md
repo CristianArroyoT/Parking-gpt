@@ -632,6 +632,31 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] `actionlint` exit 0.
 - **Qué NO se ha tocado**: la lógica. Todos los cambios son anotaciones, `cast` y dos correcciones de import. El único cambio de comportamiento posible (el `response_model` implícito de `api/v1/incidents.py` al anotar su retorno) lo cubre la suite.
 
+### T-29 · P2 — el simulacro de restauración de backups, automatizado
+
+- **Estado**: **completado** — `python tools/verificar_backup.py` → *SIMULACRO CORRECTO* en 10 s
+- **Contexto**: T-12 entregó el `backup.sh`, el `restore.sh` y la retención GFS, y probó la restauración **a mano**. Pero la decisión **D3** fija que el procedimiento se prueba **cada trimestre**, y ese "cada trimestre" era una **checklist en papel** que alguien repasaba y anotaba en un ticket. Entre trimestre y trimestre, un backup roto (passphrase perdida, destino remoto caído, disco lleno) pasaba **meses** sin que nadie se enterara. Y la regla del propio plan es tajante: *"un backup sin restaurar probado no es un backup"*.
+- **Qué se ha automatizado** (`tools/verificar_backup.py` + `infra/backup/simulacro.sh`), encadenando lo que ya existía:
+  1. `backup.sh` → un volcado cifrado nuevo.
+  2. El `.enc` **no es legible en claro** (si `head -c 16` dice `PGDMP`, el backup no está cifrado).
+  3. `restore.sh` → restauración en una base limpia, con su verificación.
+  4. **El recuento de filas coincide** entre el origen y la restauración (8 tablas).
+  5. **`alembic check` contra la base restaurada**: el esquema del backup tiene que ser **el que espera el código de hoy**.
+  6. El **backend arranca** contra la base restaurada y `/health` da 200.
+  7. Se borra la base de prueba.
+- **El paso 5 es el que de verdad duele**: un backup de hace tres meses, restaurado, y la app no arranca porque le falta una columna. Con el simulacro automatizado eso se ve en el momento, no en el trimestre.
+- **Por qué corre dentro de un contenedor**: el host no tiene `pg_dump`, `pg_restore` ni `openssl`, y el `pg_dump` tiene que ser **de la misma versión que el servidor** (si no, `pg_restore` falla con *"unsupported version"*). Por eso corre en `postgis/postgis:16-3.4` —la imagen del servidor— dentro de la red de Docker.
+- **Lo que el simulacro automático NO sustituye**: la checklist manual sigue siendo obligatoria, porque el automático comprueba que la **cadena** funciona, y el manual comprueba lo que la cadena no puede (que el destino S3 remoto está bien, que la passphrase real está en el gestor de secretos, que hay una persona responsable). Las dos conviven en `infra/backup/README.md`.
+- **Criterios de aceptación**:
+  - [x] El simulacro completo pasa: **SIMULACRO CORRECTO en 10 s**.
+  - [x] El volcado se comprueba cifrado (no legible en claro).
+  - [x] La base restaurada tiene **los mismos recuentos** que la original.
+  - [x] `alembic check` verde contra la base restaurada.
+  - [x] El backend arranca contra ella y `/health` da 200.
+  - [x] La base de prueba se borra al terminar.
+  - [x] Entra en la puerta del repo: `python tools/verificar_repo.py` lo comprueba en el modo rápido.
+  - [x] La checklist manual sigue documentada (no se elimina el simulacro trimestral en papel).
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.

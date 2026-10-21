@@ -147,7 +147,45 @@ docker exec parking-db-1 psql -U parking -d postgres -c 'DROP DATABASE "parking_
 ## Simulacro trimestral (obligatorio)
 
 La decisión **D3** fija que el procedimiento de restauración se prueba **cada
-trimestre**. Checklist:
+trimestre**. Ahora ese simulacro además está **automatizado**: con un
+comando se hace entero, sin papel.
+
+```bash
+python tools/verificar_backup.py
+```
+
+Qué hace (todo encadenado, con salida y código de retorno):
+
+| # | Paso | Qué comprueba |
+|---|---|---|
+| 1 | `backup.sh` | que sale un volcado **cifrado** nuevo |
+| 2 | el `.enc` | que **no** es legible en claro (`head -c 16` no dice `PGDMP`) |
+| 3 | `restore.sh` | que restaura en una base **limpia** y la verifica |
+| 4 | recuento de filas | que la base restaurada tiene **los mismos datos** que la original (8 tablas) |
+| 5 | `alembic check` | que el **esquema del backup es el que espera el código de hoy** |
+| 6 | el backend | que **arranca** contra la base restaurada y `/health` da 200 |
+| 7 | limpieza | borra la base de prueba |
+
+Sale con `SIMULACRO CORRECTO` en unos 10 s, y con código 1 si algo falla.
+
+El paso 5 es el que de verdad duele: un backup de hace tres meses,
+restaurado, y la app no arranca porque le falta una columna. Con el
+simulacro automatizado eso se ve en el momento, no en el trimestre.
+
+### Por qué corre dentro de un contenedor
+
+El host no tiene `pg_dump`, `pg_restore` ni `openssl`, y además el
+`pg_dump` debe ser **de la misma versión que el servidor** (si no,
+`pg_restore` falla con "unsupported version"). Por eso el simulacro corre
+dentro de la imagen `postgis/postgis:16-3.4`, que es la del servidor, en
+la red de Docker del stack.
+
+### Checklist manual (lo que queda para la persona)
+
+Lo automático no sustituye al simulacro trimestral: el automático
+comprueba que la **cadena** funciona, el manual comprueba lo que la
+cadena no puede (que el destino remoto S3 está bien, que la passphrase
+real está en el gestor de secretos, que hay quien responsable).
 
 - [ ] Lanzar `backup.sh` y comprobar que sale con `hecho` y sin errores.
 - [ ] Comprobar que el fichero `.enc` existe y **no** se puede leer sin la
@@ -161,3 +199,8 @@ trimestre**. Checklist:
 
 Un simulacro fallido es un **incidente**, no un papel: se abre ticket y no se
 cierra el trimestre.
+
+> **Nota sobre la contraseña**: `pg_dump` y `psql` necesitan `PGPASSWORD` (o
+> un `~/.pgpass` en el host de backups). Sin ella, `pg_dump` pide la
+> contraseña por tty y falla en un `cron`. Los scripts no la fijan: la toman
+> del entorno, como las demás variables de `PGHOST`/`PGUSER`.

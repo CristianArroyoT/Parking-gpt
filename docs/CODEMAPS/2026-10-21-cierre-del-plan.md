@@ -644,6 +644,42 @@ Esto no era un fallo del CI (allí los jobs van de uno en uno), pero era
 un problema real: cualquier dos ejecuciones simultáneas de la suite se
 contaminaban.
 
+### 3-vigésimotercera. El simulacro de restauración de backups, automatizado (2026-10-22)
+
+T-12 entregó el `backup.sh` y el `restore.sh` y probó la restauración a
+mano, pero la decisión **D3** pide probarla **cada trimestre**, y eso era
+una checklist en papel. Entre trimestre y trimestre, un backup roto
+(passphrase perdida, destino remoto caído, disco lleno) pasaba meses sin
+que nadie se enterara.
+
+`tools/verificar_backup.py` (+ `infra/backup/simulacro.sh`) hace la
+cadena entera, en unos 10 s:
+
+| # | Paso | Qué comprueba |
+|---|---|---|
+| 1 | `backup.sh` | volcado cifrado nuevo |
+| 2 | el `.enc` | que **no** es legible en claro |
+| 3 | `restore.sh` | restauración en una base limpia |
+| 4 | recuentos | que la base restaurada tiene **los mismos datos** (8 tablas) |
+| 5 | `alembic check` | que el **esquema del backup es el que espera el código de hoy** |
+| 6 | el backend | que **arranca** contra la base restaurada (`/health` 200) |
+| 7 | limpieza | borra la base de prueba |
+
+El paso 5 es el que duele: un backup de hace tres meses, restaurado, y
+la app no arranca porque le falta una columna. Con el simulacro
+automatizado eso se ve en el momento, no en el trimestre.
+
+**Por qué corre dentro de un contenedor**: el host no tiene `pg_dump`,
+`pg_restore` ni `openssl`, y el `pg_dump` tiene que ser de la **misma
+versión que el servidor** (si no, `pg_restore` falla con *"unsupported
+version"*). Corre en `postgis/postgis:16-3.4` —la imagen del servidor—
+dentro de la red de Docker.
+
+La checklist **manual** no se elimina: el automático comprueba que la
+cadena funciona, el manual comprueba lo que la cadena no puede (destino
+S3 remoto, passphrase real en el gestor de secretos, responsable). Las
+dos conviven en `infra/backup/README.md`.
+
 Y con el IPv4 arreglado, la réplica local pasó a poder ejecutar **el CI
 completo**, incluidos los dos pasos de test que antes se saltaban
 porque el host no resolvía los nombres de servicio de Docker:

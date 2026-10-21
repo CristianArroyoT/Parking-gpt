@@ -100,6 +100,12 @@ def _comprobaciones() -> list[Comprobacion]:
             timeout=600,
         ),
         Comprobacion(
+            "Simulacro de restauracion de backups",
+            [py, "tools/verificar_backup.py"],
+            patron=r"(SIMULACRO CORRECTO.*)",
+            timeout=900,
+        ),
+        Comprobacion(
             "CI local (los 4 jobs del workflow)",
             [py, "tools/ejecutar_ci_local.py", "--all"],
             patron=r"(Todos los jobs pasan en local.*)",
