@@ -8,7 +8,7 @@
 >
 > | Comprobación | Resultado |
 > |---|---|
-> | Suite completa | **540 passed** en SQLite · **549 passed** en PostgreSQL |
+> | Suite completa | **548 passed** en SQLite · **557 passed** en PostgreSQL |
 > | QA visual (Chromium) | 21 pantallas a **4 anchos** (768, 1024, 1232, 1440 px): 0 desbordes, 0 errores de consola |
 > | PWA | verificado: instalable y **arranca sin red** |
 > | API | **99 de 99 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
@@ -804,7 +804,7 @@ T-22 (recuperación de contraseña) ──> T-24 (PWA, que necesita self-service
 
 - [x] `cd backend && ruff check app tests` → sin errores.
 - [x] `cd backend && mypy app` → sin errores nuevos (hoy `continue-on-error: true`).
-- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **540 passed en SQLite y 549 en PostgreSQL**.
+- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **548 passed en SQLite y 557 en PostgreSQL**.
 - [x] `docker compose up -d` → todos los servicios *healthy* y `/health` responde 200.
 - [x] QA visual en el navegador de las pantallas tocadas (con la app real, no sólo tests).
       → **HECHA** con Chromium headless (Playwright) sobre la app real
