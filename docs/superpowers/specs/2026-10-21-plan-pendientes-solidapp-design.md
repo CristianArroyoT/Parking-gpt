@@ -377,6 +377,25 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] Sin avisos de *Duplicate Operation ID* al arrancar.
   - [x] Suite en verde (521 passed en SQLite) tras quitar los decoradores duplicados.
 
+### T-25+2 · Dos endpoints sin ningún test: el OCR de placas
+
+- **Estado**: **completado** — 99 de 99 endpoints con test
+- **Contexto**: al medir la cobertura de tests sobre la API (nuevo `tools/cobertura_api.py`) salió que **2 de los 99 endpoints no los ejercitaba ningún test**:
+  - `GET /api/v1/parkings/{parking_id}/plates-detected`
+  - `POST /api/v1/parkings/{parking_id}/cameras/{camera_id}/plates`
+
+  Son los endpoints que empujan y listan las lecturas del OCR. Nadie había comprobado nunca su RBAC, su validación ni su alcance.
+- **Criterios de aceptación**:
+  - [x] Los dos endpoints tienen test de 401 (sin token), 403 (sin membresía), 404 (cámara de otra sucursal) y 422 (payload inválido).
+  - [x] Se comprueba el **alcance**: el listado no filtra matrículas de otra sucursal, y ordena de la más reciente a la más antigua.
+  - [x] Se comprueba el filtro `camera_id` y la validación de `limit` (0 y 501 → 422; defecto 50, tope 500).
+  - [x] El POST persiste una fila por hit (la auditoría de la lectura OCR) y devuelve el resultado de la ingesta.
+  - [x] Cobertura final: **99 de 99** (96 con la ruta literal en el test, 3 con URL parametrizada).
+- **Nota**: el medidor distingue tres estados —ruta literal, URL parametrizada
+  (`f"/api/v1/admin/reports/{informe}.pdf"`, que sí ejercita el endpoint pero no
+  se puede emparejar) y sin cobertura— para no dar por cubierto algo que no lo
+  está, ni alarmar por algo que sí lo está.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.

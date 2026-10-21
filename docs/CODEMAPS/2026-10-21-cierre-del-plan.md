@@ -202,6 +202,38 @@ haría que la comprobación dejara de servir como puerta.
 El barrido responsive queda cerrado en cuatro anchos (768, 1024, 1232 y
 1440 px), todos con **0 desbordes y 0 errores de consola**.
 
+### 3-seis. El contrato de la API, revisado por el código (2026-10-21)
+
+El inventario de `docs/API-INTERNAL.md` se había quedado en **61 de los
+100 endpoints** que expone la aplicación (no se tocaba desde T-25, antes
+del Bloque 3). Como el propio documento avisa de que "se actualiza el
+documento, no al revés", se construyó la forma de comprobarlo:
+
+| Script | Qué hace |
+|---|---|
+| `tools/extraer_api.py` | Extrae rutas y RBAC de los routers con `ast` y los **valida contra el OpenAPI real** |
+| `tools/generar_seccion_api.py` | Regenera la sección 3 del documento desde el código |
+| `tools/verificar_api_doc.py` | Detecta la deriva, con **autoprueba** (quita una ruta y añade otra inexistente, y comprueba que las ve) |
+| `tools/cobertura_api.py` | Mide **qué endpoints tienen test** |
+
+Tres cosas salieron de ahí:
+
+1. **Dos rutas estaban registradas dos veces** (`POST
+   /users/{user_id}/memberships` y `POST
+   /vehicles/{vehicle_id}/users`): el decorador `@router.post` estaba
+   duplicado y FastAPI avisaba en cada arranque con *"Duplicate
+   Operation ID"*, ensuciando el OpenAPI, que es justo la fuente del
+   inventario. Corregido.
+2. **La columna "Quién" tenía que decir dos cosas**: quién puede llamar
+   al endpoint (las dependencias) **y qué datos ve** (el ámbito que el
+   endpoint filtra en el cuerpo: membresías de sucursal, sus vehículos).
+   El extractor sigue el filtro hasta las funciones auxiliares del
+   módulo y distingue filtrar de construir y de anotar.
+3. **Dos endpoints no los ejercitaba ningún test**: los del OCR de
+   placas (`GET /plates-detected` y `POST /cameras/{id}/plates`).
+   Ahora tienen 9 tests (401, 403, 404, 422, alcance, orden, filtro y
+   persistencia) y la cobertura es **99 de 99**.
+
 ### 3-quinquies. El PWA, verificado de verdad (2026-10-21)
 
 Nadie comprobaba lo que hace que una PWA sea instalable. Nueva

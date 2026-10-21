@@ -9,7 +9,8 @@ Utilidades del repo que no forman parte de la aplicación.
 | `resumir_qa_visual.py` | Resume el `informe.json` que produce `frontend/scripts/qa_visual.py`: cuántas pantallas quedan sin incidencias y qué errores de consola o de red hubo. |
 | `extraer_api.py` | Extrae de los routers las **rutas y su RBAC** leyendo el código con `ast`, y las **comprueba contra el OpenAPI real**: si el extractor se deja alguna ruta fuera, sale con código 1. Es lo que alimenta el inventario de la API. |
 | `generar_seccion_api.py` | Genera la sección 3 de `docs/API-INTERNAL.md` a partir del código (`--escribir` la deja en el documento). |
-| `verificar_api_doc.py` | Comprueba que el inventario documentado coincide con el código y dice qué falta y qué sobra. Sale con 1 si hay deriva. |
+| `verificar_api_doc.py` | Comprueba que el inventario documentado coincide con el código y dice qué falta y qué sobra. Sale con 1 si hay deriva. Tiene autoprueba (`--autoprueba`). |
+| `cobertura_api.py` | Mide **cuántos endpoints tienen test**. Distingue los que se prueban con la ruta literal de los que se prueban con una URL parametrizada, y de los que no tienen ningún test. Sale con 1 si hay endpoints sin cubrir. |
 
 ## Uso
 
@@ -29,6 +30,9 @@ python tools/resumir_qa_visual.py D:/tmp/qa-solidapp/informe.json
 python tools/extraer_api.py                     # rutas + RBAC
 python tools/generar_seccion_api.py --escribir  # regenera el documento
 python tools/verificar_api_doc.py               # detecta la deriva
+
+# Cobertura de tests por endpoint
+python tools/cobertura_api.py                   # quien queda sin test
 ```
 
 Los scripts devuelven codigo de salida 0 si no hay nada que mirar y 1 si lo
