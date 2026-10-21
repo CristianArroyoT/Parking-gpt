@@ -13,7 +13,7 @@
 > | PWA | verificado: instalable y **arranca sin red** |
 > | API | **101 rutas** inventariadas (coinciden con el código) y **99 de 99 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
 > | Esquema | Los modelos y las migraciones coinciden: `alembic check` limpio y **el CI migra una base vacía** |
-> | Carga / SLO | 491 peticiones, 0 fallos → **14 de 14 reglas** |
+> | Carga / SLO | **Revalidado** con el código final: 467 peticiones, 0 fallos → **14 de 14 reglas** (informe `2026-10-21-revalidacion.json`) |
 > | Lint y tipos | `ruff` en verde (backend **y** `tools/`); `vue-tsc` y `npm run build` en verde; `actionlint` exit 0. **`mypy` NO está en verde**: da 77 errores en 32 ficheros, y por eso su paso del CI lleva `continue-on-error: true` desde el primer commit (no es una regresión, es el estado heredado) |
 > | CI replicado en local | Los **4 jobs** del workflow (backend, integration, docker-build y frontend) pasan **completos, incluidos los dos pasos de test**: `python tools/ejecutar_ci_local.py --all` |
 >
@@ -348,6 +348,7 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
 - **Revalidación bajo carga (2026-10-21)**: con el código corregido se regeneró la ejecución de referencia (6 usuarios, 180 s, 10 cámaras): **491 peticiones, 0 fallos, 0 cortes, 0 reinicios del worker y 0 previews descartados con un 409** → SLO **14 de 14** reglas OK (antes 13 de 13). Al revalidar salieron dos fallos del **instrumental**, corregidos:
   1. El locustfile leía en runtime `SOLIDAPP_CAMERA_IDS` (dos R) mientras la constante y el README documentan `SOLIDAPP_CAMARA_IDS` (una R): poner la variable documentada **no surtía efecto** y la ejecución se quedaba con la cámara 81 sola, la que provoca la contención. Ahora se aceptan los dos nombres.
   2. Los previews descartados con un 409 los cuenta Locust como **éxito** (un 409 es una regla de negocio, no un fallo HTTP), así que el SLO **no veía** la métrica clave del P2: una regresión habría pasado el CI sin que nadie se enterase. Nueva métrica `max_peticiones` (cuenta ocurrencias) y regla `mjpeg_sin_409` con umbral 0, con sus tests.
+- **Segunda revalidación, con el código final del día** (después de los arreglos de móvil, del correo de cámara caída y de `/health/ready`): **467 peticiones, 0 fallos, 14 de 14 reglas**, 0 previews descartados con un 409 y 0 cortes de stream en 66 conexiones. Informe: `backend/locust/reports/2026-10-21-revalidacion.json`. El número de peticiones baja un poco porque depende del ritmo de la máquina, no del código: lo que se compara son los percentiles y los fallos, y se mantienen.
 - **CI replicado a mano** (el CI remoto no arranca por la facturación): `ruff check app tests` en verde, `mypy app` sin errores nuevos, pytest en SQLite y PostgreSQL, `pytest tests/test_sqlite_only_functions.py` (paso aparte del job de integración), `vue-tsc --noEmit`, `npm run build`, **build de las dos imágenes Docker** (exit 0), usuario no-root `app` y log rotado en `/var/log/solidapp/backend.log` comprobados como hace el job `docker-build`, y QA visual headless (19 pantallas sin incidencias, 0 errores de consola).
 
 ### T-13+7 · P3 — la tabla de Operadores no cabía en su tarjeta y la columna "Estado" quedaba cortada

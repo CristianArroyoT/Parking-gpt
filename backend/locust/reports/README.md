@@ -6,8 +6,10 @@ Informes JSON que genera Locust (`--json-file`) y que consume
 
 | Fichero | Qué es |
 |---|---|
-| `2026-10-21-referencia.json` | Ejecución de referencia (2026-10-21): 6 usuarios virtuales (5 operadores + 1 visualizador) durante 180 s contra la instancia dedicada de carga (`parking-carga`). Es la línea base contra la que se comparan las ejecuciones siguientes. |
+| `2026-10-21-referencia.json` | Ejecución de referencia (2026-10-21): 6 usuarios virtuales (5 operadores + 1 visualizador) durante 180 s contra la instancia dedicada de carga (`parking-carga`). Es la línea base contra la que se comparan las ejecuciones siguientes. **491 peticiones, 0 fallos.** |
 | `2026-10-21-referencia.contexto.json` | Contexto de esa ejecución (fecha, host, usuarios, cámaras, logins realizados). El informe de Locust no lo incluye, y sin él un número suelto no es reproducible. |
+| `2026-10-21-revalidacion.json` | **Revalidación con el código final del 2026-10-21** (después de los arreglos de móvil, del correo de cámara caída y de `/health/ready`): 467 peticiones, **0 fallos**, **14 de 14 reglas del SLO**. El número de peticiones baja un poco porque depende del ritmo de la máquina, no del código: lo que se compara son los percentiles y los fallos, y se mantienen. |
+| `2026-10-21-revalidacion.contexto.json` | Contexto de la revalidación (cámaras 81 + 163-171 creadas para la ejecución). |
 
 Formato: la lista de entradas que produce Locust (`serialize_stats()`), una
 por métrica, con `method`, `name`, `num_requests`, `num_failures`,
@@ -29,6 +31,11 @@ docker run --rm --network parking_default \
 
 python backend/locust/check_slo.py --report backend/locust/reports/2026-10-21-referencia.json
 ```
+
+Para **revalidar contra el código actual**, cambia los dos nombres de
+fichero por `2026-10-21-revalidacion`. Los ids de cámara son los que
+existan en ese momento: se crean con el procedimiento de `../README.md`
+§4.2 y se borran al terminar.
 
 Ojo con el nombre de la variable: es `SOLIDAPP_CAMARA_IDS` (una R). Antes
 el locustfile leía en runtime `SOLIDAPP_CAMERA_IDS` (dos R), así que poner

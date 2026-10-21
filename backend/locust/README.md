@@ -258,6 +258,29 @@ un 409**: el SLO se cumple entero (14 de 14 reglas). El contenedor de carga se
 monitorizó durante los 180 s: **0 reinicios** (antes: 3 caídas del worker por
 el crash P0).
 
+### Revalidación con el código final (2026-10-21, tarde)
+
+Los arreglos de ese día (móvil, correo de cámara caída, `/health/ready`)
+tocan el backend, así que la línea base se **revalidó** con el código
+final, con la misma metodología:
+
+| Métrica | Revalidación | Umbral |
+|---|---|---|
+| Peticiones totales | **467, 0 fallos** | — |
+| `login` (POST) | p95 240 ms | 1500 ms |
+| `lectura_plazas` / `lectura_tickets` / `lectura_camaras` | p95 24 / 21 / 18 ms | 300 ms |
+| `ticket_crear` / `ticket_cerrar` | p95 34 / 57 ms | 500 / 1500 ms |
+| `sse_mapa` apertura / primer evento | p95 31 / 0 ms | 1000 / 1500 ms |
+| `preview_mjpeg` apertura / primer frame | p95 27 / **2 200 ms** | 1000 / 3000 ms |
+| Bytes por sesión de preview | 1,15 MB | ≥ 50 KB |
+| Previews descartados con 409 | **0** | 0 |
+| Cortes de stream | **0** en 66 conexiones | 0 |
+
+**14 de 14 reglas del SLO, 0 fallos.** El número de peticiones (467 frente
+a 491) depende del ritmo de la máquina, no del código: lo que se compara
+son los percentiles y los fallos, y se mantienen. Informe en
+`reports/2026-10-21-revalidacion.json`.
+
 > La regla `mjpeg_sin_409` es la que ata el P2 del preview al SLO: en el
 > escenario de carga sólo hay **un** visualizador, así que cualquier 409 es un
 > síntoma del P2 (la cámara seguía ocupada al reabrir), no una regla de
