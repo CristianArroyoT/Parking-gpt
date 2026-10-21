@@ -174,6 +174,64 @@ def test_metrica_desconocida_falla_con_mensaje_util() -> None:
     assert "métrica desconocida" in resultado.detalle
 
 
+# ─────────────────── Ocurrencias (métrica max_peticiones) ───────────────────
+#
+# Los 409 del preview los cuenta Locust como "éxito" (un 409 es una regla
+# de negocio: la cámara está ocupada), así que ninguna métrica basada en
+# fallos los detectaría. La métrica ``max_peticiones`` cuenta las
+# ocurrencias de una entrada, que es lo que permite que el SLO detecte una
+# regresión del P2 del preview (T-13+6).
+
+
+def test_max_peticiones_cumple_si_no_hay_ninguna_ocurrencia() -> None:
+    entradas = check_slo.entradas_desde_datos(
+        [_entrada(nombre="preview_mjpeg_omitido_409", peticiones=0)],
+    )
+    resultado = check_slo.evaluar_regla(
+        entradas[0],
+        _regla(nombre="preview_mjpeg_omitido_409", metrica="max_peticiones", umbral=0),
+    )
+    assert resultado.cumple is True
+    assert resultado.valor == 0
+
+
+def test_max_peticiones_incumple_si_hay_ocurrencias() -> None:
+    """Éste es el detector de la regresión del P2: un solo 409 en el
+    escenario de carga pone el SLO en rojo."""
+    entradas = check_slo.entradas_desde_datos(
+        [_entrada(nombre="preview_mjpeg_omitido_409", peticiones=1)],
+    )
+    resultado = check_slo.evaluar_regla(
+        entradas[0],
+        _regla(nombre="preview_mjpeg_omitido_409", metrica="max_peticiones", umbral=0),
+    )
+    assert resultado.cumple is False
+    assert resultado.valor == 1
+
+
+def test_max_peticiones_cumple_si_la_entrada_no_aparece_en_el_informe() -> None:
+    """Si no hubo ningún 409, la entrada no aparece en el informe: eso
+    son 0 ocurrencias, no "no se puede judging"."""
+    resultado = check_slo.evaluar_regla(
+        None,
+        _regla(nombre="preview_mjpeg_omitido_409", metrica="max_peticiones", umbral=0),
+    )
+    assert resultado.cumple is True
+    assert resultado.valor == 0
+
+
+def test_el_slo_incluye_la_regla_de_409_del_preview() -> None:
+    """El SLO versionado tiene que vigilar los 409 del preview: sin esta
+    regla, una regresión del P2 pasaría inadvertida bajo carga."""
+    slo = check_slo.cargar_slo(RUTA_SLO)
+    reglas = {r["id"]: r for r in slo["reglas"]}
+    assert "mjpeg_sin_409" in reglas, "el SLO no vigila los 409 del preview"
+    regla = reglas["mjpeg_sin_409"]
+    assert regla["name"] == "preview_mjpeg_omitido_409"
+    assert regla["metrica"] == "max_peticiones"
+    assert regla["umbral"] == 0
+
+
 # ─────────────────────────── SLO e informe de referencia ───────────────────────────
 
 

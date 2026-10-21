@@ -129,6 +129,15 @@
       "metrica": "min_bytes_medios",
       "umbral": 50000,
       "motivo": "Bytes medios por sesion de preview: si el stream se queda a medias, el usuario ve el modal congelado aunque no haya ningun error. Con 5 fps y ~35 KB por frame, 8 s de ventana son del orden de 1 MB; el umbral (50 KB) es holgado para detectar freezes sin ser sensible al tamano del frame. Medido: 322 KB de media."
+    },
+    {
+      "id": "mjpeg_sin_409",
+      "method": "GET",
+      "name": "preview_mjpeg_omitido_409",
+      "metrica": "max_peticiones",
+      "umbral": 0,
+      "min_muestras": 0,
+      "motivo": "Ningun preview puede descartarse con un 409 (camara ocupada). En el escenario de carga solo hay un visualizador, asi que cualquier 409 es un sintoma del P2 del preview (T-13+6): el slot de la camara se liberaba despues del teardown del RTSP y al reabrir seguia ocupado. El locustfile cuenta los 409 aparte porque un 409 es una regla de negocio (la camara esta ocupada), no un fallo HTTP; por eso hace falta una metrica que cuente las ocurrencias y no los fallos. Medido: 0 omitidos en 8 sesiones."
     }
   ]
 }

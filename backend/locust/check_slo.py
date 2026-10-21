@@ -37,7 +37,7 @@ from typing import Any
 RUTA_SLO_POR_DEFECTO: Path = Path(__file__).resolve().parent / "slo.json"
 
 #: Métricas soportadas por el verificador.
-METRICAS = ("percentil_ms", "max_fallos", "min_bytes_medios", "max_tasa_fallo")
+METRICAS = ("percentil_ms", "max_fallos", "min_bytes_medios", "max_tasa_fallo", "max_peticiones")
 
 
 class InformeError(ValueError):
@@ -172,6 +172,18 @@ def evaluar_regla(entrada: Entrada | None, regla: dict[str, Any]) -> Resultado:
     min_muestras = int(regla.get("min_muestras", 0))
 
     if entrada is None:
+        if metrica == "max_peticiones":
+            # La métrica cuenta *ocurrencias* de una entrada: que no
+            # aparezca en el informe significa 0 ocurrencias, no
+            # "no se puede juzgar".
+            return Resultado(
+                id=id_regla,
+                metrica=metrica,
+                valor=0.0,
+                umbral=umbral,
+                cumple=umbral >= 0.0,
+                detalle="la entrada no aparece en el informe (0 ocurrencias)",
+            )
         return Resultado(
             id=id_regla,
             metrica=metrica,
@@ -181,6 +193,15 @@ def evaluar_regla(entrada: Entrada | None, regla: dict[str, Any]) -> Resultado:
             detalle="la métrica no aparece en el informe (el escenario no llegó a ejecutarse)",
         )
     if entrada.num_requests == 0:
+        if metrica == "max_peticiones":
+            return Resultado(
+                id=id_regla,
+                metrica=metrica,
+                valor=0.0,
+                umbral=umbral,
+                cumple=umbral >= 0.0,
+                detalle="0 ocurrencias",
+            )
         return Resultado(
             id=id_regla,
             metrica=metrica,
@@ -223,6 +244,15 @@ def evaluar_regla(entrada: Entrada | None, regla: dict[str, Any]) -> Resultado:
         valor = entrada.tasa_fallo
         cumple = valor <= umbral
         detalle = f"{valor * 100:.2f}% de fallos en {entrada.num_requests} peticiones"
+    elif metrica == "max_peticiones":
+        # Nº de veces que ocurrió la entrada. Sirve para las entradas
+        # que Locust cuenta como "éxito" pero que en realidad son un
+        # síntoma: por ejemplo los previews omitidos con un 409 (la
+        # cámara ocupada), que el locustfile registra aparte porque un
+        # 409 es una regla de negocio y no un fallo.
+        valor = float(entrada.num_requests)
+        cumple = valor <= umbral
+        detalle = f"{entrada.num_requests} ocurrencias"
     else:
         return Resultado(
             id=id_regla,
