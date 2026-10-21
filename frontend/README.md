@@ -49,16 +49,38 @@ parte de "la pantalla se renderiza" que los tests no pueden.
 ```bash
 # el stack tiene que estar arriba (docker compose up -d)
 python scripts/qa_visual.py --salida D:/tmp/qa-solidapp
+
+# con el ancho del panel lateral del navegador integrado (1232 px)
+python scripts/qa_visual.py --salida D:/tmp/qa-solidapp-1232 --ancho 1232
 ```
 
-Salida: un `informe.json` con el detalle y un PNG por pantalla.
+Salida: un `informe.json` con el detalle y un PNG por pantalla. El script
+devuelve **1** si alguna pantalla tiene contenido recortado o desbordado, y
+0 si todo está bien.
+
+### Detección de contenido que no cabe
+
+Además de los errores de consola, la QA comprueba que **nada se salga de
+su sitio**: si un elemento es más ancho que su caja y no hay ningún
+contenedor que lo deje desplazar, se reporta como `DESBORDE`.
+
+Esto se añadió el 2026-10-21 tras encontrar un defecto real: la tabla de
+**Operadores** no cabía en su mitad de la rejilla a 1232 px de ventana y la
+columna "Estado" (los badges "Activo") quedaba cortada a media. La QA
+headless de siempre corría a 1440 px, donde la columna sí cabe, así que no
+lo veía. El arreglo fue envolver las tablas que no caben en un contenedor
+con `overflow-x-auto` y darles `min-w-max` para que conserven su ancho de
+contenido y se puedan desplazar.
+
+Vistas arregladas: Operadores, Cámaras, Planes, Usuarios y Tarifas. A 1232
+px la QA pasa de **5 contenidos desbordados a 0**.
 
 Resultado de la última ejecución (2026-10-21, con el stack completo):
-**19 pantallas sin incidencias y 0 errores de consola**. Quedan dos avisos
-que **no son fallos**: `/mapa` y `/vivo` agotan el tiempo de espera de
-`networkidle` porque mantienen una conexión abierta (el SSE del mapa y el
-preview MJPEG), así que la red nunca queda en reposo. Es inherente a esas
-dos pantallas; el resto se captura bien.
+**19 pantallas sin incidencias y 0 errores de consola**, tanto a 1440 px
+como a 1232 px. Quedan dos avisos que **no son fallos**: `/mapa` y `/vivo`
+agotan el tiempo de espera de `networkidle` porque mantienen una conexión
+abierta (el SSE del mapa y el preview MJPEG), así que la red nunca queda en
+reposo. Es inherente a esas dos pantallas; el resto se captura bien.
 
 > Si el script falla con `ERR_CONNECTION_RESET` en la pantalla de login,
 > casi siempre es que hay otra cosa comiéndose la CPU (un build de Docker,

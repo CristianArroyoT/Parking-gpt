@@ -162,7 +162,31 @@ cámaras): **491 peticiones, 0 fallos, 0 cortes, 0 reinicios del worker, 0
 previews omitidos con un 409** → **SLO 14 de 14 reglas OK** (antes 13 de
 13; la nueva es la que ata el P2).
 
-## 4. Modelos de datos nuevos
+### 3-quater. Maquetación: contenido que no cabía en su tarjeta (2026-10-21)
+
+Encontrado en la **QA visual en el navegador integrado** (ventana de
+1232 px), no en la headless (que recorre a 1440 px, donde no se nota).
+
+| Vista | Qué pasaba | Medida |
+|---|---|---|
+| Operadores | La tabla se salía de su mitad de rejilla y la columna "Estado" (badges "Activo") quedaba **cortada a media** | 470 px de tabla en 435 px de tarjeta |
+| Cámaras | La tabla se recortaba dentro de la tarjeta (`overflow-hidden`) | 950 px en 928 px |
+| Planes | Ídem | 887 px en 611 px |
+| Usuarios | Ídem | 650 px en 611 px |
+| Tarifas | Ídem | 744 px en 611 px |
+
+**Arreglo**: las cinco tablas van dentro de un contenedor
+`overflow-x-auto` y con `min-w-max`, de modo que conservan su ancho de
+contenido y la tarjeta las deja desplazar en horizontal en vez de
+recortarlas. A 1440 px se ven igual que antes.
+
+**Y el instrumento**: `frontend/scripts/qa_visual.py` ahora **detecta**
+contenido que no cabe (recortado *o* desbordado, distinguiendo los
+absolutos y fijos, que desbordan a propósito) y acepta `--ancho` para
+recorrer las pantallas con la medida del panel lateral. Sale con código
+1 si encuentra algo. Resultado: de **5 contenidos desbordados a 0** a
+1232 px, y 0 a 1440 px (sin regresión).
+
 
 | Modelo | Tabla | Notas |
 |---|---|---|

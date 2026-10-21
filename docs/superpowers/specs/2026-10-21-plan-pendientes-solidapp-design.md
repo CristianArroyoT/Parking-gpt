@@ -311,6 +311,22 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   2. Los previews descartados con un 409 los cuenta Locust como **éxito** (un 409 es una regla de negocio, no un fallo HTTP), así que el SLO **no veía** la métrica clave del P2: una regresión habría pasado el CI sin que nadie se enterase. Nueva métrica `max_peticiones` (cuenta ocurrencias) y regla `mjpeg_sin_409` con umbral 0, con sus tests.
 - **CI replicado a mano** (el CI remoto no arranca por la facturación): `ruff check app tests` en verde, `mypy app` sin errores nuevos, pytest en SQLite y PostgreSQL, `pytest tests/test_sqlite_only_functions.py` (paso aparte del job de integración), `vue-tsc --noEmit`, `npm run build`, **build de las dos imágenes Docker** (exit 0), usuario no-root `app` y log rotado en `/var/log/solidapp/backend.log` comprobados como hace el job `docker-build`, y QA visual headless (19 pantallas sin incidencias, 0 errores de consola).
 
+### T-13+7 · P3 — la tabla de Operadores no cabía en su tarjeta y la columna "Estado" quedaba cortada
+
+- **Estado**: **completado** — corregido y verificado a 1232 px
+- **Contexto**: encontrado en la **QA visual en el navegador integrado** (no en la headless), con la ventana del panel lateral a 1232 px. En `/gestor/operadores`, la tabla vive en media rejilla (`lg:grid-cols-2`): la tarjeta mide ~435 px y la tabla necesita ~470 px (el correo largo no cede), así que la columna **"Estado"** (los badges "Activo") quedaba **cortada a media**. En el navegador se veía el badge a medio dibujar.
+- **Por qué la QA headless no lo veía**: el script recorría las pantallas a 1440 px, donde la columna sí cabe. El defecto sólo aparece por debajo de ~1280 px.
+- **Al medirlo apareció más**: la comprobación de desbordamiento encontró **4 recortes más** en el mismo ancho — Cámaras (950 px en 928), Planes (887 en 611), Usuarios (650 en 611) y Tarifas (744 en 611). Los tres últimos están dentro de una tarjeta con `overflow-hidden`: la tabla se **recortaba** sin forma de llegar al resto.
+- **Criterios de aceptación**:
+  - [x] El script de QA visual **detecta** contenido que no cabe (recortado o desbordado) y sale con código 1 si lo hay.
+  - [x] El script permite elegir el ancho del viewport (`--ancho`), y la QA se pasa a 1232 px además de a 1440 px.
+  - [x] Las 5 tablas que no caben están envueltas en un contenedor `overflow-x-auto` con `min-w-max`: **0 desbordes a 1232 px** (antes 5).
+  - [x] Sin regresión a 1440 px: 0 desbordes y 0 errores de consola en las 21 pantallas.
+  - [x] `vue-tsc --noEmit` y `npm run build` en verde.
+- **Nota de alcance**: el arreglo es el desplazamiento horizontal en la
+  tarjeta, no un rediseño. Con ventana ancha se ve exactamente igual que
+  antes.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.
