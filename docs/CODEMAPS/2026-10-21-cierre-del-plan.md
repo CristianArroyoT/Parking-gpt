@@ -541,6 +541,22 @@ antes de relanzar.
 integration, docker-build y frontend), con el único `mypy` tolerado por
 `continue-on-error`.
 
+Y con el IPv4 arreglado, la réplica local pasó a poder ejecutar **el CI
+completo**, incluidos los dos pasos de test que antes se saltaban
+porque el host no resolvía los nombres de servicio de Docker:
+
+| Paso del CI | En el host |
+|---|---|
+| Tests (pytest, SQLite) | **563 passed**, 9 skipped |
+| Tests contra PostgreSQL (pytest) | **572 passed** |
+| Test de funciones sólo de SQLite | **13 passed** |
+| Type-check (vue-tsc) y build del frontend | exit 0 |
+| Los cuatro jobs | **VERDE** |
+
+O sea: mientras la facturación de GitHub siga pendiente, la réplica local
+es el **CI completo** de facto. Lo que falta para cerrar el criterio es
+sólo que GitHub deje de rechazar los jobs.
+
 
 | Modelo | Tabla | Notas |
 |---|---|---|

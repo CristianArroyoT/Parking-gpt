@@ -15,7 +15,7 @@
 > | Esquema | Los modelos y las migraciones coinciden: `alembic check` limpio y **el CI migra una base vacía** |
 > | Carga / SLO | 491 peticiones, 0 fallos → **14 de 14 reglas** |
 > | Lint y tipos | `ruff` en verde (backend **y** `tools/`); `vue-tsc` y `npm run build` en verde; `actionlint` exit 0. **`mypy` NO está en verde**: da 77 errores en 32 ficheros, y por eso su paso del CI lleva `continue-on-error: true` desde el primer commit (no es una regresión, es el estado heredado) |
-> | CI replicado en local | Los **4 jobs** del workflow (backend, integration, docker-build y frontend) pasan: `python tools/ejecutar_ci_local.py --all` |
+> | CI replicado en local | Los **4 jobs** del workflow (backend, integration, docker-build y frontend) pasan **completos, incluidos los dos pasos de test**: `python tools/ejecutar_ci_local.py --all` |
 >
 > **Lo que queda depende de ti** (y sólo de ti):
 > 1. **La facturación de la cuenta de GitHub.** Sin ella los jobs de Actions

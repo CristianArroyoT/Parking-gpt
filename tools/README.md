@@ -14,7 +14,7 @@ Utilidades del repo que no forman parte de la aplicación.
 | `verificar_despliegue_limpio.py` | Smoke test de un **despliegue limpio**: crea una base vacía, la migra de cero, la siembra, levanta la aplicación y comprueba que la API responde con los datos del seed. Borra la base al terminar. Es lo que faltaba: hasta ahora las migraciones y el seed nunca se habían probado juntos sobre una base vacía. |
 | `escanear_secretos.py` | Busca credenciales en el **árbol versionado** (`--historial` para el historial completo de commits). El repositorio es público: un secreto commiteado no es un inconveniente, es una credencial filtrada. |
 | `envolver_tablas.py` | Envuelve las tablas de las vistas del frontend en un contenedor desplazable (`overflow-x-auto min-w-0`) y les añade `min-w-max` **dentro** del atributo `class`. Sin esto, en el móvil la tabla se sale de su tarjeta y arrastra a la página entera en el scroll lateral. Muta la directiva `v-if`/`v-else` al envoltorio: si se deja en la tabla, Vue no compila. |
-| `ejecutar_ci_local.py` | Ejecuta un job del workflow de GitHub Actions **leyendo el YAML** (sin duplicar los pasos a mano), con su `working-directory` y sus variables. Es la forma de comprobar el CI mientras la cuenta no tiene los jobs activados por facturación. `--all` replica **todos** los jobs con un resumen final, y honra `continue-on-error` igual que Actions. |
+| `ejecutar_ci_local.py` | Ejecuta un job del workflow de GitHub Actions **leyendo el YAML** (sin duplicar los pasos a mano), con su `working-directory` y sus variables. Es la forma de comprobar el CI mientras la cuenta no tiene los jobs activados por facturación. `--all` replica **todos** los jobs con un resumen final, y honra `continue-on-error` igual que Actions. En Windows cambia `localhost` por `127.0.0.1` en las URLs de servicio (si no, cada conexión tarda 8 s esperando el timeout de IPv6). |
 | `estado_ci.py` | Estado del CI remoto sobre `main`, con **diagnóstico**: distingue *verde*, *rojo de verdad* (un job ejecutó pasos y falló → es el código) y *rechazado por la cuenta* (los jobs terminan en `failure` **con 0 pasos** → es la facturación, no el código). Sale con 0 / 1 / 2 respectivamente. |
 
 ## Uso
@@ -58,9 +58,20 @@ python tools/ejecutar_ci_local.py --job integration
 # CI remoto esta bloqueado por la facturacion)
 python tools/ejecutar_ci_local.py --all
 
+# Un job suelto
+python tools/ejecutar_ci_local.py --job backend
+
 # Estado del CI remoto sobre main, con diagnostico
 python tools/estado_ci.py
 ```
+
+### Requisitos para que la réplica local sea completa
+
+| Qué | Por qué |
+|---|---|
+| El stack de Docker arriba | La réplica usa los servicios publicados en `127.0.0.1` (PostgreSQL, Redis) |
+| Las bases `parking_test` y `parking_test_mavis` | Las usa el job de integración (`CREATE DATABASE`) |
+| Dependencias del backend instaladas en el host | El paso "Instalar dependencias" es el único que la réplica no ejecuta (el entorno ya está listo) |
 
 Los scripts devuelven codigo de salida 0 si no hay nada que mirar y 1 si lo
 hay (para poder encadenarlos en un script).
