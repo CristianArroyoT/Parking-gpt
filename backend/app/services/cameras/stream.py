@@ -186,7 +186,15 @@ def _open_capture(rtsp_url: str) -> cv2.VideoCapture:
     lo ignora en RTSP y usa su propio buffer de decodificación), pero
     ponerlo deja claro el intent: queremos el frame más reciente, no
     los 4-5 frames que el decoder acumula.
+
+    Con la URL **vacía**, OpenCV revienta con una aserción de C++
+    ("!_filename.empty()") que ensucia el log en cada intento. Se
+    comprueba antes de abrir (2026-10-21): una cámara sin URL es un
+    dato inválido, no un fallo de red.
     """
+    if not (rtsp_url or "").strip():
+        log.warning("mjpeg: la cámara no tiene URL de RTSP: no se abre nada")
+        return cv2.VideoCapture()
     cap = cv2.VideoCapture(rtsp_url)
     try:
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)

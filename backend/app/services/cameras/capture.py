@@ -39,6 +39,12 @@ def _read_one_frame_sync(rtsp_url: str) -> bytes | None:
     `None` ante cualquier fallo; nunca propaga excepción.
     """
     try:
+        if not (rtsp_url or "").strip():
+            # URL vacía: OpenCV lanza una aserción de C++
+            # ("!_filename.empty()"). Es un dato inválido, no un fallo
+            # de red.
+            log.warning("capture: la cámara no tiene URL de RTSP")
+            return None
         cap = cv2.VideoCapture(rtsp_url)
     except Exception as exc:  # noqa: BLE001 — defensiva
         log.warning("capture: no se pudo instanciar VideoCapture: %s", exc)

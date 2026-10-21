@@ -45,6 +45,12 @@ def _probe_sync(rtsp_url: str) -> bool:
     """
     cap = None
     try:
+        if not (rtsp_url or "").strip():
+            # URL vacía: OpenCV lanza una aserción de C++
+            # ("!_filename.empty()") en cada sondeo. Es un dato
+            # inválido, no un fallo de red.
+            log.warning("heartbeat: la cámara no tiene URL de RTSP")
+            return False
         cap = cv2.VideoCapture(rtsp_url)
         if not cap.isOpened():
             log.warning(

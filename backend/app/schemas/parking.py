@@ -74,7 +74,12 @@ class CameraCreate(ORMModel):
 
 class CameraUpdate(ORMModel):
     name: Optional[str] = None
-    rtsp_url: Optional[str] = None
+    # Mismas restricciones que en el alta (2026-10-21): sin ellas, un
+    # PATCH con ``rtsp_url: ""`` dejaba la cámara sin URL y el motor de
+    # visión (OpenCV) escupía una aserción de C++ en cada sondeo del
+    # heartbeat ("!_filename.empty()"), más un aviso de "cámara caída"
+    # por cámara. El alta ya lo impedía; el PATCH, no.
+    rtsp_url: Optional[str] = Field(default=None, min_length=8, max_length=1024)
     lane_hint: Optional[str] = None
     fps: Optional[int] = None
     is_active: Optional[bool] = None
