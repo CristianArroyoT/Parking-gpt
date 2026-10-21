@@ -4,9 +4,14 @@ Sistema de gestión de parkings con OCR de matrículas, mapa visual de plazas y
 control por cámara IP. Producto orientado a **España** (idioma `es-ES`,
 LOPDGDD/GDPR).
 
-> **Estado**: MVP Fase 1 (Cimientos). OCR, geocercas activas, alertas,
-> reportes y PDF llegan en Fases 2/3/4. Ver `docs/maquetas/` para los
-> wireframes aprobados.
+> **Estado**: MVP Fase 1 (Cimientos) **completo** y con el backlog de
+> pendientes cerrado (2026-10-21). Ya están implementados y verificados el
+> OCR con PaddleOCR, las geocercas activas, las alertas, los reportes
+> PDF/CSV, los backups con restauración probada, el plan de **Planes y
+> suscripciones**, la **PWA instalable** del cliente, las **fotos en los
+> incidentes** y la **recuperación de contraseña**. Ver `docs/maquetas/`
+> para los wireframes aprobados y `docs/CODEMAPS/` para el mapa del
+> código.
 
 ## Stack
 
@@ -18,9 +23,11 @@ LOPDGDD/GDPR).
 | Cola y cache  | Redis 7 + Celery                                              |
 | OCR           | PaddleOCR (configurable a Tesseract)                          |
 | Cámaras       | Pull RTSP genérico (ONVIF cuando se decida el fabricante)     |
-| Despliegue    | Docker Compose local; producción Docker Swarm (futuro)        |
+| Despliegue    | Docker Compose local; producción **Compose en la sucursal + Kubernetes en el central** (ver `docs/adr/0001-orquestacion-produccion.md`) |
 
-Más detalle en `~/.claude/projects/D--Parking/memory/`.
+Más detalle en [`docs/`](docs/): el [codemap del código](docs/CODEMAPS/),
+los [ADR](docs/adr/) con las decisiones y sus números, y el
+[inventario de la API interna](docs/API-INTERNAL.md) con su RBAC.
 
 ## Requisitos
 
@@ -132,10 +139,14 @@ Documentación interactiva en `http://localhost:8000/docs`.
   apagado responden **404 Not Found**. No hay captura, ni extracción de
   vectores, ni comparación biométrica implementados. Cuando se active,
   habrá que revisar su base legal y su retención (LOPDGDD/GDPR).
-- **Recuperación de contraseña por correo**: el enlace de restablecimiento
-  apunta a `/recuperar-contrasena` del frontend, una pantalla que todavía
-  no existe. Hasta que se implemente, el token se puede usar llamando
-  directamente a `POST /api/v1/auth/reset-password`.
+- **Recuperación de contraseña por correo**: implementada de punta a punta
+  (T-22). El backend expone `POST /api/v1/auth/forgot-password` y
+  `POST /api/v1/auth/reset-password`; el token es de **un solo uso**, se
+  guarda **hasheado** (SHA-256) y caduca en 30 minutos. Cambiar la
+  contraseña invalida los JWT previos del usuario. La respuesta de
+  `forgot-password` es **siempre la misma** (haya o no cuenta con ese
+  email), para no ser un oráculo de enumeración de cuentas. La pantalla es
+  `/recuperar-contrasena` (pública, con o sin `?token=`).
 
 ## Fotos de los incidentes (T-21)
 
@@ -190,12 +201,27 @@ docker compose exec frontend npm run type-check
 
 ## Roadmap
 
-- **Fase 2** — Worker OCR (PaddleOCR), pull RTSP, calibración de geocercas,
-  alta/baja automática, alertas por correo.
-- **Fase 3** — Auditoría completa, tabla de costos, reportes PDF/CSV,
-  dashboards.
-- **Fase 4** — Docker Swarm + alta disponibilidad, backups automáticos
-  (pg_dump + WAL cada 5 min), pruebas de carga.
+Lo que queda por decidir o por hacer (el resto del backlog ya está
+implementado; el detalle está en
+[`docs/superpowers/specs/2026-10-21-plan-pendientes-solidapp-design.md`](docs/superpowers/specs/2026-10-21-plan-pendientes-solidapp-design.md)):
+
+- **Cobro real con pasarela** — hoy el cobro de los planes es
+  **contable** (se registra el importe, no se cobra; decisión D2 del plan).
+  Cuando haya un cliente piloto habrá que añadir el cobro de verdad.
+- **Alta de operadores por parte del gestor** — hoy la API de usuarios es
+  `admin-only`; el gestor manages los operadores de **su** sucursal con una
+  API acotada (`/parkings/{id}/operadores`), pero no puede dar de alta
+  usuarios del sistema.
+- **Central con alta disponibilidad** — según
+  [`docs/adr/0001-orquestacion-produccion.md`](docs/adr/0001-orquestacion-produccion.md),
+  el central pasa a Kubernetes cuando se cumpla uno de los cinco criterios
+  objetivos allí listados. Antes, Compose también.
+- **GPU para el OCR** — medido y **descartado** con la carga real
+  ([`docs/adr/0002-ocr-cpu-vs-gpu.md`](docs/adr/0002-ocr-cpu-vs-gpu.md)). La
+  variante GPU está lista (`docker/ocr/Dockerfile.gpu`) por si el escenario
+  cambia (OCR centralizado o una sucursal con muchas cámaras).
+- **Reconocimiento facial** — deliberadamente **fuera del MVP**; sólo queda
+  la estructura preparada (ver más arriba).
 
 ## Licencia y datos
 

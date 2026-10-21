@@ -14,6 +14,16 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/LoginView.vue'),
     meta: { public: true, layout: 'blank' },
   },
+  // T-22 (2026-10-21): página a la que apunta el enlace del correo de
+  // recuperación de contraseña (`/recuperar-contrasena?token=...`). Es
+  // pública a propósito: el usuario llega aquí sin sesión (precisamente
+  // porque ha perdido la clave) y con un token de un solo uso.
+  {
+    path: '/recuperar-contrasena',
+    name: 'recuperar-contrasena',
+    component: () => import('@/views/cliente/ResetPasswordView.vue'),
+    meta: { public: true, layout: 'blank' },
+  },
   // Sprint Fase 4 (2026-07-01): redirect por rol en vez de llevar
   // siempre a /dashboard (admin-only → "Acceso denegado" para gestor/
   // operador/cliente).

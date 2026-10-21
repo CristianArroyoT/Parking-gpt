@@ -416,7 +416,7 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] Registro de auditoría `password_reset_requested` / `password_reset_completed`.
   - [x] Anti-abuso: rate-limit por IP y por email.
 - **Verificado**: 24 tests en verde (SQLite y PostgreSQL). El token se guarda como SHA-256 (`token_hash` UNIQUE, 64 chars): en la BD no hay nunca el token en claro. El reset invalida los JWT previos vía `session_tracker.revoke_all`. La respuesta de `forgot-password` es **uniforme** para exista o no la cuenta (no enumera usuarios).
-- **Pendiente de frontend**: la pantalla `/recuperar-contrasena` no existe (`frontend/**` no entró en el alcance de esta sesión); el enlace del correo apunta ahí. Mientras tanto, el token se puede usar llamando a `POST /api/v1/auth/reset-password`.
+- **Pendiente de frontend**: RESUELTO al cierre de la sesión. La pantalla `/recuperar-contrasena` (pública, con o sin `?token=`) ya existe: con token muestra el formulario de contraseña nueva; sin token, el de "envíame el enlace". Verificada con la QA visual en Chromium (las dos variantes renderizan, 0 errores de consola) y contra el backend real (`forgot-password` → 200 con el mensaje genérico; `reset-password` con token falso → 400 con mensaje claro).
 
 ### T-23 · Tabla y endpoint de reconocimiento facial (preparación)
 

@@ -28,6 +28,8 @@ BASE = "http://localhost:5173"
 # (etiqueta, ruta, rol, nombre de fichero)
 PANTALLAS = [
     ("login", "/login", "ninguno", "login"),
+    ("recuperar-sin-token", "/recuperar-contrasena", "ninguno", "recuperar-sin-token"),
+    ("recuperar-con-token", "/recuperar-contrasena?token=abc123", "ninguno", "recuperar-con-token"),
     ("gestor-dashboard", "/dashboard/gestor", "gestor", "gestor-dashboard"),
     ("gestor-movimientos", "/gestor/movimientos", "gestor", "gestor-movimientos"),
     ("gestor-alertas", "/gestor/alertas", "gestor", "gestor-alertas"),
@@ -91,6 +93,47 @@ def main() -> int:
 
     with sync_playwright() as p:
         navegador = p.chromium.launch(headless=True)
+
+        # Las pantallas públicas (login, recuperación de contraseña) se
+        # capturan en su propio contexto, SIN sesión: si se visitaran
+        # después de iniciar sesión, el guard de ruta las redirigiría.
+        contexto_publico = navegador.new_context(viewport={"width": 1440, "height": 900})
+        pagina_publica = contexto_publico.new_page()
+        for etiqueta, ruta, rol_needed, nombre in PANTALLAS:
+            if rol_needed != "ninguno":
+                continue
+            consola: list[str] = []
+            red: list[str] = []
+            pagina_publica.on("console", lambda m: consola.append(f"{m.type}: {m.text}")
+                              if m.type in ("error", "warning") else None)
+            pagina_publica.on("response", lambda r: red.append(
+                f"{r.status} {r.request.method} {r.url}") if r.status >= 400 else None)
+            try:
+                pagina_publica.goto(f"{BASE}{ruta}", wait_until="networkidle", timeout=25000)
+            except Exception as exc:
+                red.append(f"navegacion: {type(exc).__name__}: {exc}")
+            pagina_publica.wait_for_timeout(700)
+            texto = pagina_publica.inner_text("body")[:400].strip()
+            vacia = len(texto) < 40
+            captura = salida / f"{nombre}.png"
+            try:
+                pagina_publica.screenshot(path=str(captura), full_page=True)
+            except Exception as exc:
+                consola.append(f"captura: {type(exc).__name__}")
+            resultados.append(
+                Resultado(
+                    etiqueta=etiqueta,
+                    ruta=ruta,
+                    url_final=pagina_publica.url,
+                    consola=consola[:6],
+                    red=red[:6],
+                    texto=texto,
+                    vacia=vacia,
+                    captura=str(captura),
+                )
+            )
+        contexto_publico.close()
+
         for rol in ("gestor", "cliente", "admin"):
             contexto = navegador.new_context(viewport={"width": 1440, "height": 900})
             pagina = contexto.new_page()
