@@ -116,6 +116,33 @@ class LiveStreamRegistry:
         if session is not None:
             session.shutdown_event.set()
 
+    async def shutdown_all(self) -> int:
+        """Signal ALL live sessions to close (application shutdown).
+
+        Each session's ``shutdown_event`` is activated, so the MJPEG
+        generator detects it at the top of the next iteration and
+        finishes, closing the HTTP response. That's what allows uvicorn
+        to complete the graceful shutdown instead of waiting forever for
+        a connection that would never close.
+
+        WHY WE DON'T EMPTY ``_active`` HERE: the generators are still
+        alive until they see their ``shutdown_event``. If we removed the
+        session from the dict now, a new client could reserve the
+        camera, and when the old generator finished, its ``finally``
+        would call ``release(camera_id)`` and release the NEW client's
+        session (killing its stream). Leaving the session in the dict
+        keeps the slot busy until the generator itself releases it:
+        correct behaviour, and the new client gets a transient 409 that
+        it retries.
+
+        Returns the number of sessions notified.
+        """
+        async with self._lock:
+            sessions = list(self._active.values())
+            for session in sessions:
+                session.shutdown_event.set()
+        return len(sessions)
+
     def active_count(self) -> int:
         return len(self._active)
 
