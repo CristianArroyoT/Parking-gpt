@@ -19,6 +19,40 @@ las manda al backend (por defecto `http://localhost:8000`, se puede
 cambiar con la variable `VITE_PROXY_TARGET`, que **no** se inyecta en el
 bundle porque su nombre no empieza por `VITE_`).
 
+## ⚠️ En Docker Desktop (Windows) el HMR no se dispara
+
+Al editar un fichero del frontend desde Windows, **Vite no se entera**: los
+bind mount de Docker Desktop no propagan los eventos de cambio de fichero al
+contenedor, así que el watcher no invalida el módulo y el navegador se
+sigue viendo la versión antigua. No es un fallo del código: el fichero en
+disco sí ha cambiado, y `npm run build` sí lo compila bien.
+
+**Síntoma**: la pantalla sigue igual que antes del cambio, o una ruta nueva
+devuelve "Página no encontrada" aunque la ruta esté en `src/router/index.ts`.
+
+**Arreglo**: reiniciar el servidor de desarrollo.
+
+```bash
+docker compose restart frontend
+```
+
+Esto se detectó haciendo la QA visual del 2026-10-21 (dos veces: una ruta
+nueva que salía como inexistente y un texto que no cambiaba).
+
+## QA visual (Chromium headless)
+
+`scripts/qa_visual.py` recorre las 18 pantallas de los tres roles con las
+cuentas **demo** del seed, hace una captura de cada una y recoge los
+**errores de consola** y las **peticiones fallidas**. Es lo que cubre la
+parte de "la pantalla se renderiza" que los tests no pueden.
+
+```bash
+# el stack tiene que estar arriba (docker compose up -d)
+python scripts/qa_visual.py --salida D:/tmp/qa-solidapp
+```
+
+Salida: un `informe.json` con el detalle y un PNG por pantalla.
+
 ## PWA — app instalable del cliente
 
 **Decisión D4 del plan maestro (2026-10-21): PWA, no app nativa.** Un

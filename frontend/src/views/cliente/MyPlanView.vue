@@ -89,12 +89,15 @@ onMounted(async () => {
     <div v-if="loading" class="text-sm text-slate-500">Cargando…</div>
 
     <template v-else-if="miPlan">
-      <!-- Aviso de cobro contable (decisión D2). -->
+      <!-- Aviso de cobro contable (decisión D2).
+
+           El texto viene del backend (``billing_note``) y YA empieza por
+           "Cobro contable: ...", así que aquí no se antepone otra etiqueta:
+           con ella se leía "Cobro contable. Cobro contable: ...". -->
       <div
         class="mb-6 rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-sm text-amber-900"
         role="note"
       >
-        <span class="font-semibold">Cobro contable.</span>
         {{ miPlan.billing_note }}
       </div>
 

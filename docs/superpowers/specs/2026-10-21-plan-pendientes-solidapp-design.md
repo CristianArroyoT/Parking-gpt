@@ -565,18 +565,20 @@ T-22 (recuperación de contraseña) ──> T-24 (PWA, que necesita self-service
 - [x] `cd backend && mypy app` → sin errores nuevos (hoy `continue-on-error: true`).
 - [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **508 passed en SQLite y 517 en PostgreSQL**.
 - [x] `docker compose up -d` → todos los servicios *healthy* y `/health` responde 200.
-- [ ] QA visual en el navegador de las pantallas tocadas (con la app real, no sólo tests).
-      → **NO HECHA**: el login en el navegador integrado requiere que el usuario
-      entre con sus credenciales (el navegador no permite escribirlas por
-      cuenta propia) y en esta sesión no se completó. Mitigado por la
-      verificación en vivo contra la API real de cada pantalla nueva
-      (planes, mi plan, mis vehículos, mi perfil, entradas/salidas, alertas,
-      operadores, mi plaza, pagos, adjuntos) más `vue-tsc` y el build del
-      frontend. **Pendiente de una sesión con acceso al navegador.**
-- [ ] Sin 4xx/5xx inesperados en `docker logs backend` durante la QA.
-      → **Parcial**: durante el trabajo en paralelo los reloader de uvicorn
-      registran errores de arranque por ficheros a medio editar; ya con el
-      árbol estable el log está limpio.
+- [x] QA visual en el navegador de las pantallas tocadas (con la app real, no sólo tests).
+      → **HECHA** con Chromium headless (Playwright) sobre la app real
+      (`frontend/scripts/qa_visual.py`): las **18 pantallas** de los tres
+      roles se renderizan, **0 errores de consola** y **0 peticiones de red
+      fallidas**. Se revisaron una a una las capturas: catálogo de planes,
+      mi plan, mis vehículos, mi perfil, mi plaza, pagos, entradas/salidas,
+      alertas, operadores, tickets, mapa, cámaras, vivo y alta manual.
+      La QA destapó un defecto visual: el aviso de cobro contable se leía
+      "Cobro contable. Cobro contable: ..." (la etiqueta se anteponía a un
+      texto que ya empezaba así). Corregido.
+- [x] Sin 4xx/5xx inesperados en `docker logs backend` durante la QA.
+      → Con el árbol estable el log está limpio. Durante el trabajo en
+      paralelo sí hubo errores de arranque del reloader por ficheros a
+      medio editar (no de la app).
 
 ---
 
