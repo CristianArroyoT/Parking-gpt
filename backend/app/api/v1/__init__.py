@@ -18,6 +18,7 @@ from app.api.v1 import (
     logout_all,
     parkings,
     password_reset,
+    plans,
     plates,
     reports,
     spaces,
@@ -43,6 +44,10 @@ api_router.include_router(cameras.router)
 api_router.include_router(cameras_live.router)
 api_router.include_router(vehicles.router)
 api_router.include_router(tariffs.router)
+# T-18 (2026-10-21): CRUD de planes + alta/baja de suscripciones. El
+# descuento ya se aplicaba al cerrar el ticket, pero nadie podía crear
+# planes ni suscribir usuarios desde la aplicación.
+api_router.include_router(plans.router)
 api_router.include_router(tickets.router)
 # Sprint Fase 4-parte-2: resumen operativo de tickets por sucursal (24 h).
 api_router.include_router(ticket_summary.router)
