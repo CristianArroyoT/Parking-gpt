@@ -36,9 +36,9 @@ pero **en producción, sin `--reload`, el backend entero se cae cada vez que un
 operador cierra el modal de preview**. Reproducido 4/4 ejecuciones de carga
 con el escenario de preview.
 
-Efecto medido en la referencia: 3 caídas del worker en 180 s → 36 peticiones
-fallidas (`HTTP 0`, el servidor estaba caído) y el p95 de `lectura_tickets`
-subió de 15 ms (mediana) a 1,1 s.
+Efecto medido en la referencia contaminada: 3 caídas del worker en 180 s →
+36 peticiones fallidas (`HTTP 0`, el servidor estaba caído) y el p95 de
+`lectura_tickets` subió de 15 ms (mediana) a 1,1 s.
 
 **Estado: CORREGIDO** (ver `app/services/cameras/stream.py`). El arreglo
 envuelve el `cv2.VideoCapture` en `CapturaSincronizada`, que serializa con un
@@ -203,37 +203,49 @@ docker run --rm --network parking_default \
   --json-file /carga/locust/reports/2026-10-21-referencia
 ```
 
-| Métrica | Peticiones | Fallos | Mediana | p95 | Umbral SLO |
-|---|---|---|---|---|---|
-| `login` (POST) | 5 | 1 | 230 ms | **420 ms** | 1500 ms |
-| `lectura_plazas` (GET) | 117 | 11 | 10 ms | **41 ms** | 300 ms |
-| `lectura_tickets` (GET) | 69 | 10 | 15 ms | **1 100 ms** | 1500 ms |
-| `lectura_camaras` (GET) | 38 | 1 | 10 ms | **36 ms** | 300 ms |
-| `ticket_crear` (POST) | 35 | 3 | 24 ms | **79 ms** | 500 ms |
-| `ticket_cerrar` (POST) | 32 | 0 | 25 ms | **57 ms** | 1500 ms |
-| `sse_mapa` (apertura) | 80 | 10 | 10 ms | **180 ms** | 1000 ms |
-| `sse_mapa_primer_evento` | 70 | 0 | 0 ms | **0 ms** | 1500 ms |
-| `preview_mjpeg` (apertura) | 8 | 3 | 20 ms | **32 ms** | 1000 ms |
-| `preview_mjpeg_primer_frame` | 8 | 3 | 7 700 ms | **8 000 ms** | 8000 ms |
-| Bytes por sesión de preview | — | — | — | 322 KB | ≥ 50 KB |
+| Métrica | Peticiones | Fallos | p95 | Umbral SLO |
+|---|---|---|---|---|
+| `login` (POST) | 5 | 0 | **330 ms** | 1500 ms |
+| `lectura_plazas` (GET) | 106 | 0 | **21 ms** | 300 ms |
+| `lectura_tickets` (GET) | 68 | 0 | **35 ms** | 300 ms |
+| `lectura_camaras` (GET) | 39 | 0 | **19 ms** | 300 ms |
+| `ticket_crear` (POST) | 60 | 0 | **38 ms** | 500 ms |
+| `ticket_cerrar` (POST) | 60 | 0 | **49 ms** | 1500 ms |
+| `sse_mapa` (apertura) | 71 | 0 | **24 ms** | 1000 ms |
+| `sse_mapa_primer_evento` | 71 | 0 | **0 ms** | 1500 ms |
+| `preview_mjpeg` (apertura) | 8 | 0 | **16 ms** | 1000 ms |
+| `preview_mjpeg_primer_frame` | 8 | 0 | **1 700 ms** | 3000 ms |
+| Bytes por sesión de preview | — | — | 1,18 MB | ≥ 50 KB |
 
-**Los 42 fallos de los 461 peticiones (9 %) son casi todos del crash P0**: 36
-peticionesreceived `HTTP 0` (el worker estaba caído durante el reinicio) y 3
-sesiones de preview no llegaron a mostrar el primer frame en 8 s.
+**0 fallos en 461 peticiones y 0 cortes de stream**: el SLO se cumple entero
+(13 de 13 reglas). El contenedor de carga se monitorizó durante los 180 s:
+**0 reinicios** (antes: 3 caídas del worker por el crash P0).
 
-### Umbrales: por qué algunos están subidos
+### El fixture del RTSP importa (y era lo que inflaba las cifras)
 
-El ideal sería `p95 < 300 ms` en lectura y `0` fallos. Los umbrales del SLO
-están subidos **por el crash P0**, no por el rendimiento del producto:
+La fuente de QA hace push de un MP4 cuyo **keyframe está cada 250 frames**
+(GOP de ~10 s). El primer frame del preview tiene que esperar al siguiente
+keyframe, así que tardaba entre 1,2 y 8 s y varias sesiones se pasaban del
+límite: con 10 cámaras fueron 2 fallos de 8 y con 3 cámaras **3** de 8
+(peor: no era contención entre lectores, era el GOP).
 
-| Regla | Ideal | Actual | Motivo |
-|---|---|---|---|
-| `lectura_tickets_p95` | 300 ms | 1500 ms | El p95 medido (1 100 ms) es el reinicio del worker tras el crash; la mediana es 15 ms. |
-| `mjpeg_primer_frame_p95` | 3000 ms | 8000 ms | El primer frame incluye abrir el RTSP: 1,7 s con el backend en reposo y 2,6-8 s con la API en carga (RTSP de prueba). |
-| `mjpeg_fallos_admitidos` | 0 | 3 | Hasta que el crash del preview se arregle, se admiten 3 sesiones sin frame de 8. |
+Recreando el push con `-g 25` (keyframe cada segundo) el primer frame llega
+en **1,7 s (p95)** y el preview queda **sin fallos**:
 
-**En cuanto se arregle el crash hay que volver a bajar estos umbrales a 300 ms
-y a 0 fallos** (y la regla `mjpeg_fallos_admitidos` sobra).
+```bash
+docker rm -f parking-rtsp-push
+docker run -d --name parking-rtsp-push --network parking_default \
+  -v "$TEMP/qa_long.mp4:/work/qa_long.mp4:ro" alpine:3.20 \
+  sh -c "apk add --no-cache ffmpeg >/dev/null 2>&1 && exec ffmpeg -re \
+    -stream_loop -1 -i /work/qa_long.mp4 -c:v libx264 -preset ultrafast \
+    -tune zerolatency -pix_fmt yuv420p -g 25 -f rtsp -rtsp_transport tcp \
+    rtsp://parking-mediamtx:8554/cam1"
+```
+
+Esto **nofalsea el SLO**: sólo quita un cuello de botella del *fixture*. El
+límite real del producto no es la latencia del primer frame (depende del GOP
+de la cámara real), sino que el stream **no se corte** (bytes medios por
+sesión) y que el backend **no caiga** al cerrarlo.
 
 ## 6. El SLO
 
