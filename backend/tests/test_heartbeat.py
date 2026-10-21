@@ -28,12 +28,9 @@ import asyncio
 from datetime import datetime
 
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401 — fuerza registro de tablas
-from app.core.db import Base
 from app.models.audit import Alert
 from app.models.enums import AlertSeverity, AlertType, UserRole
 from app.models.parking import Camera, Parking
@@ -195,15 +192,9 @@ def test_probe_camera_returns_false_on_exception(
 
 # ── Tests de probe_heartbeats (con BD + Redis) ───────────────────
 @pytest.fixture()
-def heartbeat_env(monkeypatch):
-    """BD SQLite + Redis fake + stub email + umbral forzado."""
-    engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        future=True,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
+def heartbeat_env(monkeypatch, motor_de_test):
+    """BD del dialecto de la suite + Redis fake + stub email + umbral forzado."""
+    engine = motor_de_test
     SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     monkeypatch.setattr(alerts_mod, "SessionLocal", SessionLocal)
 

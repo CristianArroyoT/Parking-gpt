@@ -23,12 +23,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401 — fuerza el registro de todas las tablas en Base.metadata
-from app.core.db import Base
 from app.models.enums import TicketStatus
 from app.models.geofence import CameraGeofence
 from app.models.parking import Camera, Parking, ParkingSpace
@@ -42,21 +39,19 @@ from app.services.ingest_service import IngestStatus, process_plate_hit
 
 
 @pytest.fixture()
-def ingest_env(monkeypatch):
-    """Crea una BD SQLite en memoria, registra modelos, y parchea
+def ingest_env(monkeypatch, motor_de_test):
+    """BD del dialecto de la suite, y parchea
     ``ingest_service.SessionLocal`` para que el servicio escriba aquí.
+
+    Usa ``motor_de_test`` (conftest) para que el fichero se ejecute
+    también contra PostgreSQL cuando la suite corre contra PostgreSQL:
+    antes tenía su propio SQLite y el dialecto real quedaba sin cubrir.
 
     Devuelve una sesión para que los tests creen fixtures y lean
     resultados. Todos los cambios se ven a través de la misma sesión
-    porque SQLite + StaticPool comparte el mismo almacenamiento.
+    porque el motor comparte el mismo almacenamiento.
     """
-    engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        future=True,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
+    engine = motor_de_test
     TestSessionLocal = sessionmaker(
         bind=engine, autoflush=False, expire_on_commit=False
     )

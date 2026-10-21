@@ -125,6 +125,38 @@ def test_engine():
 
 
 @pytest.fixture()
+def motor_de_test(test_engine):
+    """Motor de BD **del dialecto contra el que corre la suite**.
+
+    - SQLite (default local): motor propio en memoria, aislado por test.
+    - PostgreSQL (CI): motor compartido, truncado antes de cada test.
+
+    Los tests que necesitan su propia base de datos **deben** usar esta
+    fixture en vez de crear un motor SQLite hardcodeado. Si lo hacen al
+    revés, siguen corriendo contra SQLite aunque la suite completa esté
+    en modo PostgreSQL, y el dialecto real de producción queda sin
+    cubrir: es exactamente lo que pasó con ``strftime()``, que llegó a
+    ``main`` porque la CI levantaba Postgres y no lo usaba.
+    """
+    if ES_POSTGRES:
+        engine = test_engine
+        _truncar(engine)
+    else:
+        engine = create_engine(
+            SQLITE_URL,
+            future=True,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+    try:
+        yield engine
+    finally:
+        if not ES_POSTGRES:
+            engine.dispose()
+
+
+@pytest.fixture()
 def db_session(monkeypatch, test_engine):
     """Sesión de BD aislada para el test.
 

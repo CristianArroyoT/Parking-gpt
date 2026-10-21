@@ -39,12 +39,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import create_engine, insert, select
+from sqlalchemy import insert, select
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401 — registro de todas las tablas en Base.metadata
-from app.core.db import Base
 from app.models.cost import Cost
 from app.models.enums import (
     CameraKind,
@@ -55,23 +53,20 @@ from app.models.parking import Camera, Parking
 
 
 @pytest.fixture()
-def db_session():
-    """Sesión SQLite en memoria para ejercitar el mapping SQLAlchemy.
+def db_session(motor_de_test):
+    """Sesión sobre el motor del dialecto de la suite.
 
-    SQLite no valida los valores del enum (los trata como VARCHAR), pero
-    el comportamiento que queremos probar es el del lado Python de
+    En SQLite no se validan los valores del enum (los trata como VARCHAR),
+    pero el comportamiento que queremos probar es el del lado Python de
     SQLAlchemy: cuando lee una columna ``kind`` con el valor
     ``'surveillance'`` (string real de Postgres), ¿lo resuelve
     correctamente al enum Python? Sin ``values_callable``, el lookup
     explota; con él, retorna ``CameraKind.SURVEILLANCE``.
+
+    Con la fixture ``motor_de_test`` este fichero también se ejecuta
+    contra PostgreSQL cuando la suite corre contra PostgreSQL.
     """
-    engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        future=True,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
+    engine = motor_de_test
     SessionLocal = sessionmaker(
         bind=engine, autoflush=False, expire_on_commit=False,
     )
@@ -80,7 +75,6 @@ def db_session():
         yield session
     finally:
         session.close()
-        engine.dispose()
 
 
 # ── Camera.kind ──────────────────────────────────────────────────────

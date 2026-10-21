@@ -8,11 +8,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.core.db import Base
 from app.models.enums import UserRole, VehicleRole
+from app.models.parking import Parking
 from app.models.pricing import Plan, Subscription, Tariff
 from app.models.user import User
 from app.models.vehicle import Vehicle, VehicleUser
@@ -20,16 +19,31 @@ from app.services.pricing import PricingError, calculate_ticket_total
 
 
 @pytest.fixture()
-def db():
-    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
-    Base.metadata.create_all(engine)
+def db(motor_de_test):
+    """Sesión sobre el motor del dialecto de la suite.
+
+    Antes creaba su propio SQLite en memoria, así que este fichero
+    seguía pasándose por SQLite aunque la suite completa corriera
+    contra PostgreSQL.
+
+    Se crea además la sucursal (id=1) de la que cuelgan las tarifas:
+    SQLite **no aplica claves foráneas por defecto**, así que antes
+    las tarifas apuntaban a un parking inexistente sin que nadie se
+    enterara. En PostgreSQL la FK sí se aplica y el test reventaba con
+    ``ForeignKeyViolation`` — el dialecto de producción estaba sin
+    cubrir.
+    """
+    engine = motor_de_test
     SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     session = SessionLocal()
+    session.add(
+        Parking(code="MAD-P", name="Parking Test", address="Calle 1", city="Madrid")
+    )
+    session.commit()
     try:
         yield session
     finally:
         session.close()
-        engine.dispose()
 
 
 def _seed_tariff(db, price_hour=2.5, price_frac=0.7, fraction=15, max_daily=None, when=None):

@@ -19,12 +19,9 @@ Casos cubiertos:
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401 — fuerza el registro de tablas en Base.metadata
-from app.core.db import Base
 from app.models.audit import Alert
 from app.models.enums import AlertSeverity, AlertType, UserRole
 from app.models.parking import Camera, Parking
@@ -60,15 +57,13 @@ class _FakeRedis:
 
 
 @pytest.fixture()
-def offline_env(monkeypatch):
-    """Crea BD SQLite + 2 cámaras + admin + stub de email y Redis."""
-    engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        future=True,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
+def offline_env(monkeypatch, motor_de_test):
+    """BD del dialecto de la suite + 2 cámaras + admin + stub de email y Redis.
+
+    Usa ``motor_de_test`` (conftest) para que el fichero se ejecute
+    también contra PostgreSQL cuando la suite corre contra PostgreSQL.
+    """
+    engine = motor_de_test
     SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     monkeypatch.setattr(alerts_mod, "SessionLocal", SessionLocal)
 
