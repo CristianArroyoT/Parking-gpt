@@ -70,33 +70,35 @@ onMounted(load)
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div class="lg:col-span-2 bg-white rounded-xl shadow-card overflow-hidden">
-        <table class="w-full text-sm">
-          <thead class="bg-slate-50 text-slate-500 text-left">
-            <tr>
-              <th class="px-5 py-3 font-medium">Email</th>
-              <th class="px-5 py-3 font-medium">Nombre</th>
-              <th class="px-5 py-3 font-medium">Rol</th>
-              <th class="px-5 py-3 font-medium">Estado</th>
-              <th class="px-5 py-3 font-medium text-right">Acciones</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr v-if="loading"><td colspan="5" class="px-5 py-6 text-center text-slate-500">Cargando…</td></tr>
-            <tr v-for="u in users" :key="u.id" v-else>
-              <td class="px-5 py-3 font-mono text-xs">{{ u.email }}</td>
-              <td class="px-5 py-3">{{ u.full_name }}</td>
-              <td class="px-5 py-3"><span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs">{{ u.role }}</span></td>
-              <td class="px-5 py-3">
-                <span :class="u.is_active ? 'text-emerald-600' : 'text-slate-500'">
-                  {{ u.is_active ? 'Activo' : 'Inactivo' }}
-                </span>
-              </td>
-              <td class="px-5 py-3 text-right">
-                <button class="btn-secondary" @click="startEdit(u)">Editar</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-max text-sm">
+            <thead class="bg-slate-50 text-slate-500 text-left">
+              <tr>
+                <th class="px-5 py-3 font-medium">Email</th>
+                <th class="px-5 py-3 font-medium">Nombre</th>
+                <th class="px-5 py-3 font-medium">Rol</th>
+                <th class="px-5 py-3 font-medium">Estado</th>
+                <th class="px-5 py-3 font-medium text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr v-if="loading"><td colspan="5" class="px-5 py-6 text-center text-slate-500">Cargando…</td></tr>
+              <tr v-for="u in users" :key="u.id" v-else>
+                <td class="px-5 py-3 font-mono text-xs">{{ u.email }}</td>
+                <td class="px-5 py-3">{{ u.full_name }}</td>
+                <td class="px-5 py-3"><span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs">{{ u.role }}</span></td>
+                <td class="px-5 py-3">
+                  <span :class="u.is_active ? 'text-emerald-600' : 'text-slate-500'">
+                    {{ u.is_active ? 'Activo' : 'Inactivo' }}
+                  </span>
+                </td>
+                <td class="px-5 py-3 text-right">
+                  <button class="btn-secondary" @click="startEdit(u)">Editar</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div class="bg-white rounded-xl shadow-card p-5">

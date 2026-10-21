@@ -245,54 +245,56 @@ onMounted(loadParkings)
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div class="lg:col-span-2 bg-white rounded-xl shadow-card overflow-hidden">
-        <table class="w-full text-sm">
-          <thead class="bg-slate-50 text-slate-500 text-left">
-            <tr>
-              <th class="px-5 py-3 font-medium">Nombre</th>
-              <th class="px-5 py-3 font-medium">€/hora</th>
-              <th class="px-5 py-3 font-medium">Fracción</th>
-              <th class="px-5 py-3 font-medium">Máx. día</th>
-              <th class="px-5 py-3 font-medium">Vigencia</th>
-              <th class="px-5 py-3 font-medium">Estado</th>
-              <th class="px-5 py-3 font-medium text-right">Acciones</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr v-if="!parkingId"><td colspan="7" class="px-5 py-6 text-center text-slate-500">Selecciona una sucursal</td></tr>
-            <tr v-else-if="loadingTariffs"><td colspan="7" class="px-5 py-6 text-center text-slate-500">Cargando…</td></tr>
-            <tr v-else-if="!tariffs.length"><td colspan="7" class="px-5 py-6 text-center text-slate-500">No hay tarifas para esta sucursal</td></tr>
-            <tr v-for="t in tariffs" v-else :key="t.id">
-              <td class="px-5 py-3 font-medium">{{ t.name }}</td>
-              <td class="px-5 py-3">{{ fmtMoney(t.price_per_hour) }}</td>
-              <td class="px-5 py-3">
-                {{ fmtMoney(t.price_per_fraction) }} / {{ t.fraction_minutes }} min
-              </td>
-              <td class="px-5 py-3">{{ fmtMoney(t.max_daily) }}</td>
-              <td class="px-5 py-3 text-xs">
-                <div>desde {{ fmtDate(t.valid_from) }}</div>
-                <div class="text-slate-500">hasta {{ fmtDate(t.valid_to) }}</div>
-              </td>
-              <td class="px-5 py-3">
-                <span
-                  :class="isVigente(t) ? 'text-emerald-600' : 'text-slate-500'"
-                  class="text-xs"
-                >
-                  {{ isVigente(t) ? 'Vigente' : 'No vigente' }}
-                </span>
-              </td>
-              <td class="px-5 py-3 text-right space-x-2 whitespace-nowrap">
-                <button class="btn-secondary" @click="startEdit(t)">Editar</button>
-                <button
-                  v-if="canDelete"
-                  class="btn-secondary text-rose-600 border-rose-300"
-                  @click="remove(t)"
-                >
-                  Eliminar
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-max text-sm">
+            <thead class="bg-slate-50 text-slate-500 text-left">
+              <tr>
+                <th class="px-5 py-3 font-medium">Nombre</th>
+                <th class="px-5 py-3 font-medium">€/hora</th>
+                <th class="px-5 py-3 font-medium">Fracción</th>
+                <th class="px-5 py-3 font-medium">Máx. día</th>
+                <th class="px-5 py-3 font-medium">Vigencia</th>
+                <th class="px-5 py-3 font-medium">Estado</th>
+                <th class="px-5 py-3 font-medium text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr v-if="!parkingId"><td colspan="7" class="px-5 py-6 text-center text-slate-500">Selecciona una sucursal</td></tr>
+              <tr v-else-if="loadingTariffs"><td colspan="7" class="px-5 py-6 text-center text-slate-500">Cargando…</td></tr>
+              <tr v-else-if="!tariffs.length"><td colspan="7" class="px-5 py-6 text-center text-slate-500">No hay tarifas para esta sucursal</td></tr>
+              <tr v-for="t in tariffs" :key="t.id">
+                <td class="px-5 py-3 font-medium">{{ t.name }}</td>
+                <td class="px-5 py-3">{{ fmtMoney(t.price_per_hour) }}</td>
+                <td class="px-5 py-3">
+                  {{ fmtMoney(t.price_per_fraction) }} / {{ t.fraction_minutes }} min
+                </td>
+                <td class="px-5 py-3">{{ fmtMoney(t.max_daily) }}</td>
+                <td class="px-5 py-3 text-xs">
+                  <div>desde {{ fmtDate(t.valid_from) }}</div>
+                  <div class="text-slate-500">hasta {{ fmtDate(t.valid_to) }}</div>
+                </td>
+                <td class="px-5 py-3">
+                  <span
+                    :class="isVigente(t) ? 'text-emerald-600' : 'text-slate-500'"
+                    class="text-xs"
+                  >
+                    {{ isVigente(t) ? 'Vigente' : 'No vigente' }}
+                  </span>
+                </td>
+                <td class="px-5 py-3 text-right space-x-2 whitespace-nowrap">
+                  <button class="btn-secondary" @click="startEdit(t)">Editar</button>
+                  <button
+                    v-if="canDelete"
+                    class="btn-secondary text-rose-600 border-rose-300"
+                    @click="remove(t)"
+                  >
+                    Eliminar
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div class="bg-white rounded-xl shadow-card p-5">

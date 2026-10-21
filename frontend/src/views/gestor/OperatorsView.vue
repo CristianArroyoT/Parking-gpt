@@ -199,33 +199,35 @@ onMounted(load)
             <div v-if="!operators.length" class="text-sm text-slate-500">
               Todavía no hay operadores registrados.
             </div>
-            <table v-else class="w-full text-sm">
-              <thead class="bg-slate-50 text-slate-500 text-left">
-                <tr>
-                  <th class="px-3 py-2 font-medium">Nombre</th>
-                  <th class="px-3 py-2 font-medium">Correo</th>
-                  <th class="px-3 py-2 font-medium">Teléfono</th>
-                  <th class="px-3 py-2 font-medium">Estado</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-slate-100">
-                <tr v-for="o in operators" :key="o.id" class="hover:bg-slate-50">
-                  <td class="px-3 py-2 font-medium">{{ o.full_name }}</td>
-                  <td class="px-3 py-2">{{ o.email }}</td>
-                  <td class="px-3 py-2">{{ o.phone ?? '—' }}</td>
-                  <td class="px-3 py-2">
-                    <span
-                      :class="[
-                        'text-xs font-semibold px-2 py-0.5 rounded',
-                        o.is_active ? 'text-emerald-700 bg-emerald-100' : 'text-slate-700 bg-slate-100',
-                      ]"
-                    >
-                      {{ o.is_active ? 'Activo' : 'Inactivo' }}
-                    </span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <div v-else class="overflow-x-auto">
+              <table class="w-full min-w-max text-sm">
+                <thead class="bg-slate-50 text-slate-500 text-left">
+                  <tr>
+                    <th class="px-3 py-2 font-medium">Nombre</th>
+                    <th class="px-3 py-2 font-medium">Correo</th>
+                    <th class="px-3 py-2 font-medium">Teléfono</th>
+                    <th class="px-3 py-2 font-medium">Estado</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  <tr v-for="o in operators" :key="o.id" class="hover:bg-slate-50">
+                    <td class="px-3 py-2 font-medium">{{ o.full_name }}</td>
+                    <td class="px-3 py-2">{{ o.email }}</td>
+                    <td class="px-3 py-2">{{ o.phone ?? '—' }}</td>
+                    <td class="px-3 py-2">
+                      <span
+                        :class="[
+                          'text-xs font-semibold px-2 py-0.5 rounded',
+                          o.is_active ? 'text-emerald-700 bg-emerald-100' : 'text-slate-700 bg-slate-100',
+                        ]"
+                      >
+                        {{ o.is_active ? 'Activo' : 'Inactivo' }}
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
             <p class="mt-3 text-xs text-slate-500">
               El operador se crea **ya asignado** a la sucursal elegida. Traer
               un usuario que ya existe a una sucursal es tarea del

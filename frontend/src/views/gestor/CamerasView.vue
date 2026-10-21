@@ -171,59 +171,61 @@ function kindLabel(k: CameraKind): string {
     <div v-if="loading" class="text-sm text-slate-500">Cargando cámaras…</div>
 
     <div v-else class="bg-white rounded-xl shadow-card overflow-hidden">
-      <table class="w-full text-sm">
-        <thead class="bg-slate-50 text-slate-500 text-left">
-          <tr>
-            <th class="px-5 py-3 font-medium">Código</th>
-            <th class="px-5 py-3 font-medium">Nombre</th>
-            <th class="px-5 py-3 font-medium">Tipo</th>
-            <th class="px-5 py-3 font-medium">Calle</th>
-            <th class="px-5 py-3 font-medium">FPS</th>
-            <th class="px-5 py-3 font-medium">URL RTSP</th>
-            <th class="px-5 py-3 font-medium">Estado</th>
-            <th class="px-5 py-3 font-medium text-right">Acciones</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-100">
-          <tr v-for="cam in filteredCameras" :key="cam.id">
-            <td class="px-5 py-3 font-mono text-xs">{{ cam.code }}</td>
-            <td class="px-5 py-3">{{ cam.name }}</td>
-            <td class="px-5 py-3">
-              <span
-                :class="['inline-block text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded',
-                         cam.kind === 'gate' ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-700']"
-              >{{ kindLabel(cam.kind) }}</span>
-            </td>
-            <td class="px-5 py-3">{{ cam.lane_hint ?? '—' }}</td>
-            <td class="px-5 py-3">{{ cam.fps }}</td>
-            <td class="px-5 py-3 font-mono text-xs truncate max-w-xs">{{ cam.rtsp_url }}</td>
-            <td class="px-5 py-3">
-              <span :class="cam.is_active ? 'text-emerald-600' : 'text-slate-500'">
-                {{ cam.is_active ? 'Activa' : 'Inactiva' }}
-              </span>
-            </td>
-            <td class="px-5 py-3 text-right">
-              <RouterLink
-                :to="{ name: 'gestor-calibrate', params: { parkingId: selectedId, cameraId: cam.id } }"
-                class="btn-secondary"
-              >Calibrar</RouterLink>
-            </td>
-          </tr>
-          <tr v-if="!filteredCameras.length">
-            <td colspan="8" class="px-5 py-6 text-center text-slate-500">
-              <template v-if="!cameras.length">
-                Esta sucursal no tiene cámaras dadas de alta.
-                <button type="button" class="text-blue-600 hover:underline ml-2" @click="openCreate">
-                  Añadir la primera
-                </button>
-              </template>
-              <template v-else>
-                Ninguna cámara coincide con el filtro seleccionado.
-              </template>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-max text-sm">
+          <thead class="bg-slate-50 text-slate-500 text-left">
+            <tr>
+              <th class="px-5 py-3 font-medium">Código</th>
+              <th class="px-5 py-3 font-medium">Nombre</th>
+              <th class="px-5 py-3 font-medium">Tipo</th>
+              <th class="px-5 py-3 font-medium">Calle</th>
+              <th class="px-5 py-3 font-medium">FPS</th>
+              <th class="px-5 py-3 font-medium">URL RTSP</th>
+              <th class="px-5 py-3 font-medium">Estado</th>
+              <th class="px-5 py-3 font-medium text-right">Acciones</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <tr v-for="cam in filteredCameras" :key="cam.id">
+              <td class="px-5 py-3 font-mono text-xs">{{ cam.code }}</td>
+              <td class="px-5 py-3">{{ cam.name }}</td>
+              <td class="px-5 py-3">
+                <span
+                  :class="['inline-block text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded',
+                           cam.kind === 'gate' ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-700']"
+                >{{ kindLabel(cam.kind) }}</span>
+              </td>
+              <td class="px-5 py-3">{{ cam.lane_hint ?? '—' }}</td>
+              <td class="px-5 py-3">{{ cam.fps }}</td>
+              <td class="px-5 py-3 font-mono text-xs truncate max-w-xs">{{ cam.rtsp_url }}</td>
+              <td class="px-5 py-3">
+                <span :class="cam.is_active ? 'text-emerald-600' : 'text-slate-500'">
+                  {{ cam.is_active ? 'Activa' : 'Inactiva' }}
+                </span>
+              </td>
+              <td class="px-5 py-3 text-right">
+                <RouterLink
+                  :to="{ name: 'gestor-calibrate', params: { parkingId: selectedId, cameraId: cam.id } }"
+                  class="btn-secondary"
+                >Calibrar</RouterLink>
+              </td>
+            </tr>
+            <tr v-if="!filteredCameras.length">
+              <td colspan="8" class="px-5 py-6 text-center text-slate-500">
+                <template v-if="!cameras.length">
+                  Esta sucursal no tiene cámaras dadas de alta.
+                  <button type="button" class="text-blue-600 hover:underline ml-2" @click="openCreate">
+                    Añadir la primera
+                  </button>
+                </template>
+                <template v-else>
+                  Ninguna cámara coincide con el filtro seleccionado.
+                </template>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <!-- Modal Añadir cámara (Sprint Fase 4) -->

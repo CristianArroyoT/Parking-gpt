@@ -314,57 +314,59 @@ onMounted(async () => {
               {{ plans.length }} planes · {{ planesActivos.length }} activos
             </p>
           </div>
-          <table class="w-full text-sm">
-            <thead class="bg-slate-50 text-slate-500 text-left">
-              <tr>
-                <th class="px-5 py-3 font-medium">Código</th>
-                <th class="px-5 py-3 font-medium">Nombre</th>
-                <th class="px-5 py-3 font-medium">€/mes</th>
-                <th class="px-5 py-3 font-medium">Descuento</th>
-                <th class="px-5 py-3 font-medium">Vehículos</th>
-                <th class="px-5 py-3 font-medium">Estado</th>
-                <th class="px-5 py-3 font-medium text-right">Acciones</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-              <tr v-if="!plans.length">
-                <td colspan="7" class="px-5 py-6 text-center text-slate-500">
-                  No hay planes dados de alta.
-                </td>
-              </tr>
-              <tr v-for="p in plans" v-else :key="p.id">
-                <td class="px-5 py-3 font-mono text-xs">{{ p.code }}</td>
-                <td class="px-5 py-3 font-medium">{{ p.name }}</td>
-                <td class="px-5 py-3">{{ euro(p.monthly_price) }}</td>
-                <td class="px-5 py-3">{{ pct(p.discount_percent) }}</td>
-                <td class="px-5 py-3">{{ p.included_vehicles }}</td>
-                <td class="px-5 py-3">
-                  <span
-                    :class="[
-                      'text-xs font-semibold px-2 py-0.5 rounded',
-                      p.is_active
-                        ? 'text-emerald-700 bg-emerald-100'
-                        : 'text-slate-600 bg-slate-100',
-                    ]"
-                  >
-                    {{ p.is_active ? 'Activo' : 'Inactivo' }}
-                  </span>
-                </td>
-                <td class="px-5 py-3 text-right space-x-2 whitespace-nowrap">
-                  <button class="btn-secondary" @click="startEdit(p)">Editar</button>
-                  <button class="btn-secondary" @click="toggleActive(p)">
-                    {{ p.is_active ? 'Desactivar' : 'Activar' }}
-                  </button>
-                  <button
-                    class="btn-secondary text-rose-600 border-rose-300"
-                    @click="removePlan(p)"
-                  >
-                    Eliminar
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="overflow-x-auto">
+            <table class="w-full min-w-max text-sm">
+              <thead class="bg-slate-50 text-slate-500 text-left">
+                <tr>
+                  <th class="px-5 py-3 font-medium">Código</th>
+                  <th class="px-5 py-3 font-medium">Nombre</th>
+                  <th class="px-5 py-3 font-medium">€/mes</th>
+                  <th class="px-5 py-3 font-medium">Descuento</th>
+                  <th class="px-5 py-3 font-medium">Vehículos</th>
+                  <th class="px-5 py-3 font-medium">Estado</th>
+                  <th class="px-5 py-3 font-medium text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <tr v-if="!plans.length">
+                  <td colspan="7" class="px-5 py-6 text-center text-slate-500">
+                    No hay planes dados de alta.
+                  </td>
+                </tr>
+                <tr v-for="p in plans" :key="p.id">
+                  <td class="px-5 py-3 font-mono text-xs">{{ p.code }}</td>
+                  <td class="px-5 py-3 font-medium">{{ p.name }}</td>
+                  <td class="px-5 py-3">{{ euro(p.monthly_price) }}</td>
+                  <td class="px-5 py-3">{{ pct(p.discount_percent) }}</td>
+                  <td class="px-5 py-3">{{ p.included_vehicles }}</td>
+                  <td class="px-5 py-3">
+                    <span
+                      :class="[
+                        'text-xs font-semibold px-2 py-0.5 rounded',
+                        p.is_active
+                          ? 'text-emerald-700 bg-emerald-100'
+                          : 'text-slate-600 bg-slate-100',
+                      ]"
+                    >
+                      {{ p.is_active ? 'Activo' : 'Inactivo' }}
+                    </span>
+                  </td>
+                  <td class="px-5 py-3 text-right space-x-2 whitespace-nowrap">
+                    <button class="btn-secondary" @click="startEdit(p)">Editar</button>
+                    <button class="btn-secondary" @click="toggleActive(p)">
+                      {{ p.is_active ? 'Desactivar' : 'Activar' }}
+                    </button>
+                    <button
+                      class="btn-secondary text-rose-600 border-rose-300"
+                      @click="removePlan(p)"
+                    >
+                      Eliminar
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <!-- Formulario de plan -->
@@ -505,60 +507,62 @@ onMounted(async () => {
           </form>
         </div>
 
-        <table class="w-full text-sm">
-          <thead class="bg-slate-50 text-slate-500 text-left">
-            <tr>
-              <th class="px-5 py-3 font-medium">Cliente</th>
-              <th class="px-5 py-3 font-medium">Plan</th>
-              <th class="px-5 py-3 font-medium">Alta</th>
-              <th class="px-5 py-3 font-medium">Vence</th>
-              <th class="px-5 py-3 font-medium">Estado</th>
-              <th class="px-5 py-3 font-medium text-right">Acciones</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr v-if="!subscriptions.length">
-              <td colspan="6" class="px-5 py-6 text-center text-slate-500">
-                No hay suscripciones registradas.
-              </td>
-            </tr>
-            <tr v-for="s in subscriptions" v-else :key="s.id">
-              <td class="px-5 py-3">
-                <div class="font-medium">{{ s.user_full_name }}</div>
-                <div class="text-xs text-slate-500">{{ s.user_email }}</div>
-              </td>
-              <td class="px-5 py-3">
-                {{ s.plan.name }}
-                <span class="text-xs text-slate-500">
-                  ({{ pct(s.plan.discount_percent) }})
-                </span>
-              </td>
-              <td class="px-5 py-3 text-xs">{{ fmtDate(s.starts_at) }}</td>
-              <td class="px-5 py-3 text-xs">{{ fmtDate(s.ends_at) }}</td>
-              <td class="px-5 py-3">
-                <span
-                  :class="[
-                    'text-xs font-semibold px-2 py-0.5 rounded',
-                    s.is_active
-                      ? 'text-emerald-700 bg-emerald-100'
-                      : 'text-slate-600 bg-slate-100',
-                  ]"
-                >
-                  {{ s.is_active ? 'Activa' : 'Dada de baja' }}
-                </span>
-              </td>
-              <td class="px-5 py-3 text-right">
-                <button
-                  v-if="s.is_active"
-                  class="btn-secondary text-rose-600 border-rose-300"
-                  @click="cancel(s)"
-                >
-                  Dar de baja
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-max text-sm">
+            <thead class="bg-slate-50 text-slate-500 text-left">
+              <tr>
+                <th class="px-5 py-3 font-medium">Cliente</th>
+                <th class="px-5 py-3 font-medium">Plan</th>
+                <th class="px-5 py-3 font-medium">Alta</th>
+                <th class="px-5 py-3 font-medium">Vence</th>
+                <th class="px-5 py-3 font-medium">Estado</th>
+                <th class="px-5 py-3 font-medium text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr v-if="!subscriptions.length">
+                <td colspan="6" class="px-5 py-6 text-center text-slate-500">
+                  No hay suscripciones registradas.
+                </td>
+              </tr>
+              <tr v-for="s in subscriptions" :key="s.id">
+                <td class="px-5 py-3">
+                  <div class="font-medium">{{ s.user_full_name }}</div>
+                  <div class="text-xs text-slate-500">{{ s.user_email }}</div>
+                </td>
+                <td class="px-5 py-3">
+                  {{ s.plan.name }}
+                  <span class="text-xs text-slate-500">
+                    ({{ pct(s.plan.discount_percent) }})
+                  </span>
+                </td>
+                <td class="px-5 py-3 text-xs">{{ fmtDate(s.starts_at) }}</td>
+                <td class="px-5 py-3 text-xs">{{ fmtDate(s.ends_at) }}</td>
+                <td class="px-5 py-3">
+                  <span
+                    :class="[
+                      'text-xs font-semibold px-2 py-0.5 rounded',
+                      s.is_active
+                        ? 'text-emerald-700 bg-emerald-100'
+                        : 'text-slate-600 bg-slate-100',
+                    ]"
+                  >
+                    {{ s.is_active ? 'Activa' : 'Dada de baja' }}
+                  </span>
+                </td>
+                <td class="px-5 py-3 text-right">
+                  <button
+                    v-if="s.is_active"
+                    class="btn-secondary text-rose-600 border-rose-300"
+                    @click="cancel(s)"
+                  >
+                    Dar de baja
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
     </template>
   </AppLayout>
