@@ -73,15 +73,15 @@ docker compose exec backend python -m app.scripts.seed
 D:\Parking\
 ├── backend/                 # FastAPI + SQLAlchemy 2.0
 │   ├── app/
-│   │   ├── api/v1/          # routers REST
+│   │   ├── api/v1/          # routers REST (100 endpoints en 24 routers)
 │   │   ├── core/            # config, db, security, deps
-│   │   ├── models/          # 13 modelos SQLAlchemy
+│   │   ├── models/          # 19 modelos SQLAlchemy
 │   │   ├── schemas/         # Pydantic v2
-│   │   ├── services/        # audit log
+│   │   ├── services/        # audit log, cameras, pricing, backup
 │   │   ├── workers/         # instancia Celery
 │   │   └── scripts/seed.py  # datos demo
 │   ├── alembic/             # migraciones iniciales
-│   ├── tests/               # pytest (smoke)
+│   ├── tests/               # pytest (530 tests)
 │   └── Dockerfile
 ├── frontend/                # Vue 3 + Vite
 │   ├── public/              # logo + favicon
@@ -95,9 +95,10 @@ D:\Parking\
 ├── infra/
 │   └── seed.sql             # habilita PostGIS en el contenedor db
 ├── docs/maquetas/           # wireframes HTML aprobados
+├── tools/                   # utilidades del repo (ver tools/README.md)
 ├── docker-compose.yml       # 6 servicios MVP
 ├── docker/celery/Dockerfile # imagen Celery
-└── .github/workflows/ci.yml # CI (backend + frontend)
+└── .github/workflows/ci.yml # CI (backend + integración + imágenes + frontend)
 ```
 
 ## Endpoints relevantes (Fase 1)
