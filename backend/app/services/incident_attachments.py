@@ -226,14 +226,26 @@ def asegurar_directorio(base: Path) -> None:
         base.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         log.error(
-            "incident_attachments: no se pudo preparar el volumen %s: %s", base, exc
+            "incident_attachments: no se pudo preparar el volumen %s: %s. "
+            "Revisa que el volumen 'incident_attachments' esté montado en el "
+            "backend y que la imagen se haya reconstruido (docker compose up "
+            "-d --build backend): el directorio lo crea el Dockerfile con "
+            "permisos del usuario 'app'.",
+            base,
+            exc,
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="El almacenamiento de adjuntos no está disponible",
         ) from exc
     if not os.access(base, os.W_OK):
-        log.error("incident_attachments: el volumen %s no es escribible", base)
+        log.error(
+            "incident_attachments: el volumen %s no es escribible por el "
+            "usuario del backend. Reconstruye la imagen (docker compose up -d "
+            "--build backend) para que el directorio del volumen herede los "
+            "permisos de 'app'.",
+            base,
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="El almacenamiento de adjuntos no está disponible",
