@@ -234,8 +234,9 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] SLO documentado (p. ej. p95 < 300 ms en lectura; streaming sin cortes).
   - [x] Informe de una ejecución de referencia con los números guardados en el repo.
   - [x] Falla si el p95 supera el SLO (integrable en CI aunque sea nocturno).
-- **Verificado**: `backend/locustfile.py` con los 4 escenarios; `backend/locust/slo.json` con 13 reglas (cada una con su porqué); `backend/locust/check_slo.py` que devuelve exit ≠ 0 si el p95 incumple (exit 0 contra la referencia); informe de referencia en `backend/locust/reports/2026-10-21-referencia.json` (461 peticiones, 42 fallos) y su contexto. La carga se midió contra una **instancia dedicada sin `--reload`**, porque el reloader del entorno de QA reinicia el backend con cada escritura y arruina las cifras.
-- **Hallazgo**: la propia carga destapó dos bugs de producción que ningún test había visto — ver T-13+2 y T-13+3.
+- **Verificado**: `backend/locustfile.py` con los 4 escenarios; `backend/locust/slo.json` con 13 reglas (cada una con su porqué); `backend/locust/check_slo.py` que devuelve exit ≠ 0 si el p95 incumple; informe de referencia en `backend/locust/reports/2026-10-21-referencia.json` y su contexto. La carga se mide contra una **instancia dedicada sin `--reload`**, porque el reloader del entorno de QA reinicia el backend con cada escritura y arruina las cifras.
+- **Referencia re-medida con el P0 ya corregido**: 461 peticiones, **0 fallos**, 0 cortes de stream y **0 reinicios** del worker en 180 s. El SLO se cumple entero (**13 de 13 reglas**). Números: lectura de plazas p95 21 ms, tickets 35 ms, cámaras 19 ms, alta de ticket 38 ms, cierre 49 ms, apertura SSE 24 ms con 71 sesiones sin un solo corte, primer frame del preview 1 700 ms con 8 sesiones sin fallos.
+- **Hallazgo**: la propia carga destapó dos bugs de producción que ningún test había visto — ver T-13+2 y T-13+3 — y un detalle del *fixture*: la fuente RTSP de QA hace push de un MP4 con keyframe cada 250 frames (GOP de ~10 s), así que el primer frame tardaba 1,2-8 s y varias sesiones se pasaban del límite. Recreando el push con `-g 25` el primer frame llega en 1,7 s y el preview queda sin fallos: eso quita un cuello de botella del fixture, no del producto.
 
 ### T-13+1 · Fijo en el CI: la suite debe ser reproducible
 
