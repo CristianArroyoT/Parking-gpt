@@ -1,4 +1,24 @@
-"""Punto de entrada FastAPI: app factory + middlewares + routers."""
+"""Punto de entrada FastAPI: app factory + middlewares + routers.
+
+Ciclo de vida del apagado (T-06 — no lo simplifiques sin leer esto)
+-------------------------------------------------------------------
+Una vista en vivo mantiene una conexión HTTP abierta para siempre. El
+generador MJPEG sólo termina si el cliente desconecta o si se activa el
+``shutdown_event`` de su sesión, así que al apagar el servidor hay que
+avisarle explícitamente.
+
+Y no basta con avisar en el ``lifespan``: uvicorn 0.54 ejecuta
+``await self.lifespan.shutdown()`` DESPUÉS de
+``_wait_tasks_to_complete()``, es decir, DESPUÉS de esperar a que
+terminen las conexiones abiertas. Con el evento del lifespan solo,
+uvicorn se queda en "Waiting for connections to close" para siempre, y
+como el reloader hace ``process.join()`` antes de arrancar el hijo
+nuevo, el backend entero deja de servir (``/health`` → 000).
+
+Por eso aquí se engancha SIGTERM/SIGINT (la única pista de apagado que
+llega ANTES de esa espera) y el evento del ``lifespan`` se queda como
+red de seguridad. Ver ``_instalar_hook_cierre_streams``.
+"""
 
 from __future__ import annotations
 
