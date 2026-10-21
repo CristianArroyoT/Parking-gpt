@@ -19,11 +19,9 @@ from sqlalchemy.orm import Session
 from app.models.parking import Camera
 from app.services.vehicle_detector.client import (
     VehicleDetectorClient,
-    get_vehicle_detector_client,
     reset_vehicle_detector_client,
 )
 from tests._audit_helpers import (
-    _login,
     _login_headers,
     _seed_admin,
     _seed_parking,

@@ -330,9 +330,16 @@ def test_http_revenue_day_none_when_no_closed_tickets_in_window(
     p = _seed_parking(db_session, code="PN")
     v = _make_vehicle(db_session, "0003CCC")
     # Ticket cerrado hace 30 h → fuera de ventana 24 h.
+    # OJO: se siembra con el reloj REAL, no con el ``NOW`` congelado del
+    # módulo. El endpoint calcula las ventanas móviles desde
+    # ``datetime.now()`` (no es inyectable por HTTP), así que con
+    # ``NOW`` congelado el ticket caía fuera de la ventana de 30 días
+    # en cuanto pasaban 30 días desde el 2026-07-06 → ``revenue.month``
+    # pasaba a ser ``None`` (test caducado, falló el 2026-10-21).
+    real_now = datetime.now(timezone.utc)
     _make_ticket(db_session, parking_id=p.id, vehicle_id=v.id,
                  status=TicketStatus.CERRADO,
-                 exit_at=NOW - timedelta(hours=30), total=99.0)
+                 exit_at=real_now - timedelta(hours=30), total=99.0)
     headers = _login_headers(client, admin.email, "admin12345")
     r = client.get(
         f"/api/v1/admin/dashboard/kpis?parking_id={p.id}", headers=headers,
