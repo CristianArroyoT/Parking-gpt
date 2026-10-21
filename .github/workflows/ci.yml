@@ -129,6 +129,16 @@ jobs:
       - name: Test de funciones sólo de SQLite
         run: pytest -q tests/test_sqlite_only_functions.py
 
+      - name: El inventario de la API coincide con el código
+        # POR QUÉ (2026-10-21): ``docs/API-INTERNAL.md`` documenta los
+        # endpoints y su RBAC, y se genera desde los routers con
+        # ``tools/generar_seccion_api.py``. Sin esta comprobación, un
+        # endpoint nuevo (o un cambio de permisos) se colaba en el
+        # código sin aparecer en el documento: ya pasó (el inventario
+        # se quedó 38 endpoints atrás y además tenía dos rutas
+        # registradas dos veces).
+        run: python ../tools/verificar_api_doc.py
+
   # ── Build de las imágenes Docker ────────────────────────────────────────
   # POR QUÉ este job existe (T-05, 2026-10-21): el ``backend/Dockerfile``
   # estuvo roto mucho tiempo (``RUN mkdir -p /var/log/solidapp`` después

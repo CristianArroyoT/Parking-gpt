@@ -213,7 +213,7 @@ documento, no al revés", se construyó la forma de comprobarlo:
 |---|---|
 | `tools/extraer_api.py` | Extrae rutas y RBAC de los routers con `ast` y los **valida contra el OpenAPI real** |
 | `tools/generar_seccion_api.py` | Regenera la sección 3 del documento desde el código |
-| `tools/verificar_api_doc.py` | Detecta la deriva, con **autoprueba** (quita una ruta y añade otra inexistente, y comprueba que las ve) |
+| `tools/verificar_api_doc.py` | Detecta la deriva, con **autoprueba** (quita una ruta y añade otra inexistente, y comprueba que las ve). Compara la sección 3 **entera** con la que genera el código, no sólo las rutas |
 | `tools/cobertura_api.py` | Mide **qué endpoints tienen test** |
 Tres cosas salieron de ahí:
 
@@ -232,6 +232,12 @@ Tres cosas salieron de ahí:
    placas (`GET /plates-detected` y `POST /cameras/{id}/plates`).
    Ahora tienen 9 tests (401, 403, 404, 422, alcance, orden, filtro y
    persistencia) y la cobertura es **99 de 99**.
+4. **Y el CI lo vigila**: el job de integración ejecuta
+   `python ../tools/verificar_api_doc.py`, que compara la sección 3
+   entera con la que genera el código. Al añadir esa comparación
+   completa salió un fallo real: el orden de los ámbitos no era
+   determinista (venía de un `set`) y la sección podía cambiar entre
+   ejecuciones. Corregido.
 
 ### 3-quinquies. El PWA, verificado de verdad (2026-10-21)
 

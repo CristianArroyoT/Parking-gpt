@@ -287,7 +287,10 @@ def _ambito_del_cuerpo(
                 recorrer_con_ambito(helpers[nodo.func.id])
 
     recorrer_con_ambito(func)
-    return ambitos
+    # ORDEN FIJO: las clases se detectan en un conjunto, cuyo orden de
+    # iteracion depende del hash. Sin ordenar, la seccion generada
+    # cambiaria entre ejecuciones y el verificador daria falso positivo.
+    return sorted(ambitos)
 
 
 def _quien(deps: list[Dep], por_middleware: bool = False) -> str:

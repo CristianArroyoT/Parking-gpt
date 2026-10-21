@@ -401,6 +401,15 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   construyendo la URL en una variable (`for ruta in ("/plazas", "/tickets")`),
   así que el emparejamiento literal no las ve. Por eso la puerta del script es
   "todo endpoint tiene algún test" (99 de 99), no la de denegación.
+- **Y en el CI**: el job de integración ejecuta ahora
+  `python ../tools/verificar_api_doc.py`, que compara **la sección 3 entera**
+  (no sólo las rutas: también la columna "Quién" con el ámbito de datos) con lo
+  que genera el código. Así el inventario no puede volver a quedarse atrás sin
+  que el CI lo diga. Al añadir la comparación completa salió un fallo real: el
+  orden de los ámbitos no era determinista (venía de un `set`), así que la
+  sección generada podía cambiar entre ejecuciones. Corregido ordenando.
+- **Validado**: `actionlint` sobre el workflow (exit 0) y el comando exacto
+  del CI ejecutado desde `backend/`, que es el `working-directory` del job.
 
 ### T-14 · I3 — OCR con GPU
 

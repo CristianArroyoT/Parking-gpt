@@ -233,11 +233,11 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 
 | Método | Ruta | Quién |
 |---|---|---|
-| GET | `/tickets` | Autenticado + ámbito: sus vehículos + ámbito: membresías de sucursal |
+| GET | `/tickets` | Autenticado + ámbito: membresías de sucursal + ámbito: sus vehículos |
 | POST | `/tickets` | Autenticado |
 | POST | `/tickets/manual` | `require_role('admin')` + Autenticado + `parking_context` |
-| GET | `/tickets/{ticket_id}` | Autenticado + ámbito: sus vehículos + ámbito: membresías de sucursal |
-| POST | `/tickets/{ticket_id}/close` | Autenticado + ámbito: sus vehículos + ámbito: membresías de sucursal |
+| GET | `/tickets/{ticket_id}` | Autenticado + ámbito: membresías de sucursal + ámbito: sus vehículos |
+| POST | `/tickets/{ticket_id}/close` | Autenticado + ámbito: membresías de sucursal + ámbito: sus vehículos |
 
 ### 3.23 Usuarios y membresías — `users` (`users.py`)
 

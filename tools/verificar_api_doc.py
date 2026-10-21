@@ -78,6 +78,36 @@ def _comparar(documentadas: set[tuple[str, str]], reales: set[tuple[str, str]]):
     return sin_doc, sobran
 
 
+def _seccion_del_documento(doc: Path) -> str:
+    """La sección 3 tal y como está en el documento."""
+    texto = doc.read_text(encoding="utf-8")
+    inicio = texto.index("## 3. Mapa de recursos y RBAC")
+    fin = texto.index("## 4. Versionado y política de deprecación")
+    return texto[inicio:fin].rstrip()
+
+
+def _seccion_generada() -> str:
+    """La sección 3 que se generaría hoy desde el código."""
+    from generar_seccion_api import seccion  # noqa: PLC0415 — import tardío
+
+    return seccion().rstrip()
+
+
+def _comparar_secciones(generada: str, documentada: str, max_lineas: int = 12) -> list[str]:
+    """Líneas en las que difieren las dos secciones."""
+    lineas_gen = [linea.rstrip() for linea in generada.splitlines()]
+    lineas_doc = [linea.rstrip() for linea in documentada.splitlines()]
+    diferencias: list[str] = []
+    for i in range(max(len(lineas_gen), len(lineas_doc))):
+        a = lineas_gen[i] if i < len(lineas_gen) else "(falta)"
+        b = lineas_doc[i] if i < len(lineas_doc) else "(falta)"
+        if a != b:
+            diferencias.append(f"  L{i + 1}: codigo={a!r}  documento={b!r}")
+        if len(diferencias) >= max_lineas:
+            break
+    return diferencias
+
+
 def _autoprueba() -> int:
     """Comprueba que el verificador DETECTA la deriva.
 
@@ -135,8 +165,23 @@ def main() -> int:
         print(f"\n{len(sobran)} ruta(s) DOCUMENTADAS QUE YA NO EXISTEN:")
         for metodo, ruta in sobran:
             print(f"  {metodo:6} {ruta}")
+
+    # Ademas de las rutas, la seccion entera (incluida la columna
+    # 'Quien' con el ambito de datos) tiene que coincidir con lo que
+    # genera el codigo: si no, el documento esta desfasado aunque las
+    # rutas coincidan.
+    diferencias = _comparar_secciones(
+        _seccion_generada(), _seccion_del_documento(DOC),
+    )
+    if diferencias:
+        print(f"\nLa seccion 3 NO coincide con el codigo ({len(diferencias)}+ lineas):")
+        for linea in diferencias:
+            print(linea)
+        print("\nPara arreglarlo: python tools/generar_seccion_api.py --escribir")
+        return 1
+
     if not sin_doc and not sobran:
-        print("\nEl inventario coincide con el codigo.")
+        print("\nEl inventario coincide con el codigo (rutas y columna 'Quien').")
         return 0
     return 1
 
