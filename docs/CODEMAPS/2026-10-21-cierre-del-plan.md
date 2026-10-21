@@ -541,6 +541,27 @@ antes de relanzar.
 integration, docker-build y frontend), con el único `mypy` tolerado por
 `continue-on-error`.
 
+### 3-vicesima. Por qué el CI remoto sigue sin poder arrancar (2026-10-21)
+
+El repositorio es **privado** (`gh api repos/… → "private": true`). En un
+repo privado, los runners de GitHub Actions son de pago, y la cuenta de
+la organization/personal tiene el pago pendiente: GitHub rechaza el job
+**antes de asignarle un runner** (los 4 jobs mueren en 2-5 s con 0
+pasos). Por eso el último run que ejecutó algo fue el del 2026-07-07.
+
+Se evaluaron **tres vías** para recuperar el CI:
+
+| Vía | Qué implica | Veredicto |
+|---|---|---|
+| Arreglar la facturación | Nada en el repo ni en el workflow | **La recomendada** |
+| Hacer el repo público | Las Actions son gratuitas en repos públicos | Fix y gratis, pero es una decisión de producto sobre la visibilidad (histórico completo + datos de ejemplo) |
+| Runner self-hosted en esta máquina | El token de registro funciona y no hay runners dados de alta | **Descartada**: el job de integración declara servicios Linux en `localhost`, y dentro de un runner en contenedor los servicios se alcanzan por **nombre**; además los puertos 5432/6379 ya los ocupa el stack local, así que los servicios chocarían. Habría que tocar el workflow sin poder validarlo |
+
+La tercera vía se descartó a propósito: el propio plan avisa de que
+"meter algo que no se ha podido probar en el CI es exactamente la forma
+de dejar el CI en rojo sin querer". Y con la factura arreglada, el
+workflow actual pasa entero (probado en local, paso a paso).
+
 Y con el IPv4 arreglado, la réplica local pasó a poder ejecutar **el CI
 completo**, incluidos los dos pasos de test que antes se saltaban
 porque el host no resolvía los nombres de servicio de Docker:

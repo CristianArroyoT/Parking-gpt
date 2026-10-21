@@ -32,6 +32,26 @@
 >      de `main` siguen sin pasar por ella**.
 >    - Para comprobarlo de un vistazo: `python tools/estado_ci.py`
 >      (distingue verde / rojo de verdad / rechazado por la cuenta).
+>    - **Tres vías para recuperar el CI**, de menos a más invasiva (el
+>      repositorio es **privado**, así que los runners de pago son
+>      inevitables mientras la cuenta no esté al día):
+>      1. **Arreglar la facturación** (*Billing & plans*). Es lo
+>         limpio: no toca el repositorio ni el workflow.
+>      2. **Hacer el repositorio público.** Las Actions son gratuitas
+>         en repos públicos, así que el bloqueo desaparece sin tocar
+>         nada. **Ojo**: el repositorio tiene el histórico completo y
+>         datos de ejemplo; es una decisión de producto sobre la
+>         visibilidad, no una decisión técnica.
+>      3. **Runner self-hosted en esta máquina.** Es lo que se ha
+>         intentado medir: el token de registro funciona y no hay
+>         runners dados de alta, pero **no es viable sin tocar el
+>         workflow** (el job de integración declara servicios
+>         Linux con `localhost`, y dentro de un runner en contenedor
+>         los servicios se alcanzan por nombre) **o sin parar el stack
+>         local** para liberar los puertos 5432 y 6379. Meter un cambio
+>         del workflow que no se puede validar (porque los jobs no
+>         arrancan) es justo la forma de dejar el CI en rojo sin
+>         querer, así que **no se ha hecho**.
 > 2. **La decisión de producto del cobro con pasarela** (D2): hoy es
 >    contable, a la espera de que haya un cliente piloto.
 >
@@ -410,7 +430,7 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] El paso está en `.github/workflows/ci.yml` y `actionlint` sale con 0.
   - [x] El ejecutor local (`tools/ejecutar_ci_local.py`) lo ejecuta y pasa.
 - **Arreglo del ejecutor local**: `tools/ejecutar_ci_local.py` **ignoraba `continue-on-error`**, así que declaraba el job "backend" en rojo por el paso de `mypy`, que el workflow tolera a propósito (lleva `continue-on-error: true` desde el primer commit). Ahora reproduce la semántica de Actions: el paso se marca como fallido, **el job sigue** y el veredicto es el real.
-- **Nota de verdad**: `mypy app` **no está en verde** (78 errores en 33 ficheros, en modo `strict`). No es una regresión de este trabajo: el paso del CI lo toleró desde el primer commit. La cabecera de este documento lo decía mal y ya está corregido.
+- **Nota de verdad**: `mypy app` **no está en verde** (77 errores en 32 ficheros, en modo `strict`). No es una regresión de este trabajo: el paso del CI lo toleró desde el primer commit. La cabecera de este documento lo decía mal (decía 78 en 33) y ya está corregido.
 
 ### T-24+1 · Verificar que el PWA es instalable y arranca sin red (propuesto, no ejecutado en CI)
 
