@@ -246,7 +246,7 @@ def ver_miniatura_incidente(
     attachment_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(_gestor_o_admin),
-):
+) -> FileResponse:
     """Miniatura (JPEG) de la foto.
 
     Es lo que muestra el listado: **no** la imagen completa. La miniatura
@@ -278,7 +278,7 @@ def ver_adjunto_incidente(
     attachment_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(_gestor_o_admin),
-):
+) -> IncidentAttachmentRead:
     """Metadata de un adjunto (sin el binario)."""
     adjunto = _adjunto_de_sucursal(attachment_id, db, current_user)
     return adjuntos.a_esquema(adjunto)
@@ -302,7 +302,7 @@ async def subir_adjuntos_incidente(
     files: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> list[IncidentAttachmentRead]:
     """Sube hasta 3 fotos a un incidente.
 
     Validación (todas obligatorias):
@@ -408,7 +408,7 @@ def listar_adjuntos_incidente(
     alert_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> list[IncidentAttachmentRead]:
     """Lista los adjuntos de un incidente (metadata, sin el binario).
 
     Sólo gestor y admin **de la sucursal del incidente**.

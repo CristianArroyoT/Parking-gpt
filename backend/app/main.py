@@ -27,7 +27,7 @@ import logging
 import os
 import signal
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -150,7 +150,7 @@ def _restaurar_hook_cierre_streams() -> None:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Sprint Fase 3A: logger JSON / file rotado ANTES de aceptar tráfico.
     configure_logging()
     # T-06: una vista en vivo mantiene una conexión abierta para
