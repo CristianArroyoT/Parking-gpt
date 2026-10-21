@@ -214,7 +214,16 @@ def test_endpoint_rate_limit_resets_after_window(
     client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Tras ``window_seconds``, el bucket se resetea (EXPIRE, no sliding)."""
-    _force_endpoint_settings(monkeypatch, max_attempts=2, window_seconds=2)
+    # La ventana real se deja en su valor por defecto (60 s) a propósito.
+    # Con una ventana de 2 s, las tres peticiones de este test (cada una
+    # con un hash bcrypt de contraseña) podían tardar más de 2 s en una
+    # máquina cargada: el bucket expiraba ENTRE peticiones, el contador
+    # se reiniciaba y el 429 nunca llegaba. Era un flake dependiente de
+    # la carga del equipo, no un fallo del código.
+    #
+    # El paso de la ventana se simula igual que antes, pero de forma
+    # determinista: borrando la clave del bucket a mano (más abajo).
+    _force_endpoint_settings(monkeypatch, max_attempts=2)
     _force_users_max(monkeypatch, max_attempts=2)
     admin = _seed_admin(db_session)
     headers = _login_headers(client, admin.email, "admin12345")
