@@ -380,6 +380,7 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
 - **Verificado**: 572 líneas de test. Un incidente **es** un `Alert` (no hay tabla paralela): el modelo nuevo `IncidentAttachment` cuelga de `alert_id` con `ON DELETE CASCADE`.
 - **Decisiones tomadas**: el tipo se valida **por los bytes** (firmas JPEG/PNG/WebP), no por la extensión ni por el `Content-Type` que manda el cliente — un fichero disfrazado no se guarda. El **SVG no se acepta** (es HTML ejecutable). Tope de 10 MB por fichero, 3 ficheros por incidente, retención de 90 días y script de purga (`backend/app/scripts/purge_incident_attachments.py`). El binario va a un volumen Docker (`incident_attachments`); en la BD sólo queda la metadata. La descarga se sirve con `Content-Type` verificado y `Content-Disposition: attachment`.
 - **Decisión D5 aplicada**: **no se expone a ningún canal externo** en el MVP — los adjuntos los ven sólo el gestor y el admin de esa sucursal.
+- **Verificado en vivo contra el stack** (no sólo con tests): subida de una foto real → **201** con el hash del contenido, el mime y el tamaño; miniatura → **200** `image/jpeg`; descarga → **200** con `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store` y `Content-Disposition: attachment`; listado → **200**; un fichero disfrazado de PNG → **415**; un PNG con el raster incoherente → **400**; y el **operador no puede ver** los adjuntos de su incidente → **403** (sólo gestor y admin).
 
 ### T-22 · Recuperación de contraseña del cliente
 
