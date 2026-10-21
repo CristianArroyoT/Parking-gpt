@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **184 de 185 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **204 de 205 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -14,7 +14,7 @@
 > | API | **101 rutas** inventariadas (coinciden con el código) y **99 de 99 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
 > | Esquema | Los modelos y las migraciones coinciden: `alembic check` limpio y **el CI migra una base vacía** |
 > | Carga / SLO | **Revalidado** con el código final: 467 peticiones, 0 fallos → **14 de 14 reglas** (informe `2026-10-21-revalidacion.json`) |
-> | Lint y tipos | `ruff` en verde (backend **y** `tools/`); **`mypy` en verde (0 errores en modo `strict`)**, y su paso del CI ya **no** va con `continue-on-error`; `vue-tsc` y `npm run build` en verde; `actionlint` exit 0 |
+> | Lint y tipos | `ruff` en verde (backend **y** `tools/`); **`mypy` en verde (0 errores en modo `strict`)**, y su paso del CI ya **no** va con `continue-on-error`; **`eslint` en verde (0 problemas)**, con paso propio en el CI; `vue-tsc` y `npm run build` en verde; `actionlint` exit 0 |
 > | CI replicado en local | Los **4 jobs** del workflow (backend, integration, docker-build y frontend) pasan **completos, incluidos los dos pasos de test**: `python tools/ejecutar_ci_local.py --all` |
 >
 > **Lo que queda depende de ti** (y sólo de ti):
