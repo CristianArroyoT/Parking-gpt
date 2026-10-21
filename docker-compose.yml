@@ -114,6 +114,12 @@ services:
       # el cliente hace fallback silencioso y devuelve [] — NUNCA 500.
       OCR_SERVICE_URL: http://ocr:8800
       OCR_SERVICE_TIMEOUT: "4"
+      # Preview MJPEG en vivo: fps objetivo del preview. 5 fps por defecto
+      # (decisión D1 del plan de pendientes): la latencia sigue por debajo
+      # de 400 ms y ahorra ~85 % de CPU y ancho de banda frente al flujo
+      # libre. Poner 0 (o un valor no positivo) = SIN limitador, el preview
+      # va tan rápido como la cámara y la red permitan.
+      LIVE_PREVIEW_FPS: "${LIVE_PREVIEW_FPS:-5}"
       # Cliente vehicle-detector (Sprint Vehicle-Detect 2026-07-07). Mismo
       # patrón fail-OPEN que OCR: si el contenedor YOLO está caído, el
       # cliente devuelve detections=[] y el endpoint responde 200 con [].
