@@ -66,14 +66,23 @@ _HOOK_FLAG = "_solidapp_live_shutdown_hook"
 _prev_signal_handlers: dict[int, Any] = {}
 
 
-def _programar_cierre_streams(loop: asyncio.AbstractEventLoop) -> None:
-    """Encola el cierre de los streams MJPEG desde un handler de señal.
+def _programar_cierre_streams(
+    loop: asyncio.AbstractEventLoop, app: FastAPI
+) -> None:
+    """Encola el cierre de los streams MJPEG y del evento de apagado.
 
     Un handler de señal se ejecuta entre dos bytecodes del hilo
     principal: allí no se puede hacer ``await``. Delegamos el trabajo
     real en el event loop con ``call_soon_threadsafe``.
     """
     def _tarea() -> None:
+        try:
+            # T-06+1: el evento de apagado lo miran los streams SSE
+            # (``/parkings/{id}/events``), que si no se cierran también
+            # bloquean el apagado de uvicorn.
+            app.state.shutdown_event.set()
+        except (AttributeError, RuntimeError):  # pragma: no cover
+            log.warning("No se pudo marcar el evento de apagado")
         try:
             asyncio.ensure_future(live_streams.shutdown_all(), loop=loop)
         except RuntimeError:  # pragma: no cover — loop ya cerrado
@@ -85,7 +94,9 @@ def _programar_cierre_streams(loop: asyncio.AbstractEventLoop) -> None:
         pass
 
 
-def _instalar_hook_cierre_streams(loop: asyncio.AbstractEventLoop) -> None:
+def _instalar_hook_cierre_streams(
+    loop: asyncio.AbstractEventLoop, app: FastAPI
+) -> None:
     """Engancha SIGTERM/SIGINT para cerrar los streams MJPEG vivos.
 
     POR QUÉ no basta con el evento de ``lifespan`` (que sería lo
@@ -117,7 +128,7 @@ def _instalar_hook_cierre_streams(loop: asyncio.AbstractEventLoop) -> None:
             continue
 
         def _handler(signum: int, frame: Any, _previous: Any = previous) -> None:
-            _programar_cierre_streams(loop)
+            _programar_cierre_streams(loop, app)
             _previous(signum, frame)
 
         setattr(_handler, _HOOK_FLAG, True)
@@ -139,7 +150,7 @@ def _restaurar_hook_cierre_streams() -> None:
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI):
+async def lifespan(app: FastAPI):
     # Sprint Fase 3A: logger JSON / file rotado ANTES de aceptar tráfico.
     configure_logging()
     # T-06: una vista en vivo mantiene una conexión abierta para
@@ -148,10 +159,19 @@ async def lifespan(_app: FastAPI):
     # responder. Enganchamos la señal de apagado (la única que llega
     # antes de esa espera) y dejamos el evento de lifespan como red de
     # seguridad.
-    _instalar_hook_cierre_streams(asyncio.get_running_loop())
+    #
+    # T-06+1: el mismo problema afectaba al stream SSE de
+    # ``/parkings/{id}/events``, que tampoco miraba ningún evento de
+    # apagado. El evento vive en ``app.state`` (no en un global) para que
+    # cada instancia de la app tenga el suyo: en los tests se crean
+    # varias apps y un global "ya apagado" rompería los streams del
+    # resto de tests.
+    app.state.shutdown_event = asyncio.Event()
+    _instalar_hook_cierre_streams(asyncio.get_running_loop(), app)
     try:
         yield
     finally:
+        app.state.shutdown_event.set()
         try:
             cerradas = await live_streams.shutdown_all()
         finally:

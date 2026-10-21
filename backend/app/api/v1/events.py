@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -42,6 +42,7 @@ router = APIRouter(prefix="/parkings/{parking_id}", tags=["events"])
 
 @router.get("/events")
 async def stream_parking_events(
+    request: Request,
     parking_id: int,
     _user: User = Depends(get_current_user_or_query_token),
     _ctx: User = Depends(parking_context),
@@ -58,6 +59,15 @@ async def stream_parking_events(
     El stream permanece abierto mientras el cliente esté conectado.
     En cada mensaje publicado al canal Redis, lo emite como
     ``data: <json>\\n\\n``. Cada 30 s sin mensajes emite ``:keepalive``.
+
+    T-06+1 (2026-10-21): el stream también se cierra al apagar el
+    servidor. Antes no miraba ningún evento de apagado, así que una
+    conexión SSE abierta bloqueaba el apagado de uvicorn igual que lo
+    hacia el preview MJPEG: el backend se quedaba en "Waiting for
+    connections to close" y, con el reloader, ``process.join()`` impedía
+    arrancar el proceso hijo (``/health`` → 000) hasta un
+    ``docker restart``. El evento vive en ``app.state.shutdown_event``
+    y lo activa el hook de señales de ``app.main``.
     """
     r = get_async_redis()
     pubsub = r.pubsub()
@@ -65,11 +75,22 @@ async def stream_parking_events(
     await pubsub.subscribe(channel)
     log.info("SSE: subscrito a canal %s", channel)
 
+    shutdown_event = getattr(request.app.state, "shutdown_event", None)
+
     async def gen():
         try:
             # Mensaje inicial para que el cliente sepa que conectó OK.
             yield "event: ping\ndata: {}\n\n"
             while True:
+                # El servidor se está apagando: cerrar el stream para que
+                # uvicorn pueda terminar. Se comprueba en cada vuelta
+                # (el bucle interno espera como mucho 1 s al mensaje de
+                # Redis), así que el cierre es prácticamente inmediato.
+                if shutdown_event is not None and shutdown_event.is_set():
+                    log.info(
+                        "SSE: cierre por apagado del servidor (canal %s)", channel
+                    )
+                    break
                 try:
                     msg = await asyncio.wait_for(
                         pubsub.get_message(
