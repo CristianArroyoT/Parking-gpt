@@ -23,13 +23,16 @@ los 5 s del timeout en serie).
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.api.v1 import cameras_live
 from app.models.parking import Camera
-from app.services.cameras.live_streams import live_streams
+from app.services.cameras.live_streams import LiveStreamRegistry, live_streams
 from tests._audit_helpers import (
     _login,
     _login_headers,
@@ -214,3 +217,96 @@ def test_live_release_allows_new_session(
     s2 = loop.run_until_complete(live_streams.try_acquire(cam.id))
     assert s2 is not None
     loop.run_until_complete(live_streams.release(cam.id))
+
+
+class _CaptureQueMantieneElStreamAbierto:
+    """``cv2.VideoCapture`` fake que deja el stream MJPEG abierto.
+
+    ``grab()`` devuelve False, que es lo que hace el generador cuando el
+    RTSP no responde: emite un frame placeholder y sigue el bucle. Así
+    el stream sigue vivo (y la cámara reservada) hasta que se le avisa
+    del cierre, que es justo lo que necesita este test.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self.opened = True
+        self.released = False
+
+    def isOpened(self) -> bool:
+        return self.opened
+
+    def set(self, *args: Any, **kwargs: Any) -> bool:
+        return True
+
+    def grab(self) -> bool:
+        return False
+
+    def retrieve(self) -> tuple[bool, Any]:
+        return False, None
+
+    def release(self) -> None:
+        self.released = True
+
+
+def test_live_concurrente_200_y_409(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Dos peticiones SIMULTÁNEAS a ``/live`` sobre la misma cámara:
+    exactamente una recibe 200 (el video) y la otra 409.
+
+    POR QUÉ NO SE USA ``TestClient`` PARA LAS DOS: ``TestClient`` es
+    síncrono y ejecuta la app en su propio event loop (el ``portal``);
+    dos peticiones "concurrentes" desde dos hilos acabarían en loops
+    distintos y el ``asyncio.Lock`` del registry quedaría ligado a uno
+    de ellos. Con ``httpx.AsyncClient`` + ``ASGITransport`` las dos
+    peticiones se atienden en el MISMO event loop, que es el escenario
+    real (un único worker de uvicorn).
+
+    Se monkeypatchea un registry propio en el módulo del endpoint para
+    no ligar el lock del singleton global al event loop de este test.
+    """
+    from app.services.cameras import stream as stream_mod
+
+    registry = LiveStreamRegistry()
+    monkeypatch.setattr(cameras_live, "live_streams", registry)
+    monkeypatch.setattr(stream_mod.cv2, "VideoCapture", _CaptureQueMantieneElStreamAbierto)
+
+    admin = _seed_admin(db_session)
+    parking = _seed_parking(db_session, code="P-LIVE-CONC")
+    cam = _seed_camera(db_session, parking.id, code="CAM-LIVE-CONC")
+    token = _login(client, admin.email, "admin12345")
+
+    async def _escenario() -> tuple[int, int]:
+        transport = httpx.ASGITransport(app=client.app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test",
+        ) as ac:
+            url = f"/api/v1/parkings/{parking.id}/cameras/{cam.id}/live"
+            headers = {"Authorization": f"Bearer {token}"}
+
+            # 1) El primer cliente abre el stream y se queda con la cámara.
+            primero = asyncio.create_task(ac.get(url, headers=headers))
+            for _ in range(300):
+                if registry.active_count() == 1:
+                    break
+                await asyncio.sleep(0.01)
+            assert registry.active_count() == 1, (
+                "el primer cliente no llegó a reservar la cámara"
+            )
+
+            # 2) El segundo cliente llega con la cámara ocupada → 409.
+            segundo = asyncio.create_task(ac.get(url, headers=headers))
+            r2 = await asyncio.wait_for(segundo, timeout=10)
+
+            # 3) Cerramos el stream del primer cliente para que termine.
+            await registry.shutdown_all()
+            r1 = await asyncio.wait_for(primero, timeout=10)
+            return r1.status_code, r2.status_code
+
+    status_primero, status_segundo = asyncio.run(_escenario())
+
+    assert sorted([status_primero, status_segundo]) == [200, 409], (
+        f"esperaba un 200 y un 409, obtuve {status_primero} y {status_segundo}"
+    )
