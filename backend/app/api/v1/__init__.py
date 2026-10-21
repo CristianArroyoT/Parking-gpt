@@ -13,6 +13,7 @@ from app.api.v1 import (
     costs,
     dashboard,
     events,
+    face_templates,
     incidents,
     logout_all,
     parkings,
@@ -57,5 +58,10 @@ api_router.include_router(reports.router)
 api_router.include_router(dashboard.router)
 # Sprint O2 (2026-07-06): stream SSE por sucursal para refresco live de MapView.
 api_router.include_router(events.router)
+# T-23 (2026-10-21): estructura de reconocimiento facial PREPARADA pero
+# FUERA del MVP. El router responde 404 mientras el feature flag
+# FACE_TEMPLATES_ENABLED esté apagado (valor por defecto) y NO se usa en
+# el login.
+api_router.include_router(face_templates.router)
 
 __all__ = ["api_router"]

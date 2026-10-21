@@ -163,6 +163,20 @@ class Settings(BaseSettings):
     smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
     smtp_from: str = Field(default="solidAPP <no-reply@solidapp.es>", alias="SMTP_FROM")
 
+    # T-23 (plan maestro 2026-10-21): **el reconocimiento facial está FUERA
+    # del MVP**. Se deja la estructura de datos (``face_templates``) y los
+    # endpoints de alta/baja preparados, pero DESHABILITADOS: con el flag a
+    # ``False`` (valor por defecto) el router de ``/face-templates``
+    # responde ``404`` y el login sigue siendo usuario + contraseña, sin
+    # tocar esta tabla en ningún momento.
+    #
+    # El flag existe para que la activación sea una decisión explícita
+    # (y auditable) cuando se implemente el reconocimiento real, no un
+    # simple borrado de código.
+    face_templates_enabled: bool = Field(
+        default=False, alias="FACE_TEMPLATES_ENABLED",
+    )
+
     environment: Literal["development", "staging", "production", "test"] = Field(default="development", alias="ENVIRONMENT")
 
     @property
