@@ -361,6 +361,35 @@ Resultado medido: **0 desbordes** en las 21 pantallas a los **cinco**
 anchos (414, 768, 1024, 1232, 1440 px), 0 errores de consola y 0
 peticiones fallidas.
 
+### 3-decies. El texto corrupto era una puerta abierta (2026-10-21)
+
+Al modelo de lenguaje se le cuelan caracteres de otros alfabetos (CJK,
+cirílico, coreano) al escribir en español. **Pasó dos veces en esta misma
+sesión**: una en un docstring (una palabra china colada entre dos
+españolas) y otra en un **identificador de JavaScript** (un identificador
+con caracteres CJK), que dejó una vista entera en blanco con un 500.
+
+> Los ejemplos no se reproducen aquí literalmente a propósito: si
+> estuvieran en el repo, la puerta de corrupción que se describe más
+> abajo los detectaría a ellos mismos y el CI se pondría en rojo.
+
+El escáner (`tools/escanear_texto.py`) ya existía, pero era un paso
+manual. Ahora es **una puerta del CI**, con un modo nuevo:
+
+| Cambio | Detalle |
+|---|---|
+| `tools/escanear_texto.py --tracked` | Escanea **exactamente lo versionado** por git: ni `node_modules`, ni `dist`, ni ficheros generados. Lo que se va a publicar es lo que se comprueba |
+| `.github/workflows/ci.yml` (job `backend`) | Paso nuevo **antes de instalar dependencias**: el escáner es sólo biblioteca estándar, así que falla en dos segundos en vez de esperar al `pip install` |
+| `tools/ejecutar_ci_local.py` | **Ignoraba `continue-on-error`**, así que declaraba el job "backend" en rojo por el paso de `mypy`, que el workflow tolera a propósito. Ahora reproduce la semántica de Actions: el paso se marca como fallido, **el job sigue** |
+
+Medido: **0 problemas en los 312 ficheros versionados**, `actionlint` con
+salida 0 y el paso en verde en la ejecución local del job.
+
+De paso, una afirmación inexacta del plan quedó corregida: **`mypy app`
+no está en verde** (78 errores en 33 ficheros, en modo `strict`). No es
+una regresión: el paso del CI lleva `continue-on-error: true` desde el
+primer commit. La cabecera del plan lo daba por bueno sin serlo.
+
 
 | Modelo | Tabla | Notas |
 |---|---|---|

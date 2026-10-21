@@ -48,9 +48,9 @@ def _cargar_workflow() -> dict:
     return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
 
 
-def _pasos(job: dict) -> list[tuple[str, str, dict]]:
-    """(nombre, orden, env) de cada paso con ``run:``."""
-    salida: list[tuple[str, str, dict]] = []
+def _pasos(job: dict) -> list[tuple[str, str, dict, bool]]:
+    """(nombre, orden, env, continue_on_error) de cada paso con ``run:``."""
+    salida: list[tuple[str, str, dict, bool]] = []
     for paso in job.get("steps", []):
         if "run" not in paso:
             continue
@@ -58,6 +58,7 @@ def _pasos(job: dict) -> list[tuple[str, str, dict]]:
             paso.get("name", "(sin nombre)"),
             paso["run"],
             paso.get("env", {}) or {},
+            bool(paso.get("continue-on-error", False)),
         ))
     return salida
 
@@ -78,7 +79,7 @@ def main() -> int:
         for nombre, job in jobs.items():
             pasos = _pasos(job)
             print(f"{nombre}: {len(pasos)} paso(s) con 'run:'")
-            for nombre_paso, _orden, _env in pasos:
+            for nombre_paso, _orden, _env, _coe in pasos:
                 print(f"    - {nombre_paso}")
         return 0
 
@@ -98,7 +99,8 @@ def main() -> int:
 
     print(f"Job '{args.job}' en {cwd}")
     fallos = 0
-    for nombre, orden, env_paso in _pasos(job):
+    tolerados = 0
+    for nombre, orden, env_paso, continue_on_error in _pasos(job):
         if any(m in nombre for m in args.saltar):
             print(f"\n=== {nombre}  (SALTADO)")
             continue
@@ -109,11 +111,24 @@ def main() -> int:
             cwd=str(cwd), env=entorno_paso, check=False,
         )
         if resultado.returncode != 0:
+            if continue_on_error:
+                # Así se comporta GitHub Actions: el paso queda marcado
+                # como fallido, pero el job **sigue** y su conclusión no
+                # cambia. Sin esto, el script declaraba el job rojo con
+                # un paso que el workflow tolera a propósito.
+                print(
+                    f"    FALLO (código {resultado.returncode}) pero el paso es "
+                    "continue-on-error: el job sigue"
+                )
+                tolerados += 1
+                continue
             print(f"    FALLO (código {resultado.returncode})")
             fallos += 1
             break
 
     print("\n" + "=" * 60)
+    if tolerados:
+        print(f"{tolerados} paso(s) fallaron con continue-on-error (el job sigue).")
     if fallos:
         print(f"El job '{args.job}' FALLARÍA en local.")
         return 1

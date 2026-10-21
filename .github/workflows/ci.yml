@@ -53,6 +53,20 @@ jobs:
           cache: "pip"
           cache-dependency-path: backend/pyproject.toml
 
+      - name: El texto versionado no está corrupto
+        # POR QUÉ (2026-10-21): el modelo de lenguaje introduce con
+        # facilidad caracteres de otros alfabetos (CJK, cirílico, coreano)
+        # en el texto en español, y llegan hasta el commit. Se cuelan en
+        # los docstrings, en los comentarios e incluso en un identificador
+        # de JavaScript, donde rompen la vista con un 500 (pasó: una
+        # tabla se quedó en blanco por un ``v-else`` mal colocado).
+        #
+        # Se comprueba ANTES de instalar dependencias: el escáner es sólo
+        # biblioteca estándar, así que falla en dos segundos en vez de
+        # esperar al ``pip install``. El modo ``--tracked`` escanea
+        # exactamente lo versionado: ni ``node_modules``, ni ``dist``.
+        run: python ../tools/escanear_texto.py --tracked --salida ../tools/_informe_texto.txt
+
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip

@@ -14,7 +14,7 @@
 > | API | **99 de 99 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
 > | Esquema | Los modelos y las migraciones coinciden: `alembic check` limpio y **el CI migra una base vacía** |
 > | Carga / SLO | 491 peticiones, 0 fallos → **14 de 14 reglas** |
-> | Lint y tipos | `ruff` y `mypy` en verde, `vue-tsc` y `npm run build` en verde, `actionlint` exit 0 |
+> | Lint y tipos | `ruff` en verde; `vue-tsc` y `npm run build` en verde; `actionlint` exit 0. **`mypy` NO está en verde**: da 78 errores en 33 ficheros, y por eso su paso del CI lleva `continue-on-error: true` desde el primer commit (no es una regresión, es el estado heredado) |
 >
 > **Lo que queda depende de ti** (y sólo de ti):
 > 1. **La facturación de la cuenta de GitHub.** Sin ella los jobs de Actions
@@ -383,6 +383,21 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] 0 errores de consola y 0 peticiones fallidas en los **cinco** anchos.
   - [x] `vue-tsc --noEmit` y `npm run build` en verde.
 - **Otro arreglo de la QA**: las pantallas de mapa y de vídeo en directo nunca dejan de cargar (teselas del mapa y flujo SSE), así que la espera de "networkidle" se agotaba siempre ahí y se reportaba como **error de red**. Ahora se reporta como **aviso**: es tráfico de fondo perpetuo, no una pantalla rota.
+
+### T-13+10 · P2 — el texto corrupto podía llegar al commit sin que nada lo parase
+
+- **Estado**: **completado** — puerta añadida al CI y verificada en local
+- **Contexto**: al modelo de lenguaje se le cuelan con facilidad caracteres de otros alfabetos (CJK, cirílico, coreano) al escribir en español. No es hipotético: **pasó dos veces en esta misma sesión**, una en un docstring (una palabra china colada entre dos españolas) y otra en un **identificador de JavaScript** (con caracteres CJK), que dejó una vista entera en blanco con un 500. El escáner ya existía (`tools/escanear_texto.py`), pero era un paso manual: nada obligaba a pasarlo antes de commitear.
+  > Los ejemplos no se reproducen literalmente: si estuvieran en el repo, la puerta que se describe aquí los detectaría a ellos mismos.
+- **Arreglo**: el escáner pasa a ser **una puerta del CI**. Nuevo modo `--tracked`, que escanea **exactamente lo versionado** por git (ni `node_modules`, ni `dist`, ni ficheros generados): lo que se va a publicar es lo que se comprueba. Sale con código 1 si encuentra algo.
+- **Dónde está el paso**: en el job `backend`, **antes de instalar dependencias**. El escáner es sólo biblioteca estándar, así que falla en dos segundos en vez de esperar al `pip install`.
+- **Criterios de aceptación**:
+  - [x] `python tools/escanear_texto.py --tracked` escanea todo lo versionado.
+  - [x] El repo entero está limpio: **0 problemas en 312 ficheros versionados**.
+  - [x] El paso está en `.github/workflows/ci.yml` y `actionlint` sale con 0.
+  - [x] El ejecutor local (`tools/ejecutar_ci_local.py`) lo ejecuta y pasa.
+- **Arreglo del ejecutor local**: `tools/ejecutar_ci_local.py` **ignoraba `continue-on-error`**, así que declaraba el job "backend" en rojo por el paso de `mypy`, que el workflow tolera a propósito (lleva `continue-on-error: true` desde el primer commit). Ahora reproduce la semántica de Actions: el paso se marca como fallido, **el job sigue** y el veredicto es el real.
+- **Nota de verdad**: `mypy app` **no está en verde** (78 errores en 33 ficheros, en modo `strict`). No es una regresión de este trabajo: el paso del CI lo toleró desde el primer commit. La cabecera de este documento lo decía mal y ya está corregido.
 
 ### T-24+1 · Verificar que el PWA es instalable y arranca sin red (propuesto, no ejecutado en CI)
 
