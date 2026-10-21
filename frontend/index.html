@@ -3,8 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/favicon-solidapp.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>solidAPP · Gestión de parkings</title>
+
+    <!-- T-24 · PWA instalable del cliente -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="description" content="solidAPP: gestión de parkings y app del cliente (tu plaza, tus tickets y tu saldo pendiente)." />
+    <!-- El color de la barra del navegador en móvil y el color de la
+         pantalla de instalación. Los dos son `park.marca` de Tailwind. -->
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <!-- iOS: sin esto, Safari abre la web en vez de la app instalada. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="solidAPP" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png" />
   </head>
   <body class="bg-slate-100">
     <div id="app"></div>

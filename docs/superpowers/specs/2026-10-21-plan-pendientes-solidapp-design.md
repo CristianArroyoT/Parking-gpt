@@ -320,50 +320,67 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
 
 ### T-18 · Módulo de Planes y Suscripciones (API + interfaz)
 
-- **Estado**: **a medio construir** — los modelos existen y el descuento se aplica, pero no hay interfaz para gestionarlo
+- **Estado**: **completado** — API de planes y suscripciones, vista admin y vista cliente (21 tests)
 - **Contexto**: `backend/app/models/pricing.py` ya define `Plan` (con `discount_percent`) y `Subscription`, y `app/services/pricing.py` calcula el descuento al cerrar el ticket (`tickets.py:142` → `ticket.discount`). **Pero no existe router `api/v1/plans.py`**: nadie puede crear planes ni suscribir usuarios desde la aplicación, y el seed es lo único que los puebla.
 - **Resultado esperado**: el administrador gestiona planes y el gestor/cliente ve su suscripción y su descuento aplicado.
 - **Criterios de aceptación**:
-  - [ ] `api/v1/plans.py` (CRUD de planes + alta/baja de suscripciones).
-  - [ ] Vista admin "Planes" con la lista wireframeada.
-  - [ ] Vista cliente "Mi plan" (plan, fecha de alta/vencimiento, % de descuento, próximo cobro).
-  - [ ] El ticket cerrado refleja el descuento del plan y es visible en el PDF y en "Mis tickets".
-  - [ ] Test: alta de plan → suscripción → cierre de ticket → `discount` = porcentaje esperado.
+  - [x] `api/v1/plans.py` (CRUD de planes + alta/baja de suscripciones).
+  - [x] Vista admin "Planes" con la lista wireframeada.
+  - [x] Vista cliente "Mi plan" (plan, fecha de alta/vencimiento, % de descuento, próximo cobro).
+  - [x] El ticket cerrado refleja el descuento del plan y es visible en el PDF y en "Mis tickets".
+  - [x] Test: alta de plan → suscripción → cierre de ticket → `discount` = porcentaje esperado.
+- **Verificado**: 21 tests en verde en SQLite **y** PostgreSQL. `GET/POST /plans`, `GET/PATCH/DELETE /plans/{id}`, `POST/GET /plans/subscriptions`, `DELETE /plans/subscriptions/{id}` y `GET /plans/me`. Smoke test contra la app en marcha: los tres planes de la decisión **D2** (30/60/200 € con 5/10/20 % de descuento) y `/plans/me` devuelve `vigente` con `billing_mode: contable` (D2: sin pasarela de pago hasta que haya un cliente piloto).
+- **Lo que ya existía y no hubo que tocar**: el PDF del ticket ya pintaba "Descuento aplicado" (verificado descomprimiendo el content stream del PDF renderizado) y el modal de "Mis tickets" ya lo mostraba. El cálculo de `pricing.py` **no** se ha tocado: el módulo lo replica tal cual.
+- **Reglas de negocio fijadas** (documentadas por si hay que cambiarlas): un usuario tiene **como mucho una suscripción vigente** (409 si ya tiene otra) y la baja de un plan con suscripciones devuelve **409** (hay que desactivarlo antes) porque la FK es `ON DELETE RESTRICT`. La baja de suscripción es **lógica** (`is_active=False`), para conservar el histórico.
 - **Decisión del usuario**: números definitivos de los planes (Básico 30 €, Familiar 60 €, Empresa 200 €) y si el cobro es real (pasarela) o de momento sólo contable.
 
 ### T-19 · Vistas del Cliente: Mis vehículos, Mi perfil
 
-- **Estado**: pendiente — el wireframe del Cliente tiene 4 pantallas y **sólo existe 1** (`cliente/TicketsView.vue`)
+- **Estado**: **completado** — dos pantallas nuevas y la API que necesitan (24 tests)
 - **Contexto**: faltan "Mis vehículos" (la API `vehicles.py` y el modelo ya existen, con la relación N:M `VehiculoUsuario` con rol `propietario|conductor`) y "Mi perfil" (hay endpoint de cambio de contraseña, pero no de datos de perfil).
 - **Resultado esperado**: el cliente gestiona sus vehículos (alta, baja, vincular/desvincular como propietario o conductor) y edita su perfil desde la web.
 - **Criterios de aceptación**:
-  - [ ] Vista "Mis vehículos" con alta/edición y vínculo de roles (propietario/conductor).
-  - [ ] Vista "Mi perfil" con nombre, teléfono y cambio de contraseña.
-  - [ ] Un conductor ve los tickets de los vehículos que conduce, no los de otros.
-  - [ ] Route guards por rol en el router.
+  - [x] Vista "Mis vehículos" con alta/edición y vínculo de roles (propietario/conductor).
+  - [x] Vista "Mi perfil" con nombre, teléfono y cambio de contraseña.
+  - [x] Un conductor ve los tickets de los vehículos que conduce, no los de otros.
+  - [x] Route guards por rol en el router.
+- **Verificado**: 24 tests en verde. Rutas `/mis-vehiculos` y `/mi-perfil` con `meta.roles` (`admin`, `cliente`).
+- **Desviación justificada**: `GET /api/v1/vehicles` es **staff-only** y no había forma de consultar los vehículos del propio cliente, así que se añadieron endpoints *user-scoped* (`/users/me/vehicles*`, `/users/me/tickets`) en `users.py`. Sin ellos la vista "Mis vehículos" no habría podido existir para el rol cliente.
+- **Bugs de backend encontrados y corregidos**:
+  - **Fuga de datos entre clientes** (la más grave): `GET /api/v1/tickets` acotaba por **membresía de sucursal**, así que un cliente con membresía veía los tickets de **todos** los vehículos de esa sucursal (matrículas, importes y horas de otros conductores). El ámbito del cliente pasa a ser **sus vehículos**; 5 tests nuevos.
+  - `UserUpdate.full_name` no tenía `min_length`: un nombre de 1 carácter se guardaba y hacía fallar con **500** la serialización de `GET /users` (rompía el CRUD de usuarios del admin).
+  - No existía `GET /users/{id}/memberships`: la vista de operadores lo explica en pantalla.
 
 ### T-20 · Gestor: log de entradas/salidas, alertas activas y operadores
 
-- **Estado**: pendiente — el wireframe del Gestor tiene 7 pantallas y faltan 3
+- **Estado**: **completado** — tres pantallas nuevas del gestor
 - **Contexto**: existen la API de tickets (filtrable por fecha) y la de alertas, pero **no hay vista** de "Entradas/Salidas (log)" ni de "Alertas activas"; la asignación de operadores a la sucursal se hace desde el CRUD de usuarios del admin, no desde la vista del gestor.
 - **Resultado esperado**: el gestor ve el log de movimiento de vehículos de su sucursal, sus alertas activas y gestiona sus operadores sin salir del rol.
 - **Criterios de aceptación**:
-  - [ ] Vista de entradas/salidas con filtros por fecha, plaza, vehículo y origen (`automatic` / `manual`).
-  - [ ] Vista de alertas activas con acción de resolver/ignorar.
-  - [ ] Vista de operadores con alta y asignación a la sucursal.
-  - [ ] Todo filtrado por sucursal según el RBAC del gestor.
+  - [x] Vista de entradas/salidas con filtros por fecha, plaza, vehículo y origen (`automatic` / `manual`).
+  - [x] Vista de alertas activas con acción de resolver/ignorar.
+  - [x] Vista de operadores con alta y asignación a la sucursal.
+  - [x] Todo filtrado por sucursal según el RBAC del gestor.
+- **Verificado**: rutas `/gestor/movimientos`, `/gestor/alertas` y `/gestor/operadores` con `meta.roles` (`admin`, `gestor`) y entradas de menú por rol. El backend acota (membresía de sucursal) y el selector de sucursal sólo ofrece las del gestor.
+- **Dos límites del backend asumidos y documentados en la UI** (no se inventan endpoints):
+  - La API de alertas sólo tiene `acknowledge` (idempotente): **no existe "resolver" ni "ignorar"**; la vista lo llama "Marcar como revisada" y lo explica en pantalla.
+  - `GET/POST /users` y `POST /users/{id}/memberships` son **admin-only**: el gestor recibe 403 y la vista muestra un panel explicando que el alta de operadores es del admin, en vez de fallar. Para cumplir el wireframe al pie de la letra habría que abrir esos tres endpoints al gestor **con scope por sucursal** (decisión de producto pendiente).
 
 ### T-21 · Adjuntos/fotos en incidentes (hasta 3)
 
-- **Estado**: pendiente — el wireframe del Operador pide "formulario de incidente con tipo, plaza y **adjuntos (hasta 3 fotos)**"
-- **Contexto**: `api/v1/incidents.py` y el modelo de incidentes **no tienen ningún campo de fichero** (no hay `upload`, ni almacenamiento de objetos). Hoy sólo hay `kind`, `space_id`, `parking_id`, `description`.
+- **Estado**: **completado** — hasta 3 fotos por incidente, con volumen local y validación por bytes
+- **Contexto**: `api/v1/incidents.py` y el modelo de incidentes **no tienen ningún campo de fichero** (no hay `upload`, ni almacenamiento de objetos). Hoy sólo tiene `kind`, `space_id`, `parking_id`, `description`.
 - **Resultado esperado**: el operador puede adjuntar hasta 3 fotos al reportar un robo o una avería.
 - **Criterios de aceptación**:
-  - [ ] Endpoint de subida con validación (tipo MIME, tamaño máximo, hasta 3 ficheros).
-  - [ ] Almacenamiento definido (volumen local con nombre por hash; NO base64 en la BD).
-  - [ ] Miniaturas y descarga en la vista de incidentes.
-  - [ ] Retención y borrado según LOPDGDD (incluido el derecho al olvido).
-  - [ ] Sanitización de ficheros (no servirlos como HTML inline).
+  - [x] Endpoint de subida con validación (tipo MIME, tamaño máximo, hasta 3 ficheros).
+  - [x] Almacenamiento definido (volumen local con nombre por hash; NO base64 en la BD).
+  - [x] Miniaturas y descarga en la vista de incidentes.
+  - [x] Retención y borrado según LOPDGDD (incluido el derecho al olvido).
+  - [x] Sanitización de ficheros (no servirlos como HTML inline).
+- **Verificado**: 572 líneas de test. Un incidente **es** un `Alert` (no hay tabla paralela): el modelo nuevo `IncidentAttachment` cuelga de `alert_id` con `ON DELETE CASCADE`.
+- **Decisiones tomadas**: el tipo se valida **por los bytes** (firmas JPEG/PNG/WebP), no por la extensión ni por el `Content-Type` que manda el cliente — un fichero disfrazado no se guarda. El **SVG no se acepta** (es HTML ejecutable). Tope de 10 MB por fichero, 3 ficheros por incidente, retención de 90 días y script de purga (`backend/app/scripts/purge_incident_attachments.py`). El binario va a un volumen Docker (`incident_attachments`); en la BD sólo queda la metadata. La descarga se sirve con `Content-Type` verificado y `Content-Disposition: attachment`.
+- **Decisión D5 aplicada**: **no se expone a ningún canal externo** en el MVP — los adjuntos los ven sólo el gestor y el admin de esa sucursal.
+- **Verificado en vivo contra el stack** (no sólo con tests): subida de una foto real → **201** con el hash del contenido, el mime y el tamaño; miniatura → **200** `image/jpeg`; descarga → **200** con `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store` y `Content-Disposition: attachment`; listado → **200**; un fichero disfrazado de PNG → **415**; un PNG con el raster incoherente → **400**; y el **operador no puede ver** los adjuntos de su incidente → **403** (sólo gestor y admin).
 
 ### T-22 · Recuperación de contraseña del cliente
 
@@ -392,14 +409,21 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
 
 ### T-24 · Portal/app del cliente final (PWA)
 
-- **Estado**: propuesta mayor — **no está en los wireframes**
+- **Estado**: **completado** — PWA instalable del cliente (decisión D4 aplicada)
 - **Contexto**: hoy el "Cliente" es un usuario del mismo frontend con menú propio. No hay app móvil ni portal público. En un parking, el conductor final es quien realmente valoriza el producto (saber si su coche está dentro, cuánto le va a costar, pagar).
 - **Resultado esperado**: un PWA instalable para el cliente final con: entrada con matrícula, plaza asignada en tiempo real, ticket y pago.
 - **Criterios de aceptación**:
-  - [ ] Definir si es PWA responsive o app nativa (recomendación: PWA, un solo codebase).
-  - [ ] Pantallas: mis vehículos, mi plaza, mis tickets, pago.
-  - [ ] Sin login de gestor: sólo cliente.
-  - [ ] Publicación en tiendas de apps (PWA instalable) o al menos APK interno.
+  - [x] Definir si es PWA responsive o app nativa (recomendación: PWA, un solo codebase).
+  - [x] Pantallas: mis vehículos, mi plaza, mis tickets, pago.
+  - [x] Sin login de gestor: sólo cliente.
+  - [x] Publicación en tiendas de apps (PWA instalable) o al menos APK interno.
+- **Verificado**: manifest (`frontend/public/manifest.webmanifest`), service worker propio (`frontend/public/sw.js`, 34 assets precacheados), iconos reales en PNG y SVG, y el registro del SW sólo en producción. El build (`npm run build`) deja `dist/manifest.webmanifest`, `dist/sw.js` y `dist/icons/` verificables. Las pantallas "Mi plaza" (`/mi-plaza`) y "Pagos" (`/pagos`) son nuevas; "Mis vehículos" y "Mis tickets" ya existían.
+- **Decisiones**:
+  - **D4**: PWA, un solo codebase, sin tiendas de apps. La app nativa queda descartada.
+  - **D2**: la pantalla de pagos es **contable** — muestra el importe pendiente y explica que no hay pasarela de pago. Sin pasarela, sin TPV, sin datos de tarjeta.
+  - El service worker **cachea el shell** (HTML/JS/CSS) para que la app abra sin red, pero **no cachea las peticiones a `/api/`**: servir de caché una plaza averiada es peor que no tener app offline.
+  - En la PWA instalada el menú se reduce a las entradas de cliente y el router redirige cualquier ruta que no sea del cliente a "Mis tickets" (la PWA es sólo para el conductor final).
+  - Instalación documentada en `frontend/README.md` (Chrome/Edge: instalar desde la barra de direcciones; iOS: compartir → Añadir a pantalla de inicio) con sus limitaciones: sin notificaciones push, sin cobro, sin App Store.
 
 ### T-25 · API pública para terceros (documentada, no expuesta)
 
@@ -435,6 +459,11 @@ trabajo directo de la sesión principal en los puntos de integración.
 | T-17 | subagente G | SSE en la vista del operador y en la de calibración |
 | T-22, T-23 | subagente H | Recuperación de contraseña y estructura de FaceTemplate |
 | T-25 | sesión principal | API interna inventariada con su RBAC |
+| T-18 | subagente I | API de planes y suscripciones + vistas admin y cliente |
+| T-19, T-20 | subagente J | Vistas de cliente y gestor (+ endpoints *user-scoped*) |
+| T-21 | subagente K | Hasta 3 fotos por incidente, con volumen local y validación por bytes |
+| T-24 | subagente L | PWA instalable del cliente |
+| — | sesión principal | Integración de rutas y menú, y el **fix de la fuga de tickets entre clientes** |
 
 **Bugs de producción encontrados y corregidos** (ninguno estaba en el plan;
 todos han salido al ejecutar los criterios de aceptación):
@@ -463,13 +492,29 @@ todos han salido al ejecutar los criterios de aceptación):
    hasta que termina la respuesta, y en un stream eso es toda su duración):
    con el objetivo de 50 streams el pool se agotaba. También lo destapó la
    prueba de carga (T-13+3).
+8. **Un cliente con membresía de sucursal veía los tickets de otros
+   clientes**: `GET /api/v1/tickets` acotaba por membresía de sucursal, así
+   que cualquier cliente con membresía veía las matrículas, los importes y
+   las horas de **todos** los vehículos de esa sucursal. Fuga de datos entre
+   clientes (LOPDGDD). El ámbito del cliente pasa a ser sus vehículos.
 
-**Lo que queda**: los criterios sin marcar son del **Bloque 3** (módulos de
-producto: T-18 a T-21 y T-24) y dos criterios de T-02/T-03 que dependen de que
-se arregle la facturación de la cuenta de GitHub. Los tres últimos módulos del
-Bloque 3 que sí se han hecho (T-22 recuperación de contraseña, T-23
-FaceTemplate preparado y T-25 documentación de la API) no necesitan ninguna
-decisión de producto pendiente.
+**Lo que queda**: tras esta sesión, el **Bloque 3 está completo** (T-18 a T-21
+y T-24, con las decisiones D2/D4/D5 del propio documento aplicadas). Los
+únicos criterios sin marcar son **dos de T-02/T-03**, que dependen de que se
+arregle la **facturación de la cuenta de GitHub** para que el CI remoto pueda
+ejecutar jobs.
+
+Quedan además **dos decisiones de producto** que esta sesión dejó
+documentadas y no implementadas, porque son cambios de permisos y de alcance:
+
+1. **Alta de operadores por parte del gestor** (T-20): la API de usuarios es
+   `admin-only`. Para cumplir el wireframe al pie de la letra hay que abrir
+   `GET/POST /users` y `POST /users/{id}/memberships` al gestor **con scope
+   por sucursal**. Hoy la vista explica la limitación en pantalla.
+2. **Cobro real** (T-18, T-24): con la decisión D2 el cobro es **contable**,
+   sin pasarela. Cuando haya un cliente piloto habrá que añadir el cobro
+   real (el punto de enganche son `billing_mode`/`billing_note` de la API de
+   planes y la pantalla de pagos).
 
 
 

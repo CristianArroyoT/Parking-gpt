@@ -146,6 +146,10 @@ def create_incident(
             severity=severity,
             message=message,
             context=context,
+            # T-21 (2026-10-21): quién reportó el incidente. Con
+            # ON DELETE CASCADE, borrar ese usuario borra el incidente
+            # y sus fotos adjuntas (derecho al olvido).
+            created_by=current_user.id,
         )
         db.add(alert)
         db.flush()

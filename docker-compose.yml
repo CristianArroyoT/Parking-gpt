@@ -120,11 +120,24 @@ services:
       # libre. Poner 0 (o un valor no positivo) = SIN limitador, el preview
       # va tan rápido como la cámara y la red permitan.
       LIVE_PREVIEW_FPS: "${LIVE_PREVIEW_FPS:-5}"
+      # T-23 (2026-10-21): reconocimiento facial PREPARADO pero FUERA del
+      # MVP. Con el flag apagado (valor por defecto) el endpoint de
+      # plantillas devuelve 404 y la autenticación sigue siendo
+      # usuario+contraseña.
+      FACE_TEMPLATES_ENABLED: "${FACE_TEMPLATES_ENABLED:-false}"
       # Cliente vehicle-detector (Sprint Vehicle-Detect 2026-07-07). Mismo
       # patrón fail-OPEN que OCR: si el contenedor YOLO está caído, el
       # cliente devuelve detections=[] y el endpoint responde 200 con [].
       VEHICLE_DETECTOR_URL: http://vehicle-detector:8800
       VEHICLE_DETECTOR_TIMEOUT: "8"
+      # T-21 (plan maestro 2026-10-21): fotos adjuntas a los incidentes.
+      # El binario NO va a la base de datos: vive en este volumen local
+      # con el nombre derivado del hash del contenido; en la BD sólo
+      # queda la metadata. Retención por defecto: 90 días.
+      INCIDENT_ATTACHMENTS_DIR: /var/lib/solidapp/incident-attachments
+      INCIDENT_ATTACHMENT_MAX_BYTES: "10485760"
+      INCIDENT_ATTACHMENT_MAX_FILES: "3"
+      INCIDENT_ATTACHMENT_RETENTION_DAYS: "90"
     depends_on:
       db:
         condition: service_healthy
@@ -140,6 +153,9 @@ services:
     volumes:
       - ./backend:/app
       - app_logs:/var/log/solidapp
+      # Fotos de los incidentes (T-21). Volumen con nombre: sobrevive a
+      # `docker compose down` y a la recreation del contenedor.
+      - incident_attachments:/var/lib/solidapp/incident-attachments
 
   # ── Frontend Vue 3 (Vite dev) ────────────────────────────────────────
   frontend:
@@ -274,3 +290,6 @@ volumes:
   loki-data:
   grafana-data:
   app_logs:
+  # Fotos adjuntas a los incidentes (T-21). El binario vive aquí, no en
+  # la base de datos.
+  incident_attachments:

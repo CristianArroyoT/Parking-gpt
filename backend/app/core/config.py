@@ -177,11 +177,58 @@ class Settings(BaseSettings):
         default=False, alias="FACE_TEMPLATES_ENABLED",
     )
 
+    # ── T-21 (plan maestro 2026-10-21): adjuntos/fotos de incidentes ────
+    # El binario de las fotos NUNCA va a la base de datos: vive en un
+    # volumen local y en la BD sólo queda la metadata (nombre, hash,
+    # mime, tamaño y ruta). Ver ``app/services/incident_attachments.py``.
+    #
+    # ``incident_attachments_dir``: raíz del volumen dentro del
+    # contenedor. Por defecto ``/var/lib/solidapp/incident-attachments``,
+    # que es donde monta el volumen Docker ``incident_attachments``.
+    incident_attachments_dir: str = Field(
+        default="/var/lib/solidapp/incident-attachments",
+        alias="INCIDENT_ATTACHMENTS_DIR",
+    )
+    # Tamaño máximo por fichero (bytes). 10 MB: una foto de móvil taken
+    # con la cámara a máxima calidad pesa 3-5 MB, así que 10 MB deja
+    # margen sin permitir que una subida abuse del disco (3 ficheros ×
+    # 10 MB = 30 MB como máximo por incidente).
+    incident_attachment_max_bytes: int = Field(
+        default=10 * 1024 * 1024, alias="INCIDENT_ATTACHMENT_MAX_BYTES",
+    )
+    # Número máximo de ficheros por incidente (el wireframe del operador
+    # pide "adjuntos (hasta 3 fotos)").
+    incident_attachment_max_files: int = Field(
+        default=3, alias="INCIDENT_ATTACHMENT_MAX_FILES",
+    )
+    # Tipos MIME admitidos, separados por comas. Se verifican por los
+    # BYTES del fichero, no por la extensión ni por el Content-Type
+    # que manda el cliente. **SVG no se acepta**: es XML ejecutable.
+    incident_attachment_allowed_mime_types: str = Field(
+        default="image/jpeg,image/png,image/webp",
+        alias="INCIDENT_ATTACHMENT_ALLOWED_MIME_TYPES",
+    )
+    # Retención por defecto de las fotos (días) — LOPDGDD: minimización.
+    # 90 días cubre el plazo de gestión de una reclamación sin mantener
+    # fotos de personas durante años.
+    incident_attachment_retention_days: int = Field(
+        default=90, alias="INCIDENT_ATTACHMENT_RETENTION_DAYS",
+    )
+
     environment: Literal["development", "staging", "production", "test"] = Field(default="development", alias="ENVIRONMENT")
 
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def incident_attachment_mime_types_list(self) -> list[str]:
+        """Tipos MIME admitidos, ya normalizados (minúsculas, sin espacios)."""
+        return [
+            m.strip().lower()
+            for m in self.incident_attachment_allowed_mime_types.split(",")
+            if m.strip()
+        ]
 
 
 @lru_cache(maxsize=1)

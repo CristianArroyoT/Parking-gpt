@@ -10,6 +10,7 @@ from app.api.v1 import (
     auth,
     cameras,
     cameras_live,
+    cliente,
     costs,
     dashboard,
     events,
@@ -18,6 +19,7 @@ from app.api.v1 import (
     logout_all,
     parkings,
     password_reset,
+    plans,
     plates,
     reports,
     spaces,
@@ -43,6 +45,10 @@ api_router.include_router(cameras.router)
 api_router.include_router(cameras_live.router)
 api_router.include_router(vehicles.router)
 api_router.include_router(tariffs.router)
+# T-18 (2026-10-21): CRUD de planes + alta/baja de suscripciones. El
+# descuento ya se aplicaba al cerrar el ticket, pero nadie podía crear
+# planes ni suscribir usuarios desde la aplicación.
+api_router.include_router(plans.router)
 api_router.include_router(tickets.router)
 # Sprint Fase 4-parte-2: resumen operativo de tickets por sucursal (24 h).
 api_router.include_router(ticket_summary.router)
@@ -63,5 +69,10 @@ api_router.include_router(events.router)
 # FACE_TEMPLATES_ENABLED esté apagado (valor por defecto) y NO se usa en
 # el login.
 api_router.include_router(face_templates.router)
+# T-24 (2026-10-21): pantallas del cliente final (PWA instalable) —
+# "mi plaza" y "mis tickets" con el scope de los vehículos del propio
+# cliente. El router de planes (T-18) expone su propio "mi plan" con el
+# mismo criterio de vigencia que aplica el descuento al cerrar el ticket.
+api_router.include_router(cliente.router)
 
 __all__ = ["api_router"]

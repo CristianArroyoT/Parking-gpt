@@ -15,7 +15,7 @@ from app.core.deps import get_current_user, parking_context, require_role
 from app.models.enums import TicketStatus, UserRole
 from app.models.ticket import Ticket
 from app.models.user import ParkingMembership, User
-from app.models.vehicle import Vehicle
+from app.models.vehicle import Vehicle, VehicleUser
 from app.schemas.ticket import TicketClose, TicketCreate, TicketManualCreate, TicketRead
 from app.services.manual_tickets import create_manual_ticket as _create_manual_ticket
 from app.services.pdf import save_ticket_pdf
@@ -26,7 +26,24 @@ router = APIRouter(prefix="/tickets", tags=["tickets"])
 
 def _scoped_query(db: Session, user: User, parking_id: Optional[int]) -> SAQuery[Ticket]:
     query = db.query(Ticket)
-    if user.role != UserRole.ADMIN:
+    if user.role == UserRole.CLIENTE:
+        # Un cliente sólo ve los tickets de los vehículos que posee o
+        # conduce (relación ``vehicle_users``).
+        #
+        # POR QUÉ no vale el scope de membresía de sucursal (que es el de
+        # gestor y operador): el admin puede añadir membresías a un
+        # usuario con cualquier rol, así que un cliente con membresía
+        # veía **los tickets de todos los vehículos de esa sucursal**,
+        # incluidos los de otros clientes. Eso es una fuga de datos entre
+        # clientes (LOPDGDD) y lo detectó la revisión de T-19.
+        vehicle_ids = [
+            vu.vehicle_id
+            for vu in db.query(VehicleUser)
+            .filter(VehicleUser.user_id == user.id)
+            .all()
+        ]
+        query = query.filter(Ticket.vehicle_id.in_(vehicle_ids))
+    elif user.role != UserRole.ADMIN:
         ids = [
             m.parking_id
             for m in db.query(ParkingMembership)

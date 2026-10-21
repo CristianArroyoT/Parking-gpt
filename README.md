@@ -112,6 +112,10 @@ D:\Parking\
 | GET    | `/api/v1/cameras/{id}/geofences`    | gestor       |
 | GET    | `/api/v1/tickets?only_active=…`     | todos        |
 | POST   | `/api/v1/tickets`                   | staff        |
+| POST   | `/api/v1/incidents/{id}/attachments` | operador/gestor/admin |
+| GET    | `/api/v1/incidents/{id}/attachments` | gestor/admin |
+| GET    | `/api/v1/incidents/attachments/{id}/download` | gestor/admin |
+| GET    | `/api/v1/incidents/attachments/{id}/thumbnail` | gestor/admin |
 | GET    | `/health`                           | público      |
 
 Documentación interactiva en `http://localhost:8000/docs`.
@@ -132,6 +136,48 @@ Documentación interactiva en `http://localhost:8000/docs`.
   apunta a `/recuperar-contrasena` del frontend, una pantalla que todavía
   no existe. Hasta que se implemente, el token se puede usar llamando
   directamente a `POST /api/v1/auth/reset-password`.
+
+## Fotos de los incidentes (T-21)
+
+El operador puede adjuntar **hasta 3 fotos** al reportar un incidente
+(avería, robo o rehabilitación). Es la única parte del MVP que guarda
+ficheros:
+
+- **El binario NO va a la base de datos.** La foto vive en el volumen
+  Docker `incident_attachments` (ruta `INCIDENT_ATTACHMENTS_DIR`) con el
+  nombre derivado del **SHA-256 del contenido**; en la base de datos sólo
+  queda la *metadata* (nombre original, hash, mime, tamaño y ruta). Ni
+  `bytea` ni base64.
+- **El tipo se verifica por los bytes**, no por la extensión ni por el
+  `Content-Type` que manda el cliente: se comprueba la firma del formato
+  (JPEG `FF D8 FF`, PNG `89 50 4E 47`, WebP `RIFF…WEBP`) y se abre con
+  Pillow para comprobar que la imagen decodifica. **SVG no se acepta**
+  (es XML ejecutable). Tamaño máximo: **10 MB** por foto.
+- **Sanitización**: la descarga se sirve como `attachment` con el mime
+  verificado y `X-Content-Type-Options: nosniff`; la miniatura se sirve
+  como `image/jpeg` en línea. Nunca se sirve como `text/html` ni se
+  interpola en la página.
+- **Visibilidad (decisión D5)**: los adjuntos **no se exponen a ningún
+  canal externo** en el MVP —no hay correo con adjuntos, ni webhooks,
+  ni integración con terceros—. Sólo los ven el **gestor** y el **admin**
+  de esa sucursal; el operador los sube pero no puede volver a listarlos
+  ni descargarlos.
+- **Retención (LOPDGDD)**: **90 días** por defecto
+  (`INCIDENT_ATTACHMENT_RETENTION_DAYS`). La purga se lanza con:
+
+  ```bash
+  docker compose exec backend python -m app.scripts.purge_incident_attachments
+  ```
+
+  El script borra las fotos vencidas y los ficheros huérfanos del
+  volumen (`--dry-run` sólo cuenta). Además, **derecho al olvido**: al
+  borrar un usuario se borran su incidente y sus fotos (filas y ficheros).
+
+Variables de entorno (todas con valor por defecto razonable):
+`INCIDENT_ATTACHMENTS_DIR`, `INCIDENT_ATTACHMENT_MAX_BYTES`,
+`INCIDENT_ATTACHMENT_MAX_FILES`,
+`INCIDENT_ATTACHMENT_ALLOWED_MIME_TYPES` e
+`INCIDENT_ATTACHMENT_RETENTION_DAYS`.
 
 ## Pruebas
 
@@ -156,3 +202,5 @@ docker compose exec frontend npm run type-check
 - Datos personales: cumplen LOPDGDD (ES) y GDPR (UE).
 - Retención: 1 año para tickets, alertas y audit logs.
 - Las imágenes de OCR fallido se borran a los 30 días.
+- Las fotos de los incidentes se borran a los 90 días (y con el usuario
+  que las subió).

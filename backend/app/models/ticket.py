@@ -47,13 +47,6 @@ class Ticket(Base, TimestampMixin):
         nullable=False,
         index=True,
     )
-    origin: Mapped[TicketOrigin] = mapped_column(
-        String(16),
-        default=TicketOrigin.AUTOMATIC,
-        server_default=TicketOrigin.AUTOMATIC.value,
-        nullable=False,
-        index=True,
-    )
 
     parking: Mapped["Parking"] = relationship()
     vehicle: Mapped["Vehicle"] = relationship()

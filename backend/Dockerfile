@@ -45,6 +45,16 @@ COPY --from=builder /app/app ./app
 RUN mkdir -p /var/log/solidapp && chown -R app:app /var/log/solidapp
 VOLUME ["/var/log/solidapp"]
 
+# T-21 (2026-10-21): directorio del volumen con las fotos de los
+# incidentes. Mismo motivo y mismo truco que /var/log/solidapp: el mkdir
+# va como root (el usuario no-root no puede crear directorios dentro de
+# /var/lib) y el chown deja el directorio en manos de ``app``. Al montar
+# el volumen con nombre por primera vez, Docker copia la propiedad de
+# este directorio → el backend puede escribir sin(root).
+RUN mkdir -p /var/lib/solidapp/incident-attachments \
+ && chown -R app:app /var/lib/solidapp
+VOLUME ["/var/lib/solidapp/incident-attachments"]
+
 USER app
 
 EXPOSE 8000
