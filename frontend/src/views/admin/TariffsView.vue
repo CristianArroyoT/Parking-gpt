@@ -318,7 +318,13 @@ onMounted(loadParkings)
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-xs font-medium text-slate-700">Minutos/fracción</label>
+              <!--
+                "Minutos por fracción" y no "Minutos/fracción": la barra
+                hacía de todo el texto un único token sin espacios (98 px)
+                que no cabía en la caja de la etiqueta (86 px) con una
+                ventana de 1024 px, y se salía de la columna.
+              -->
+              <label class="block text-xs font-medium text-slate-700">Minutos por fracción</label>
               <input v-model.number="form.fraction_minutes" type="number" min="1" max="60" required class="input" />
             </div>
             <div>
