@@ -64,6 +64,9 @@ class _SafeAsyncio:
     El worker llama ``asyncio.run(coro)`` directamente; este wrapper
     evita que cualquier excepción del mock tumbe el task (los tests
     sustituyen el módulo entero con ``monkeypatch.setattr``).
+
+    Desde T-13+4 el worker sondea las cámaras **en paralelo** con
+    ``asyncio.gather``, así que el stub también tiene que ofrecerlo.
     """
 
     def run(self, coro):
@@ -71,6 +74,11 @@ class _SafeAsyncio:
             return real_asyncio.run(coro)
         except Exception:
             return None
+
+    async def gather(self, *coros, return_exceptions=False):
+        return await real_asyncio.gather(
+            *coros, return_exceptions=return_exceptions
+        )
 
     # API mínima usada por el worker.
     def get_event_loop(self):

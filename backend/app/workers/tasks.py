@@ -399,20 +399,47 @@ def probe_heartbeats() -> dict[str, Any]:
             .all()
         )
 
-        for cam in cams:
-            if any(cam.rtsp_url.startswith(p) for p in skip_prefixes):
-                skipped += 1
-                continue
-            probed += 1
-            try:
-                is_alive = asyncio.run(probe_camera(cam))
-            except Exception as exc:  # noqa: BLE001 — defensiva
-                log.warning(
-                    "probe_heartbeats: probe lanzó excepción camera=%s: %s",
-                    cam.id, exc,
-                )
-                is_alive = False
+        # ── Sondeo EN PARALELO (T-13+4) ────────────────────────────────
+        # Antes se sondeaba de uno en uno, con un ``asyncio.run()`` por
+        # cámara: con 50 cámaras y 5 s de timeout por cámara la ronda
+        # tardaba hasta ~250 s y **monopolizaba un slot del pool** de
+        # Celery. El healthcheck (``celery inspect ping``) no se
+        # respondía en 10 s, el contenedor pasaba a *unhealthy* y en
+        # Swarm/K8s el worker se reiniciaba en bucle sin llegar a
+        # terminar la ronda.
+        #
+        # ``probe_camera`` es async y delega en ``to_thread``, así que
+        # ``gather`` las sondea a la vez; el nº de threads concurrentes
+        # lo limita el propio pool de asyncio (min(32, cpu+4)).
+        candidatas = [
+            cam
+            for cam in cams
+            if not any(cam.rtsp_url.startswith(p) for p in skip_prefixes)
+        ]
+        skipped = len(cams) - len(candidatas)
+        probed = len(candidatas)
 
+        async def _sondear_todas() -> list[bool]:
+            resultados = await asyncio.gather(
+                *(probe_camera(cam) for cam in candidatas),
+                return_exceptions=True,
+            )
+            salida: list[bool] = []
+            for cam, resultado in zip(candidatas, resultados, strict=True):
+                if isinstance(resultado, BaseException):
+                    log.warning(
+                        "probe_heartbeats: probe lanzó excepción camera=%s: %s",
+                        cam.id,
+                        resultado,
+                    )
+                    salida.append(False)
+                else:
+                    salida.append(bool(resultado))
+            return salida
+
+        estados = asyncio.run(_sondear_todas()) if candidatas else []
+
+        for cam, is_alive in zip(candidatas, estados, strict=True):
             # Persistir último probe en BD (sprint Camera Health).
             # Commit batch al final del bucle para evitar 50 commits/min
             # de churn en el WAL de Postgres.

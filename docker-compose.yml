@@ -204,11 +204,20 @@ services:
       - app_logs:/var/log/solidapp
     command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info"]
     healthcheck:
-      test: ["CMD", "celery", "-A", "app.workers.celery_app", "inspect", "ping", "-t", "5"]
+      # El ping es un comando de control: lo responde un worker cuando
+      # tiene un slot libre del pool. Con la ronda de heartbeat
+      # sondeando 50 cámaras, ese slot puede tardar (T-13+4 la ha
+      # paralelizado, pero sigue habiendo margen). Con `-t 5` y un
+      # timeout de 10 s el contenedor pasaba a *unhealthy* de forma
+      # intermitente, y en Swarm/K8s eso significa **reemplazar el
+      # worker en bucle**. El margen debe ser MAYOR que el timeout del
+      # propio inspect, o el healthcheck mata al contenedor que
+      # responde tarde.
+      test: ["CMD", "celery", "-A", "app.workers.celery_app", "inspect", "ping", "-t", "20"]
       interval: 30s
-      timeout: 10s
+      timeout: 30s
       retries: 3
-      start_period: 20s
+      start_period: 30s
 
   # ── Celery beat (scheduler) ──────────────────────────────────────────
   # El beat no responde a "ping": está vivo si el archivo celerybeat-schedule
