@@ -583,11 +583,6 @@ def delete_user(
     response_model=MembershipRead,
     status_code=status.HTTP_201_CREATED,
 )
-@router.post(
-    "/{user_id}/memberships",
-    response_model=MembershipRead,
-    status_code=status.HTTP_201_CREATED,
-)
 @audited("create_membership", resource_arg="user_id")
 def add_membership(
     user_id: int,

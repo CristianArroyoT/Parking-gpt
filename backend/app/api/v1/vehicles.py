@@ -126,11 +126,6 @@ def update_vehicle(
     response_model=VehicleUserRead,
     status_code=status.HTTP_201_CREATED,
 )
-@router.post(
-    "/{vehicle_id}/users",
-    response_model=VehicleUserRead,
-    status_code=status.HTTP_201_CREATED,
-)
 @audited("add_vehicle_user", resource_arg="vehicle_id")
 def add_vehicle_user(
     vehicle_id: int,
