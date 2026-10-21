@@ -10,6 +10,11 @@
 |---|---|
 | `backup.sh` | Volcado diario, cifrado en reposo, retención GFS, copia remota opcional, comprobación de frescura |
 | `restore.sh` | Restauración en una base limpia **con verificación** de que la base restaurada sirve |
+| `simulacro.sh` | La cadena del simulacro (volcado → cifrado → restauración → comparación de datos), dentro de la imagen de PostgreSQL |
+
+> Los tres van versionados con **bit de ejecución** (`100755`): el `cron` y
+> el procedimiento los invocan directamente, y sin ese bit un despliegue
+> en Linux acabaría con `Permission denied`… es decir, **sin backups**.
 
 ## Puesta en marcha
 

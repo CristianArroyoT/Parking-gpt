@@ -692,6 +692,19 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] Los ficheros binarios no bloquean el commit.
   - [x] Documentado cómo activarlo en los dos README.
 
+### T-32 · P1 — los scripts de backup no eran ejecutables: en Linux no habría backups
+
+- **Estado**: **completado** — los tres scripts versionados con modo `100755`
+- **Contexto**: tampoco estaba en el plan, y salió al mirar los modos en el índice de git al añadir el hook de commit. Los tres scripts de `infra/backup/` (`backup.sh`, `restore.sh` y el nuevo `simulacro.sh`) estaban versionados con modo **100644** (sin bit de ejecución).
+- **Por qué es un P1**: el procedimiento documentado los invoca **directamente**:
+  - el `cron` de backups: `17 3 * * * root ... /opt/solidapp/infra/backup/backup.sh >> ...` → **`Permission denied`** en un despliegue Linux;
+  - la restauración: `./restore.sh --file ... --target-db ...` → ídem.
+  Es decir: **en un despliegue real en Linux no se habría hecho ni un solo backup**, y el único indicio sería la alerta de "no hay ningún backup". En el entorno de desarrollo (Docker, `sh script.sh`) no se nota, por eso pasó inadvertido.
+- **El arreglo**: `git update-index --chmod=+x` para los tres scripts (es el modo del **índice** el que viaja al clon; en Windows el bit local no se conserva porque `core.filemode` es `false`).
+- **Criterios de aceptación**:
+  - [x] `git ls-files -s` muestra los tres scripts con modo `100755`.
+  - [x] No hay más scripts `.sh` en el repo con el modo equivocado (comprobado: son los tres).
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.
