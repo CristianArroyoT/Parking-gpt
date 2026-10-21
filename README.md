@@ -132,6 +132,7 @@ D:\Parking\
 | GET    | `/api/v1/incidents/attachments/{id}/download` | gestor/admin |
 | GET    | `/api/v1/incidents/attachments/{id}/thumbnail` | gestor/admin |
 | GET    | `/health`                           | público      |
+| GET    | `/health/ready`                     | público      |
 
 Documentación interactiva en `http://localhost:8000/docs`.
 

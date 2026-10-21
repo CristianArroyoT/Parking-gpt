@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Generic, Optional, TypeVar
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class ORMModel(BaseModel):
@@ -28,6 +28,19 @@ class Page(ORMModel, Generic[T]):
 class HealthResponse(ORMModel):
     status: str = "ok"
     version: str
+
+
+class ReadinessResponse(ORMModel):
+    """Estado de *readiness*: ¿puede el backend servir tráfico ahora?
+
+    ``status`` es ``"ready"`` sólo si **todas** las dependencias
+    críticas (base de datos y Redis) responden. ``dependencies`` dice
+    cuál falla, para no tener que adivinarlo.
+    """
+
+    status: str = "ready"
+    version: str
+    dependencies: dict[str, str] = Field(default_factory=dict)
 
 
 class MessageResponse(ORMModel):

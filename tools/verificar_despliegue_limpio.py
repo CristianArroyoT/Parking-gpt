@@ -41,6 +41,9 @@ BACKEND = RAIZ / "backend"
 BASE_MAINTENANCE = "postgres"
 ESPERA_SALUD_S = 45
 PUERTO_APP = 8021
+#: Timeout de cada peticion. El login hashea la contrasena (bcrypt), que
+#: es lento: con la maquina cargada se puede pasar de 15 s.
+TIEMPO_PETICION_S = 30
 
 
 def _parte_de_url(url: str) -> tuple[str, str, str, str, int]:
@@ -82,24 +85,53 @@ def _peticion(metodo: str, url: str, token: str | None = None, cuerpo=None):
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     try:
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with urllib.request.urlopen(req, timeout=TIEMPO_PETICION_S) as r:
             return r.status, r.read()
     except urllib.error.HTTPError as e:
         return e.code, e.read()
 
 
-def _esperar_salud(proc: subprocess.Popen, url: str) -> bool:
+def _diagnostico_401(cuerpo: bytes) -> None:
+    """Explica un 401 que en realidad es "Redis no está disponible".
+
+    El ``AuditMiddleware`` va a *fail-closed* cuando Redis no responde (no
+    se puede comprobar la blacklist de tokens, así que no se deja pasar
+    ningún token) y devuelve 401 con este texto. Es un fallo de
+    servicio, no de credenciales, y sin esta explicación el error parece
+    de autenticación.
+    """
+    texto = cuerpo.decode("utf-8", "replace")
+    if "no disponible" in texto:
+        print("  AVISO: el 401 es por servicio, no por credenciales.")
+        print("  El AuditMiddleware va a fail-closed cuando Redis no responde:")
+        print("  para comprobar la blacklist de tokens hace falta Redis.")
+        print("  Comprueba que REDIS_URL apunte a un Redis alcanzable desde aqui")
+        print("  (en el CI es redis://localhost:6379/0, el del service container).")
+
+
+def _esperar_salud(proc: subprocess.Popen, url: str) -> tuple[bool, str]:
+    """Espera a que la aplicación esté lista.
+
+    Devuelve (lista, motivo_del_fracaso). Si la aplicación responde
+    **503** a ``/health/ready``, no se espera al timeout: ya se sabe que
+    no va a estar lista, y el cuerpo dice qué dependencia falla.
+    """
     for _ in range(ESPERA_SALUD_S * 2):
         if proc.poll() is not None:
-            return False
+            return False, "la aplicación se cerró antes de estar lista"
         try:
-            estado, _ = _peticion("GET", url)
+            estado, cuerpo = _peticion("GET", url)
             if estado == 200:
-                return True
+                return True, ""
+            if estado == 503:
+                return False, (
+                    "la aplicación responde 503 (no está lista): "
+                    f"{cuerpo.decode('utf-8', 'replace')[:300]}"
+                )
         except OSError:
             pass
         time.sleep(0.5)
-    return False
+    return False, f"la aplicación no estuvo lista en {ESPERA_SALUD_S} s"
 
 
 def main() -> int:
@@ -140,8 +172,17 @@ def main() -> int:
             cwd=str(BACKEND), env=entorno,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
-        if not _esperar_salud(proc, f"http://127.0.0.1:{PUERTO_APP}/health"):
-            print(f"  FALLO: la aplicación no respondió en {ESPERA_SALUD_S} s.")
+        # Se espera a /health/ready y no a /health: /health es liveness y
+        # responde 200 aunque la base de datos o Redis estén caídos.
+        lista, motivo = _esperar_salud(
+            proc, f"http://127.0.0.1:{PUERTO_APP}/health/ready"
+        )
+        if not lista:
+            print(f"  FALLO: {motivo}")
+            if "503" in motivo:
+                print("  La dependencia que falla está en el detalle de arriba")
+                print("  (database o redis). En el CI, REDIS_URL apunta al")
+                print("  service container: redis://localhost:6379/0")
             return 1
 
         # 5. La API responde con los datos del seed.
@@ -153,12 +194,14 @@ def main() -> int:
         )
         if estado != 200:
             print(f"  FALLO: el login devolvió {estado}: {cuerpo[:200]!r}")
+            _diagnostico_401(cuerpo)
             return 1
         token = json.loads(cuerpo)["access_token"]
         for ruta, cuenta in (("/parkings", 5), ("/plans", 3), ("/users", 4)):
             estado, cuerpo = _peticion("GET", f"{base_api}{ruta}", token=token)
             if estado != 200:
                 print(f"  FALLO: {ruta} -> {estado}")
+                _diagnostico_401(cuerpo)
                 return 1
             datos = json.loads(cuerpo)
             n = len(datos) if isinstance(datos, list) else 1

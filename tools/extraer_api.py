@@ -396,7 +396,9 @@ def main() -> int:
     filas.sort(key=lambda f: (f[3], f[1], f[0]))
 
     # El OpenAPI manda: si el extractor se deja alguna ruta fuera, se ve.
-    openapi = _rutas_openapi() - {("GET", "/health")}
+    # Los endpoints de salud los define ``create_app``, fuera de los
+    # routers, asi que se restan de la comparacion.
+    openapi = _rutas_openapi() - {("GET", "/health"), ("GET", "/health/ready")}
     extraidas = {(m, r) for m, r, _, _ in filas}
     if args.markdown:
         for metodo, ruta, quien, _modulo in filas:

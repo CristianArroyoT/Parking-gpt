@@ -118,6 +118,7 @@ def seccion() -> str:
     lineas.append("| Método | Ruta | Quién |")
     lineas.append("|---|---|---|")
     lineas.append("| GET | `/health` | Público |")
+    lineas.append("| GET | `/health/ready` | Público |")
     lineas.append("")
     return "\n".join(lineas)
 

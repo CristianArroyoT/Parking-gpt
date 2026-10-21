@@ -460,6 +460,44 @@ El test **demuestra el defecto**: ejecutado contra el código anterior
 fallan 3 de los 6; con la corrección pasan los 6. `mypy app` baja de 78 a
 77 errores y el `NameError` desaparece.
 
+### 3-terdecies. `/health` decía "ok" con todo caído (2026-10-21)
+
+Al usar `tools/verificar_despliegue_limpio.py` saltó esto: la aplicación
+arrancaba, `/health` respondía 200, y a continuación el login y
+`/parkings` devolvían **401 con *"Servicio de autenticación no disponible"***.
+La causa era Redis, no era alcanzable desde donde corría el script.
+
+**El hueco**: `GET /health` devolvía `{"status": "ok"}` **sin comprobar
+nada**. Con la base de datos caída, el contenedor se declaraba sano y
+todo endpoint devolvía 500. Con Redis caído, el `AuditMiddleware` va a
+*fail-closed* (correcto: si no se puede consultar la blacklist de
+tokens, no se deja pasar ningún token) y **toda** petición autenticada
+devolvía 401. En los dos casos, `docker compose ps` decía "healthy".
+
+**El arreglo** es la distinción estándar entre *liveness* y *readiness*:
+
+| Endpoint | Significado | Código |
+|---|---|---|
+| `GET /health` | *Liveness*: ¿el proceso vive? **No** mira dependencias a propósito (un health check que dependa de la base reinicia el proceso cuando una dependencia falla, y eso convierte un fallo de red en un bucle de reinicios) | 200 siempre |
+| `GET /health/ready` | *Readiness*: ¿puede servir tráfico? Comprueba la base (`SELECT 1`) y Redis (`PING`) | 200 o **503** con el detalle |
+
+El `HEALTHCHECK` del `Dockerfile` pasa a usar `/health/ready`, así que
+`docker compose ps` deja de mentir. Nada depende de
+`condition: service_healthy` del backend, así que no puede crear bucles
+de reinicio.
+
+De paso, `tools/verificar_despliegue_limpio.py` mejoró en los tres
+puntos que fallaban:
+
+| Antes | Ahora |
+|---|---|
+| Esperaba a `/health` (que siempre dice 200) | Espera a `/health/ready` |
+| Se comía los 45 s de espera y decía "no respondió" | **Aborta en cuanto recibe un 503**, con el detalle de la dependencia |
+| Un 401 parecía un problema de credenciales | Dice que es un fallo de servicio (Redis) y no de credenciales |
+
+Verificado con Redis caído: `{"database":"ok","redis":"TimeoutError"}` a
+la primera, sin esperar.
+
 
 | Modelo | Tabla | Notas |
 |---|---|---|

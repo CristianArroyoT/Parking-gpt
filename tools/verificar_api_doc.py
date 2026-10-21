@@ -59,9 +59,10 @@ def rutas_del_codigo() -> set[tuple[str, str]]:
             continue
         for metodo, ruta, _quien, _modulo in extraer_de_modulo(fichero):
             reales.add((metodo, ruta))
-    # El endpoint de salud no vive en un router de la API: lo define
-    # ``create_app`` en ``app/main.py`` y va fuera del prefijo.
+    # Los endpoints de salud no viven en un router de la API: los define
+    # ``create_app`` en ``app/main.py`` y van fuera del prefijo.
     reales.add(("GET", "/health"))
+    reales.add(("GET", "/health/ready"))
     return reales
 
 

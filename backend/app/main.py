@@ -29,15 +29,16 @@ import signal
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import api_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.core.middleware import AuditMiddleware
-from app.schemas import HealthResponse
+from app.schemas import HealthResponse, ReadinessResponse
 from app.services.cameras.live_streams import live_streams
+from app.services.health import comprobar_dependencias
 
 log = logging.getLogger(__name__)
 
@@ -205,7 +206,43 @@ def create_app() -> FastAPI:
 
     @app.get("/health", response_model=HealthResponse, tags=["meta"])
     def health() -> HealthResponse:
+        """*Liveness*: el proceso está vivo. No comprueba dependencias.
+
+        A propósito NO las comprueba: un health check que depende de la
+        base de datos o de Redis reinicia el proceso cuando una
+        dependencia falla, y eso convierte un fallo de red en un bucle de
+        reinicios. Para "¿puede servir tráfico?" está ``/health/ready``.
+        """
         return HealthResponse(status="ok", version="0.1.0")
+
+    @app.get("/health/ready", response_model=ReadinessResponse, tags=["meta"])
+    def readiness(response: Response) -> ReadinessResponse:
+        """*Readiness*: ¿puede el backend servir tráfico ahora mismo?
+
+        Comprueba de verdad las dos dependencias críticas:
+
+        - la **base de datos**: sin ella, todo endpoint que toque la
+          base devuelve 500;
+        - **Redis**: sin él, el ``AuditMiddleware`` va a *fail-closed*
+          (no se puede comprobar la blacklist de tokens, así que no se
+          deja pasar ningún token) y **toda** petición autenticada
+          devuelve 401.
+
+        Devuelve 503 si alguna no responde, con el detalle de cuál.
+        """
+        informe = comprobar_dependencias()
+        if not informe["ok"]:
+            response.status_code = 503
+            return ReadinessResponse(
+                status="not_ready",
+                version="0.1.0",
+                dependencies=informe["dependencies"],
+            )
+        return ReadinessResponse(
+            status="ready",
+            version="0.1.0",
+            dependencies=informe["dependencies"],
+        )
 
     return app
 

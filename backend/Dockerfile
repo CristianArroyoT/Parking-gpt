@@ -59,7 +59,13 @@ USER app
 
 EXPOSE 8000
 
+# El healthcheck usa /health/ready (readiness), no /health (liveness):
+# con la base de datos o con Redis caidos, la API NO puede servir trafico
+# (el AuditMiddleware va a fail-closed y devuelve 401 a todo), asi que el
+# contenedor debe aparecer como "unhealthy" y no como "healthy" mintiendo.
+# Nada depende de `condition: service_healthy` del backend, asi que esto
+# no puede crear bucles de reinicio.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD curl -fsS http://localhost:8000/health || exit 1
+  CMD curl -fsS http://localhost:8000/health/ready || exit 1
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

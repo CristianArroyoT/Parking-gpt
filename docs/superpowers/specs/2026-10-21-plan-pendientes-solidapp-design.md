@@ -566,6 +566,27 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] Un test comprueba que **cada** `template_kind` tiene su fichero de plantilla en disco, para que añadir un tipo sin plantilla no falle en runtime.
   - [x] La suite completa sigue en verde.
 
+### T-27 · P2 — `/health` decía "ok" con la base de datos o Redis caídos
+
+- **Estado**: **completado** — endpoint de readiness nuevo y healthcheck del contenedor corregido
+- **Contexto**: tampoco estaba en el plan. Salió al usar `tools/verificar_despliegue_limpio.py`: la app arrancaba, `/health` respondía 200 y el script daba por hecho que todo estaba bien; a continuación el login y `/parkings` devolvían **401 con *"Servicio de autenticación no disponible"***. La causa: **Redis no era alcanzable** desde donde corría el script.
+- **El hueco**: `GET /health` devolvía `{"status": "ok"}` **sin comprobar nada**. O sea:
+  - con la **base de datos** caída, el contenedor se declaraba sano y todo endpoint que tocara la base devolvía 500;
+  - con **Redis** caído, el `AuditMiddleware` va a *fail-closed* (es lo correcto: si no se puede consultar la blacklist de tokens, no se deja pasar ningún token) y **toda** petición autenticada devolvía 401. El contenedor, en ambos casos, decía "healthy" y el operador no tenía ni una pista.
+- **El arreglo**: la distinción estándar entre *liveness* y *readiness*.
+  - `GET /health` → **liveness**: ¿el proceso vive? Siempre 200. A propósito **no** comprueba dependencias: un health check que dependa de la base reinicia el proceso cuando una dependencia falla, y eso convierte un fallo de red en un bucle de reinicios.
+  - `GET /health/ready` → **readiness** (nuevo): comprueba de verdad la base de datos (`SELECT 1`) y Redis (`PING`) y responde **503** con el detalle de cuál falla si alguna no responde.
+  - El `HEALTHCHECK` del `Dockerfile` pasa a usar `/health/ready`, así que `docker compose ps` deja de mentir. Nada depende de `condition: service_healthy` del backend, así que esto no puede crear bucles de reinicio.
+  - `tools/verificar_despliegue_limpio.py` espera a `/health/ready` (no a `/health`), **aborta en cuanto recibe un 503** en vez de esperar al timeout, y explica que un 401 *"Servicio de autenticación no disponible"* es un fallo de servicio (Redis), no de credenciales.
+- **Criterios de aceptación**:
+  - [x] `GET /health/ready` devuelve 200 con `dependencies` cuando todo responde, y **503** con el detalle cuando algo falla.
+  - [x] `GET /health` sigue siendo liveness (200 siempre) y no mira dependencias.
+  - [x] `backend/tests/test_health_ready.py` (8 tests) cubre los dos endpoints y los dos casos de fallo.
+  - [x] El `HEALTHCHECK` del `Dockerfile` usa `/health/ready`.
+  - [x] `tools/verificar_despliegue_limpio.py` falla **rápido** y con el diagnóstico (verificado con Redis caído: `{"database":"ok","redis":"TimeoutError"}`).
+  - [x] El inventario de la API se regenera: **101 rutas** (coincide con el código) y el documento incluye la nueva.
+  - [x] La suite completa sigue en verde.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.

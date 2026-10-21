@@ -273,6 +273,7 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 | Método | Ruta | Quién |
 |---|---|---|
 | GET | `/health` | Público |
+| GET | `/health/ready` | Público |
 
 ## 4. Versionado y política de deprecación
 
