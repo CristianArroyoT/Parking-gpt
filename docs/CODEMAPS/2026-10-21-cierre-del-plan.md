@@ -101,6 +101,7 @@ Rutas nuevas: `/admin/planes`, `/mi-plan`, `/mi-plaza`, `/pagos`, `/mis-vehiculo
 | El stream SSE y el MJPEG **se cierran al apagar el servidor** | Uvicorn se quedaba esperando conexiones abiertas para siempre |
 | `UserUpdate.full_name` exige `min_length=2` | Un nombre de 1 carácter hacía fallar con 500 `GET /users` |
 | El login con `?token=` funciona en `/parkings/{id}/events` (antes 401 siempre) | El endpoint lo anunciaba pero no lo cumplía |
+| La ronda de heartbeat sondea las cámaras **en paralelo** | En serie, con 50 cámaras, monopolizaba un slot del pool y el healthcheck del worker lo reiniciaba en bucle (T-13+4) |
 
 ## 4. Modelos de datos nuevos
 
