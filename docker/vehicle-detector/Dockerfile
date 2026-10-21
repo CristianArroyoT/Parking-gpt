@@ -4,9 +4,19 @@
 # con multipart) y recibe
 # [{class_name, confidence, bbox: [x,y,w,h]}, ...] como JSON.
 #
-# La primera vez que arranca, ultralytics descarga yolov8n.pt (~6 MB) a
-# /models. Se persiste en el volumen 'vehicle_models' para que arranques
-# posteriores sean instantáneos.
+# La primera vez que arranca, se descarga el modelo (yolov8m fine-tuned
+# en VisDrone, ~50 MB) a /models. Se persiste en el volumen
+# 'vehicle_models' para que arranques posteriores sean instantáneos.
+#
+# Sprint Vehicle-Detect v2 (2026-07-07): el modelo por defecto es
+# ``best.pt`` (yolov8m-VisDrone), NO ``yolov8n.pt`` (COCO). COCO se
+# entrena con fotos frontales/laterales y apenas detectaba nada en
+# vistas aéreas de parking. Este default estaba desactualizado respecto
+# a ``docker-compose.yml`` (que ya usaba ``best.pt``): T-09 del plan de
+# pendientes lo alineó.
+#
+# ``best.pt`` no está en los assets oficiales de Ultralytics: lo baja
+# la app desde HuggingFace (VD_MODEL_URL) la primera vez.
 
 FROM python:3.11-slim
 
@@ -14,10 +24,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    VD_MODEL=yolov8n.pt \
+    VD_MODEL=best.pt \
     VD_PORT=8800 \
     VD_MODELS_DIR=/models \
-    VD_CONFIDENCE_THRESHOLD=0.35
+    VD_CONFIDENCE_THRESHOLD=0.25
 
 # Deps de sistema mínimas para OpenCV (carga de imagen) y curl (healthcheck).
 # torch instala sus propias libs (libgomp, etc.) vía wheels — no hacen falta aquí.
@@ -49,8 +59,8 @@ USER vd
 
 EXPOSE 8800
 
-# start-period=120s: la primera vez tarda en descargar yolov8n.pt y
-# cargar el modelo en memoria (warm-up ~2-3 s + carga ~3-5 s).
+# start-period=120s: la primera vez tarda en descargar best.pt (~50 MB)
+# y cargar el modelo en memoria (warm-up ~2-3 s + carga ~3-5 s).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
     CMD curl -fsS http://localhost:${VD_PORT}/health || exit 1
 

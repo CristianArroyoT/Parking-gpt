@@ -192,6 +192,33 @@ def health() -> HealthResponse:
     )
 
 
+def _decode_image(raw: bytes) -> np.ndarray:
+    """Decodifica bytes de imagen a un array numpy **en orden BGR**.
+
+    Por qué NO convertimos a RGB: ``ultralytics`` asume que un array
+    numpy viene en BGR y lo invierte internamente a RGB en su cargador
+    (``im0[..., ::-1]``). Si le entregamos RGB, se aplica un segundo
+    intercambio de canales y el modelo ve los colores invertidos.
+
+    Ese bug era silencioso y mortal: con la imagen invertida, el modelo
+    VisDrone devolvía **0 detecciones** sobre una foto real con coches
+    (2 'car' + 1 'bus' con conf 0.27/0.13/0.07 en BGR → 0 en RGB). Como
+    el servicio responde 200 con ``[]`` ante cualquier problema, el
+    síntoma en la app era "el botón de detectar nunca encuentra nada",
+    indistinguible de "no hay vehículos en la plaza" (bug detectado en la
+    QA del 2026-10-21, T-09 del plan de pendientes).
+
+    Ver ``tests/test_detect_channel_order.py``, que fija este contrato.
+    """
+    import cv2  # type: ignore[import-untyped]
+
+    arr = np.frombuffer(raw, dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError("cv2.imdecode devolvió None (formato no soportado)")
+    return img
+
+
 def _resize_to_viewbox(arr: np.ndarray) -> np.ndarray:
     """Reescala la imagen a (DETECT_W, DETECT_H) preservando aspect ratio.
 
@@ -224,16 +251,8 @@ async def detect(image: UploadFile = File(...)) -> list[VehicleHit]:
 
     # Decodificamos a numpy.ndarray desde bytes en memoria (sin tocar disco).
     try:
-        import cv2  # type: ignore[import-untyped]
-
-        arr = np.frombuffer(raw, dtype=np.uint8)
-        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-        if img is None:
-            raise ValueError("cv2.imdecode devolvió None (formato no soportado)")
-        # cv2 devuelve BGR; YOLO acepta ambos pero trabajamos en RGB para
-        # consistencia con el resto del pipeline.
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    except Exception as exc:  # noqa: BLE001
+        img = _decode_image(raw)
+    except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"Imagen no válida: {exc}") from exc
 
     # Reescalar a 960x540 (viewBox del SVG) ANTES de inferir → bboxes
