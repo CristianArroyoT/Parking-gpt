@@ -151,17 +151,12 @@ jobs:
         # cuatro índices que ninguna migración había creado, y la base
         # tenía cuatro restricciones UNIQUE redundantes que el modelo
         # no produce (migración 0014).
-        run: |
-          set -o pipefail
-          # CREATE DATABASE no puede ir dentro de una transaccion: cada
-          # -c se manda por separado, pero mejor no depender de eso.
-          PGPASSWORD=parking psql -h localhost -U parking -d parking_test \
-            -c "DROP DATABASE IF EXISTS solidapp_migraciones" >/dev/null
-          PGPASSWORD=parking psql -h localhost -U parking -d parking_test \
-            -c "CREATE DATABASE solidapp_migraciones" >/dev/null
-          export DATABASE_URL="postgresql+psycopg://parking:parking@localhost:5432/solidapp_migraciones"
-          alembic upgrade head
-          alembic check
+        # El script usa ``psycopg`` (dependencia del backend) y no
+        # ``psql``, para que el paso no dependa del cliente de
+        # PostgreSQL en la imagen.
+        env:
+          DATABASE_URL: "postgresql+psycopg://parking:parking@localhost:5432/solidapp_migraciones"
+        run: python ../tools/verificar_migraciones.py
 
       - name: Despliegue limpio (migrar, sembrar y servir)
         # POR QUÉ (2026-10-21): nadie había probado el camino COMPLETO de
