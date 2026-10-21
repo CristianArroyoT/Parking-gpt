@@ -1,0 +1,137 @@
+OCR · CPU vs GPU (T-14) — 2026-10-21
+========================================
+
+Máquina: Windows 11 + Docker Desktop, RTX 2060 (6 GB, driver 592.82, CUDA 13.1).
+Servidor OCR CPU:  solidapp-ocr:latest     (python:3.11-slim, paddlepaddle 2.6.2 CPU)
+Servidor OCR GPU:  solidapp-ocr:gpu       (nvidia/cuda:11.8.0-cudnn8, paddlepaddle-gpu 2.6.2)
+
+Script: docker/ocr/benchmark.py
+Imagen de prueba: 1280x720 generada por el propio script, con una matrícula
+sintética. Mide la llamada COMPLETA del cliente (ida + vuelta).
+
+Ojo: la primera llamada carga el modelo (lazy); el script hace un warmup que
+no cuenta en las estadísticas.
+
+
+SECUENCIAL (concurrencia = 1, 25 peticiones)
+---------------------------------------------
+CPU:
+{
+  "latencia_p50_ms": 328.8,
+  "latencia_p95_ms": 530.0,
+  "latencia_media_ms": 354.1,
+  "latencia_max_ms": 624.2,
+  "throughput_fps": 2.82,
+  "detecciones_totales": 20,
+  "segundos_totales": 7.08
+}
+GPU:
+{
+  "latencia_p50_ms": 302.0,
+  "latencia_p95_ms": 416.8,
+  "latencia_media_ms": 325.1,
+  "latencia_max_ms": 525.6,
+  "throughput_fps": 3.08,
+  "detecciones_totales": 25,
+  "segundos_totales": 8.13
+}
+
+=> En secuencial la GPU NO aporta: es un shave de ~8 % en p50. El trabajo por
+   petición es tan pequeño (una imagen 1280x720, dos redes pequeñas) que
+   el overhead de lanzar kernels y copiar la imagen a la GPU se come la
+   ventaja.
+
+
+CONCURRENCIA 8 (40 peticiones)
+-----------------------------
+CPU:
+{
+  "latencia_p50_ms": 2905.1,
+  "latencia_p95_ms": 3545.6,
+  "latencia_media_ms": 2840.9,
+  "latencia_max_ms": 3753.9,
+  "throughput_fps": 2.67,
+  "detecciones_totales": 40,
+  "segundos_totales": 14.96
+}
+GPU:
+{
+  "latencia_p50_ms": 974.7,
+  "latencia_p95_ms": 1551.9,
+  "latencia_media_ms": 1037.3,
+  "latencia_max_ms": 1807.2,
+  "throughput_fps": 7.38,
+  "detecciones_totales": 40,
+  "segundos_totales": 5.42
+}
+
+=> Con concurrencia la GPU gana: 2,8x de throughput y 3x menos latencia.
+
+
+CONCURRENCIA 16 (48 peticiones)
+-------------------------------
+CPU:
+{
+  "latencia_p50_ms": 4286.2,
+  "latencia_p95_ms": 6006.4,
+  "throughput_fps": 3.29,
+  "segundos_totales": 14.58
+}
+GPU:
+{
+  "latencia_p50_ms": 1720.6,
+  "latencia_p95_ms": 2553.3,
+  "throughput_fps": 7.89,
+  "segundos_totales": 6.08
+}
+
+
+CONCURRENCIA 32 (64 peticiones)
+-------------------------------
+CPU:
+{
+  "latencia_p50_ms": 8702.0,
+  "latencia_p95_ms": 11601.2,
+  "throughput_fps": 3.16,
+  "segundos_totales": 20.24
+}
+GPU:
+{
+  "latencia_p50_ms": 4294.7,
+  "latencia_p95_ms": 5540.0,
+  "throughput_fps": 6.48,
+  "segundos_totales": 9.88
+}
+
+
+RESUMEN
+-------
+concurrencia | CPU p50  | CPU p95   | CPU fps | GPU p50 | GPU p95  | GPU fps | ratio
+-------------|----------|-----------|---------|---------|----------|---------|------
+1            |   329 ms |   530 ms  |  2,82   |  302 ms |  417 ms  |  3,08   | 1,1x
+8            |  2905 ms |  3546 ms  |  2,67   |  975 ms | 1551 ms  |  7,38   | 2,8x
+16           |  4286 ms |  6006 ms  |  3,29   | 1721 ms | 2553 ms  |  7,89   | 2,4x
+32           |  8702 ms | 11601 ms  |  3,16   | 4295 ms | 5540 ms  |  6,48   | 2,0x
+
+- La CPU **satura en ~3,2 fps** por instancia (el p95 se dispara a 11,6 s en
+  concurrencia 32: la cola de espera crece sin que suba el throughput).
+- La GPU **satura en ~7,9 fps** por instancia.
+- En ambos casos la latencia sube al saturar; el throughput es el dato que
+  manda para dimensionar.
+
+CARGA REAL DEL OCR
+------------------
+El OCR no se llama por frame de cámara: lo invoca el beat de Celery
+(`tick_cameras`, cada 60 s) que hace UNA captura y un OCR por cámara y
+minuto.
+
+    carga (ocr/s) = nº de cámaras / 60
+
+  - MVP (5 sucursales x 10 cámaras = 50):  0,83 ocr/s
+  - 50 sucursales (10 cámaras cada una = 500):  8,33 ocr/s
+
+Capacidad por instancia:
+  - CPU: 3,2 ocr/s  ->  ~190 cámaras
+  - GPU: 7,9 ocr/s  ->  ~470 cámaras
+
+Conclusión: ver docs/adr/0002-ocr-cpu-vs-gpu.md.
