@@ -10,6 +10,7 @@ from app.api.v1 import (
     auth,
     cameras,
     cameras_live,
+    cliente,
     costs,
     dashboard,
     events,
@@ -68,5 +69,10 @@ api_router.include_router(events.router)
 # FACE_TEMPLATES_ENABLED esté apagado (valor por defecto) y NO se usa en
 # el login.
 api_router.include_router(face_templates.router)
+# T-24 (2026-10-21): pantallas del cliente final (PWA instalable) —
+# "mi plaza" y "mis tickets" con el scope de los vehículos del propio
+# cliente. El router de planes (T-18) expone su propio "mi plan" con el
+# mismo criterio de vigencia que aplica el descuento al cerrar el ticket.
+api_router.include_router(cliente.router)
 
 __all__ = ["api_router"]

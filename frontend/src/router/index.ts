@@ -4,6 +4,7 @@
  * redirige a /login si no hay sesión y a /forbidden si el rol no encaja.
  */
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { isPwaMode } from '@/pwa/mode'
 import { useAuthStore } from '@/stores/auth'
 
 const routes: RouteRecordRaw[] = [
@@ -145,6 +146,35 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/gestor/OperatorsView.vue'),
     meta: { roles: ['admin', 'gestor'] },
   },
+  // T-18 (2026-10-21): CRUD de planes y suscripciones (admin).
+  {
+    path: '/admin/planes',
+    name: 'admin-planes',
+    component: () => import('@/views/admin/PlansView.vue'),
+    meta: { roles: ['admin'] },
+  },
+  // T-18 (2026-10-21): "Mi plan" del cliente (plan, alta/vencimiento,
+  // % de descuento y próximo cobro contable).
+  {
+    path: '/mi-plan',
+    name: 'cliente-plan',
+    component: () => import('@/views/cliente/MyPlanView.vue'),
+    meta: { roles: ['admin', 'cliente'] },
+  },
+  // T-24 (2026-10-21): plaza asignada y pagos pendientes del cliente
+  // (pantallas de la PWA instalable).
+  {
+    path: '/mi-plaza',
+    name: 'cliente-plazas',
+    component: () => import('@/views/cliente/MySpotView.vue'),
+    meta: { roles: ['admin', 'cliente'] },
+  },
+  {
+    path: '/pagos',
+    name: 'cliente-pagos',
+    component: () => import('@/views/cliente/PaymentsView.vue'),
+    meta: { roles: ['admin', 'cliente'] },
+  },
   {
     path: '/forbidden',
     name: 'forbidden',
@@ -173,6 +203,19 @@ router.beforeEach((to) => {
   const allowed = to.meta.roles as string[] | undefined
   if (allowed && auth.role && !allowed.includes(auth.role)) {
     return { name: 'forbidden' }
+  }
+  // T-24 (2026-10-21): la PWA instalada es **sólo para el cliente**
+  // (decisión D4: un solo codebase, instalable, sin tiendas). Dentro de
+  // ella, cualquier ruta que no sea del cliente se redirige a "Mis
+  // tickets" en vez de dejar al usuario en una pantalla de gestión.
+  // Se comparan nombres de ruta (no paths) para no depender del prefijo.
+  if (
+    isPwaMode() &&
+    typeof to.name === 'string' &&
+    !to.name.startsWith('cliente-') &&
+    to.name !== 'login'
+  ) {
+    return { name: 'cliente-tickets' }
   }
   return true
 })

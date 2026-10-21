@@ -11,6 +11,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
+import { isPwaMode } from '@/pwa/mode'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
 
@@ -39,6 +40,9 @@ const NAV_BY_ROLE: Record<string, NavItem[]> = {
     { name: 'admin-parkings', label: 'Sucursales', to: '/admin/parkings' },
     { name: 'gestor-map', label: 'Mapa', to: '/mapa' },
     { name: 'admin-tariffs', label: 'Tarifas', to: '/admin/tariffs' },
+    // T-18 (2026-10-21): catálogo de planes y suscripciones. Va junto a
+    // "Tarifas" porque ambos son los precios del producto.
+    { name: 'admin-planes', label: 'Planes', to: '/admin/planes' },
     { name: 'admin-costs', label: 'Costes', to: '/admin/costs' },
     { name: 'admin-users', label: 'Usuarios', to: '/admin/users' },
     { name: 'admin-reports', label: 'Reportería', to: '/admin/reports' },
@@ -68,11 +72,24 @@ const NAV_BY_ROLE: Record<string, NavItem[]> = {
     // T-19 (2026-10-21): gestión de vehículos y perfil. "Mi perfil" va
     // al final porque es una acción secundaria frente a las operativas.
     { name: 'cliente-vehiculos', label: 'Mis vehículos', to: '/mis-vehiculos' },
+    // T-18 (2026-10-21): plan, alta/vencimiento, % de descuento y
+    // próximo cobro (contable: decisión D2, sin pasarela de pago).
+    { name: 'cliente-plan', label: 'Mi plan', to: '/mi-plan' },
+    // T-24 (2026-10-21): plaza asignada y pagos pendientes de la PWA
+    // instalable del cliente.
+    { name: 'cliente-plazas', label: 'Mi plaza', to: '/mi-plaza' },
+    { name: 'cliente-pagos', label: 'Pagos', to: '/pagos' },
     { name: 'cliente-perfil', label: 'Mi perfil', to: '/mi-perfil' },
   ],
 }
 
-const nav = computed<NavItem[]>(() => (auth.role ? NAV_BY_ROLE[auth.role] ?? [] : []))
+const nav = computed<NavItem[]>(() => {
+  const items = auth.role ? NAV_BY_ROLE[auth.role] ?? [] : []
+  // T-24 (2026-10-21): la PWA instalada es **sólo para el cliente**
+  // (decisión D4), así que dentro de ella el menú se reduce a las
+  // entradas de cliente aunque el usuario tenga otro rol.
+  return isPwaMode() ? items.filter((i) => i.name.startsWith('cliente-')) : items
+})
 
 const ROLE_LABEL: Record<string, string> = {
   admin: 'Administrador',

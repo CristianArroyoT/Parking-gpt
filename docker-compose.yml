@@ -120,6 +120,11 @@ services:
       # libre. Poner 0 (o un valor no positivo) = SIN limitador, el preview
       # va tan rápido como la cámara y la red permitan.
       LIVE_PREVIEW_FPS: "${LIVE_PREVIEW_FPS:-5}"
+      # T-23 (2026-10-21): reconocimiento facial PREPARADO pero FUERA del
+      # MVP. Con el flag apagado (valor por defecto) el endpoint de
+      # plantillas devuelve 404 y la autenticación sigue siendo
+      # usuario+contraseña.
+      FACE_TEMPLATES_ENABLED: "${FACE_TEMPLATES_ENABLED:-false}"
       # Cliente vehicle-detector (Sprint Vehicle-Detect 2026-07-07). Mismo
       # patrón fail-OPEN que OCR: si el contenedor YOLO está caído, el
       # cliente devuelve detections=[] y el endpoint responde 200 con [].
