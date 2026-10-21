@@ -14,7 +14,6 @@
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import AppLayout from '@/layouts/AppLayout.vue'
-import { useUiStore } from '@/stores/ui'
 import {
   filterMovements,
   listMovements,
@@ -29,8 +28,6 @@ import {
   type ParkingSpace,
   type VehiclePlate,
 } from '@/api/gestorOps'
-
-const ui = useUiStore()
 
 const parkings = ref<Parking[]>([])
 /** Id de sucursal como texto: los ``<select>`` trabajan con strings. */
@@ -67,7 +64,7 @@ const labels = computed(() => ({
 }))
 
 const filtered = computed(() =>
-  filterMovements(movements.value, appliedFilters.value, labels.value),
+  filterMovements(movements.value, appliedFilters.value),
 )
 
 async function loadParkings(): Promise<void> {

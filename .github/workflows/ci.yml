@@ -274,6 +274,17 @@ jobs:
       - name: Instalar dependencias
         run: npm ci || npm install
 
+      - name: Linter (eslint)
+        # POR QUÉ (2026-10-22): el ``package.json`` tenía un script
+        # ``lint`` que **nunca funcionó** (ESLint 9 exige un
+        # ``eslint.config.js`` y no había ninguno) y este job no lo
+        # ejecutaba, así que el linter roto pasó desapercibido. Ahora hay
+        # configuración plana (``frontend/eslint.config.js``) y el linter
+        # es una puerta de verdad: sin errores y sin reglas de formato
+        # (se usa ``flat/essential``, no ``flat/recommended``, que
+        # obligaría a reformatear el frontend entero).
+        run: npm run lint
+
       - name: Type-check (vue-tsc)
         run: npx vue-tsc --noEmit
 

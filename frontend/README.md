@@ -9,10 +9,29 @@ instalable del cliente final** (ver § PWA).
 ```bash
 npm install          # sólo la primera vez (en Docker no hace falta)
 npm run dev          # servidor de desarrollo en :5173 (HMR)
+npm run lint         # eslint (config plano: eslint.config.js) — lo que corre el CI
 npm run type-check   # vue-tsc --noEmit (lo que corre el CI)
 npm run build        # type-check + build de producción en dist/
 npm run preview      # sirve dist/ en :4173 (aquí se prueba la PWA)
 ```
+
+### El linter (ESLint 9, configuración plana)
+
+El linter usa `eslint.config.js` (el formato plano que exige ESLint 9) con
+`js.configs.recommended` + `pluginVue.configs['flat/essential']` +
+`vueTsConfigs.recommended`.
+
+**`flat/essential` y no `flat/recommended`** a propósito: "recommended"
+arrastra reglas de **formato** (una etiqueta por línea, un atributo por
+línea…) que son opinión y que obligarían a reformatear el frontend entero.
+Con "essential" el linter avisa de lo que está **mal**: variables sin
+usar, referencias sin definir, hooks mal usados.
+
+Hay dos reglas apagadas a propósito, con el motivo en el propio fichero:
+`vue/multi-word-component-names` (la convención del proyecto usa
+componentes de una palabra: `Login`, `Home`) y
+`@typescript-eslint/no-empty-object-type` **sólo en `*.d.ts`** (el shim
+estándar de Vue, `DefineComponent<{}, {}, any>`, dispara la regla).
 
 El frontend siempre habla con rutas relativas `/api/v1`; el proxy de Vite
 las manda al backend (por defecto `http://localhost:8000`, se puede

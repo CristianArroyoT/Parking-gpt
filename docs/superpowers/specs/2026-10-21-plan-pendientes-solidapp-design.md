@@ -657,6 +657,27 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] Entra en la puerta del repo: `python tools/verificar_repo.py` lo comprueba en el modo rápido.
   - [x] La checklist manual sigue documentada (no se elimina el simulacro trimestral en papel).
 
+### T-30 · P2 — el linter del frontend no existía (el script estaba roto y el CI no lo ejecutaba)
+
+- **Estado**: **completado** — `npm run lint` sale con **0 problemas** y es una puerta del CI
+- **Contexto**: el `package.json` del frontend definía un script `lint` (`eslint --ext .ts,.vue src`) que **nunca funcionó**: ESLint 9 exige un `eslint.config.js` (config plano) y **en el repo no había ninguno**. Y el job `frontend` del CI **no ejecutaba el linter**, así que el script roto pasó desapercibido. El backend sí tenía linter (`ruff`) desde el principio: la asimetría era de origen, no de decisión.
+- **Qué se ha hecho**:
+  - `frontend/eslint.config.js`: configuración plana con `js.configs.recommended` + `pluginVue.configs['flat/essential']` + `vueTsConfigs.recommended`.
+  - Se usa **`flat/essential`**, no `flat/recommended`: "recommended" arrastra reglas de **formato** (una etiqueta por línea, un atributo por línea) que son opinión y que obligarían a reformatear el frontend entero (1 425 avisos). Con "essential" el linter avisa de lo que está **mal**, no de lo que está escrito de otra manera.
+  - Se añade el paso **"Linter (eslint)"** al job `frontend` del CI, validado con el job replicado en local: *"El job 'frontend' pasa entero en local"*.
+- **Lo que el linter encontró al activarlo (5 errores + 1 aviso, todos reales)**:
+  - `api/gestorOps.ts`: el parámetro `labels` de `filterMovements` **no se usaba** dentro de la función (el caller lo pasaba). Código muerto: se quitó el parámetro y el argumento.
+  - `views/gestor/MovementsView.vue`: `const ui = useUiStore()` **sin usar** (ni en el script ni en la plantilla). Restos de una iteración anterior: se quitó el import y la constante.
+  - `views/gestor/CalibrateView.vue`: un `// eslint-disable-next-line no-console` **obsoleto** (la regla no se disparaba): se quitó.
+  - `env.d.ts`: el shim estándar de Vue (`DefineComponent<{}, {}, any>`) dispara la regla de "objeto vacío". Se apaga **sólo** en `*.d.ts`, con un comentario que explica por qué.
+- **Criterios de aceptación**:
+  - [x] `npm run lint` → **0 problemas** (0 errores, 0 avisos).
+  - [x] `vue-tsc --noEmit` → 0 errores (sigue en verde tras tocar los ficheros).
+  - [x] El paso "Linter (eslint)" está en el job `frontend` del CI y el job replicado en local pasa entero.
+  - [x] `actionlint` exit 0.
+  - [x] La QA visual sigue en verde (21 pantallas × 5 anchos, 0 desbordes) tras tocar `MovementsView.vue` y `CalibrateView.vue`.
+  - [x] La configuración usa `flat/essential`: el linter no exige reformatear el código.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.

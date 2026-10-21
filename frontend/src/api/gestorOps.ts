@@ -260,7 +260,6 @@ export interface MovementLabels {
 export function filterMovements(
   movements: MovementTicket[],
   filters: MovementFilters,
-  labels: MovementLabels,
 ): MovementTicket[] {
   return movements.filter((m) => {
     const dia = m.entry_at.slice(0, 10)

@@ -252,7 +252,6 @@ function captureLiveFrame(): void {
     ui.pushToast('success', 'Imagen capturada — dibuja las geocercas')
     closeLivePreview()
   } catch (err: unknown) {
-    // eslint-disable-next-line no-console
     console.error('captureLiveFrame falló', err)
     ui.pushToast('error', 'No se pudo capturar el frame')
   } finally {

@@ -680,6 +680,32 @@ cadena funciona, el manual comprueba lo que la cadena no puede (destino
 S3 remoto, passphrase real en el gestor de secretos, responsable). Las
 dos conviven en `infra/backup/README.md`.
 
+### 3-vigésimocuarta. El linter del frontend no existía (2026-10-22)
+
+El `package.json` del frontend definía un script `lint` que **nunca
+funcionó**: ESLint 9 exige un `eslint.config.js` (config plano) y en el
+repo no había ninguno. Y el job `frontend` del CI **no lo ejecutaba**,
+así que el linter roto pasó desapercibido. El backend sí tenía linter
+(`ruff`) desde el principio: la asimetría era de origen, no de decisión.
+
+`frontend/eslint.config.js` (config plano) y un paso nuevo en el job
+`frontend` del CI. Se usa **`flat/essential`**, no `flat/recommended`:
+"recommended" arrastra reglas de **formato** (una etiqueta por línea…) que
+son opinión y que obligarían a reformatear el frontend entero (1 425
+avisos). Con "essential" el linter avisa de lo que está **mal**.
+
+Lo que encontró al activarlo (5 errores + 1 aviso, todos reales):
+
+| Fichero | Qué era |
+|---|---|
+| `api/gestorOps.ts` | El parámetro `labels` de `filterMovements` no se usaba dentro de la función (el caller lo pasaba) |
+| `views/gestor/MovementsView.vue` | `const ui = useUiStore()` sin usar, ni en el script ni en la plantilla |
+| `views/gestor/CalibrateView.vue` | Un `// eslint-disable-next-line no-console` obsoleto |
+| `env.d.ts` | El shim estándar de Vue dispara la regla de "objeto vacío": se apaga **sólo** en `*.d.ts` |
+
+Con esto: `npm run lint` → **0 problemas**, `vue-tsc` → 0 errores, y el
+job `frontend` replicado en local pasa entero.
+
 Y con el IPv4 arreglado, la réplica local pasó a poder ejecutar **el CI
 completo**, incluidos los dos pasos de test que antes se saltaban
 porque el host no resolvía los nombres de servicio de Docker:
