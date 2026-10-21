@@ -225,13 +225,16 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
 
 ### T-13 · I2 — Pruebas de carga con Locust
 
+- **Estado**: **completado** — escenarios, SLO verificable y ejecución de referencia
 - **Contexto**: no existe ningún `locustfile.py` en el repo. Los objetivos de carga del producto: 50 streams (MVP 5 sucursales × 10 cámaras) y 50+ sucursales en producción.
 - **Resultado esperado**: un escenario de carga ejecutable que fije el SLO y detecte regresiones de rendimiento.
 - **Criterios de aceptación**:
-  - [ ] `locustfile.py` con escenarios: login, mapa en vivo (SSE), cierre de ticket, preview MJPEG.
-  - [ ] SLO documentado (p. ej. p95 < 300 ms en lectura; streaming sin cortes).
-  - [ ] Informe de una ejecución de referencia con los números guardados en el repo.
-  - [ ] Falla si el p95 supera el SLO (integrable en CI aunque sea nocturno).
+  - [x] `locustfile.py` con escenarios: login, mapa en vivo (SSE), cierre de ticket, preview MJPEG.
+  - [x] SLO documentado (p. ej. p95 < 300 ms en lectura; streaming sin cortes).
+  - [x] Informe de una ejecución de referencia con los números guardados en el repo.
+  - [x] Falla si el p95 supera el SLO (integrable en CI aunque sea nocturno).
+- **Verificado**: `backend/locustfile.py` con los 4 escenarios; `backend/locust/slo.json` con 13 reglas (cada una con su porqué); `backend/locust/check_slo.py` que devuelve exit ≠ 0 si el p95 incumple (exit 0 contra la referencia); informe de referencia en `backend/locust/reports/2026-10-21-referencia.json` (461 peticiones, 42 fallos) y su contexto. La carga se midió contra una **instancia dedicada sin `--reload`**, porque el reloader del entorno de QA reinicia el backend con cada escritura y arruina las cifras.
+- **Hallazgo**: la propia carga destapó dos bugs de producción que ningún test había visto — ver T-13+2 y T-13+3.
 
 ### T-13+1 · Fijo en el CI: la suite debe ser reproducible
 
@@ -242,6 +245,26 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] Ventana real la del default en los dos tests que simulaban el reset a mano.
   - [x] 5 ejecuciones seguidas en verde.
   - [x] Explicado en el commit por qué el bug **no** era del código de producción (la ventana fija, no sliding, es el comportamiento correcto).
+
+### T-13+2 · P0 — cerrar el preview tumbaba el backend (SIGSEGV)
+
+- **Estado**: **completado** — corregido y verificado contra un uvicorn sin `--reload`
+- **Contexto**: las lecturas del preview se ejecutan con `asyncio.to_thread` (hilo del pool). Si el cliente cerraba el stream mientras ese hilo seguía dentro de `cap.grab()`, el `finally` del generador llamaba a `cap.release()` **en paralelo con la lectura en vuelo**: OpenCV/FFmpeg liberaba las estructuras del decoder mientras otro hilo las usaba y el proceso **abortaba con SIGSEGV (exit 139)**. Reproducción: **4 de 4**. En QA el `--reload` lo disimula (parece una "recarga"), pero **en producción el backend entero cae cada vez que un operador cierra el modal**.
+- **Resultado esperado**: cerrar el preview nunca puede tumbar el backend.
+- **Criterios de aceptación**:
+  - [x] Todas las llamadas a OpenCV serializadas con un `threading.Lock` (`CapturaSincronizada`).
+  - [x] Test de regresión que **detecta** la carrera (comprobado: sin el lock, falla).
+  - [x] Verificado en producción-like: uvicorn **sin `--reload`**, 5 cierres de preview seguidos → el proceso sigue vivo y `/health` sigue en 200.
+
+### T-13+3 · P1 — cada stream retenía una conexión de PostgreSQL
+
+- **Estado**: **completado** — 0 conexiones retenidas durante el stream
+- **Contexto**: con `Depends(get_db)` la sesión (y su conexión del pool) se mantiene viva hasta que la respuesta termina, y en un endpoint de streaming eso es **toda la duración del stream**. Con el objetivo de 50 streams simultáneos, el pool (5 + 10 de salida) se agotaba y las conexiones quedaban *idle in transaction* al abortar el stream.
+- **Resultado esperado**: los endpoints de streaming no retienen conexiones de la BD.
+- **Criterios de aceptación**:
+  - [x] El preview y el SSE resuelven auth + RBAC + la lectura que necesitan con una sesión **corta**, cerrada antes de emitir.
+  - [x] El generador recibe un `CameraRef` (id + rtsp_url), no un modelo ORM vivo.
+  - [x] Medido en el stack: durante el preview, **0** conexiones *idle in transaction* (antes: 1 por stream).
 
 ### T-14 · I3 — OCR con GPU
 
@@ -343,25 +366,28 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
 
 ### T-22 · Recuperación de contraseña del cliente
 
-- **Estado**: pendiente
+- **Estado**: **completado** — flujo completo con token de un solo uso (24 tests)
 - **Contexto**: **no existe** flujo de "olvidé mi contraseña" (ni backend ni correo). El login sólo acepta usuario+contraseña. Hoy la única forma de recuperar el acceso es que un admin lo reinicie a mano.
 - **Resultado esperado**: el cliente (y el operador) puede recuperar el acceso por correo con un token de un solo uso.
 - **Criterios de aceptación**:
-  - [ ] `POST /auth/forgot-password` → correo con token de un solo uso y caducidad (p. ej. 30 min).
-  - [ ] `POST /auth/reset-password` → cambia la contraseña e invalida los tokens previos.
-  - [ ] El token se guarda **hasheado** y se invalida al usarlo.
-  - [ ] Plantilla de correo en español (`app/services/templates/`).
-  - [ ] Registro de auditoría `password_reset_requested` / `password_reset_completed`.
-  - [ ] Anti-abuso: rate-limit por IP y por email.
+  - [x] `POST /auth/forgot-password` → correo con token de un solo uso y caducidad (p. ej. 30 min).
+  - [x] `POST /auth/reset-password` → cambia la contraseña e invalida los tokens previos.
+  - [x] El token se guarda **hasheado** y se invalida al usarlo.
+  - [x] Plantilla de correo en español (`app/services/templates/`).
+  - [x] Registro de auditoría `password_reset_requested` / `password_reset_completed`.
+  - [x] Anti-abuso: rate-limit por IP y por email.
+- **Verificado**: 24 tests en verde (SQLite y PostgreSQL). El token se guarda como SHA-256 (`token_hash` UNIQUE, 64 chars): en la BD no hay nunca el token en claro. El reset invalida los JWT previos vía `session_tracker.revoke_all`. La respuesta de `forgot-password` es **uniforme** para exista o no la cuenta (no enumera usuarios).
+- **Pendiente de frontend**: la pantalla `/recuperar-contrasena` no existe (`frontend/**` no entró en el alcance de esta sesión); el enlace del correo apunta ahí. Mientras tanto, el token se puede usar llamando a `POST /api/v1/auth/reset-password`.
 
 ### T-23 · Tabla y endpoint de reconocimiento facial (preparación)
 
-- **Estado**: pendiente (explícito en la memoria: "fuera del MVP, dejar la tabla y endpoint preparados")
+- **Estado**: **completado** — estructura preparada, endpoint deshabilitado por flag (18 tests)
 - **Resultado esperado**: la estructura de datos existe, pero **no se usa** para autenticar a nadie.
 - **Criterios de aceptación**:
-  - [ ] Modelo `FaceTemplate` (usuario, embedding, cámara, fecha) + Alembic.
-  - [ ] Endpoint de alta/baja **deshabilitado por feature flag** y sin uso en el login.
-  - [ ] Nota explícita en el README: reconocimiento facial fuera del MVP.
+  - [x] Modelo `FaceTemplate` (usuario, embedding, cámara, fecha) + Alembic.
+  - [x] Endpoint de alta/baja **deshabilitado por feature flag** y sin uso en el login.
+  - [x] Nota explícita en el README: reconocimiento facial fuera del MVP.
+- **Verificado**: migración `0012_reset_and_face_templates` aplicada (`alembic current` → head); tabla `face_templates` con `embedding` en JSON y `camera_id` con `ON DELETE SET NULL`; setting `FACE_TEMPLATES_ENABLED` (default **False**) → con el flag apagado el alta y la baja devuelven **404**; test que comprueba estáticamente que **ninguna ruta de autenticación** usa `face_templates`; test que verifica que el README dice que el reconocimiento facial está fuera del MVP. No se implementa biometría: sólo la estructura.
 
 ### T-24 · Portal/app del cliente final (PWA)
 
@@ -387,7 +413,7 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
 
 ## Ejecución del 2026-10-21 (sesión de subagentes)
 
-**Cómo se repartió**: 7 subagentes en 2 olas, cada uno con propiedad exclusiva
+**Cómo se repartió**: 8 subagentes en 3 olas, cada uno con propiedad exclusiva
 de sus ficheros (para que dos agentes nunca tocaran el mismo a la vez), más
 trabajo directo de la sesión principal en los puntos de integración.
 
@@ -406,6 +432,7 @@ trabajo directo de la sesión principal en los puntos de integración.
 | T-15 | sesión principal | ADR de orquestación (ADR-0001) |
 | T-16 | subagente F | Exportes PDF/CSV de los cinco informes |
 | T-17 | subagente G | SSE en la vista del operador y en la de calibración |
+| T-22, T-23 | subagente H | Recuperación de contraseña y estructura de FaceTemplate |
 | T-25 | sesión principal | API interna inventariada con su RBAC |
 
 **Bugs de producción encontrados y corregidos** (ninguno estaba en el plan;
@@ -426,10 +453,22 @@ todos han salido al ejecutar los criterios de aceptación):
    contra PostgreSQL; al ejecutarlos de verdad apareció un
    `ForeignKeyViolation` que SQLite escondía (SQLite no aplica claves
    foráneas por defecto).
+6. **Cerrar el modal de previsualización tumbaba el backend (SIGSEGV)**: el
+   `release()` del `VideoCapture` competía con un `grab()` en vuelo en otro
+   hilo y OpenCV abortaba el proceso (exit 139). En QA el `--reload` lo
+   disimula; en producción el backend caía cada vez que un operador cerraba
+   el modal. Lo destapó la prueba de carga (T-13+2).
+7. **Cada stream retenía una conexión de PostgreSQL** (`Depends(get_db)` vive
+   hasta que termina la respuesta, y en un stream eso es toda su duración):
+   con el objetivo de 50 streams el pool se agotaba. También lo destapó la
+   prueba de carga (T-13+3).
 
-**Lo que queda**: los 39 criterios sin marcar son el **Bloque 3** (módulos de
-producto: T-18 a T-24) y dos criterios de T-02/T-03 que dependen de que se
-arregle la facturación de la cuenta de GitHub.
+**Lo que queda**: los criterios sin marcar son del **Bloque 3** (módulos de
+producto: T-18 a T-21 y T-24) y dos criterios de T-02/T-03 que dependen de que
+se arregle la facturación de la cuenta de GitHub. Los tres últimos módulos del
+Bloque 3 que sí se han hecho (T-22 recuperación de contraseña, T-23
+FaceTemplate preparado y T-25 documentación de la API) no necesitan ninguna
+decisión de producto pendiente.
 
 
 
