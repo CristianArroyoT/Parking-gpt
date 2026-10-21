@@ -341,7 +341,23 @@ def crear_adjunto(
         _escribir(destino, contenido)
     destino_thumb = base / relativa_thumb
     if not destino_thumb.exists():
-        _escribir(destino_thumb, generar_miniatura(contenido))
+        try:
+            miniatura = generar_miniatura(contenido)
+        except (OSError, ValueError) as exc:
+            # El fichero pasa la comprobación de la firma (JPEG/PNG/WebP)
+            # pero **no se puede decodificar**: está corrupto o truncado.
+            # Es un problema del fichero que nos manda el cliente, no del
+            # servidor, así que se responde 400 y no 500. Sin esto, subir
+            # una foto a medio escribir tumbaba la petición con un 500.
+            _unlink(destino)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"El fichero '{nombre_original}' está corrupto o no se "
+                    "puede decodificar como imagen"
+                ),
+            ) from exc
+        _escribir(destino_thumb, miniatura)
 
     ahora = datetime.now(timezone.utc)
     retencion = get_settings().incident_attachment_retention_days

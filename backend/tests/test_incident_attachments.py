@@ -570,3 +570,57 @@ def test_nombre_de_fichero_saneado(client, db_session, datos, volumen):
     assert "/" not in nombre
     assert '"' not in nombre
     assert nombre.endswith(".jpg")
+
+
+def _png_con_raster_incoherente() -> bytes:
+    """PNG estructuralmente válido pero cuyo raster no cuadra con el IHDR.
+
+    ``Pillow.verify()`` sólo comprueba los chunks y sus CRC (no
+    descomprime el raster), así que este fichero **pasa** la validación
+    del servicio; el fallo salta al decodificarlo, que es donde se
+    genera la miniatura. Es el caso que devolvía un 500.
+    """
+    import struct
+    import zlib
+
+    def chunk(tipo: bytes, datos: bytes) -> bytes:
+        cuerpo = tipo + datos
+        return (
+            struct.pack(">I", len(datos))
+            + cuerpo
+            + struct.pack(">I", zlib.crc32(cuerpo) & 0xFFFFFFFF)
+        )
+
+    ihdr = struct.pack(">IIBBBBB", 4, 4, 8, 2, 0, 0, 0)
+    # Raster de 1 fila cuando el IHDR declara 4x4.
+    idat = zlib.compress(b"\x00\xff\x00\x00")
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"IDAT", idat)
+        + chunk(b"IEND", b"")
+    )
+
+
+def test_fichero_con_firma_valida_pero_contenido_corrupto_da_400(
+    client, db_session, datos, volumen
+):
+    """Una imagen corrupta es un 400, no un 500.
+
+    El fichero pasa la validacion de la firma (JPEG/PNG/WebP) y la
+    comprobacion de Pillow, pero no se puede decodificar: al generar la
+    miniatura reventaba la peticion con un 500. Es un problema del
+    fichero que manda el cliente, no del servidor.
+    """
+    token = datos["tokens"]["operador"]
+    alert_id = _crear_incidente(client, token, datos["parking_a"].id)
+
+    r = _subir(
+        client, token, alert_id,
+        [("incoherente.png", _png_con_raster_incoherente(), "image/png")],
+    )
+    assert r.status_code == 400, r.text
+    assert "corrupto" in r.text.lower() or "decodificar" in r.text.lower()
+
+    # Y no queda ningun adjunto en la base de datos ni el fichero en disco.
+    assert db_session.query(IncidentAttachment).count() == 0
