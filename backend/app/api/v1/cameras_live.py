@@ -42,15 +42,17 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.core import db as db_mod
 from app.core.db import get_db
 from app.core.deps import (
     enforce_parking_membership,
     get_current_user_or_query_token,
+    oauth2_scheme,
 )
 from app.models.parking import Camera
 from app.models.user import User
 from app.services.cameras.live_streams import live_streams
-from app.services.cameras.stream import mjpeg_generator
+from app.services.cameras.stream import CameraRef, mjpeg_generator
 
 router = APIRouter(prefix="/parkings", tags=["cámaras-live"])
 
@@ -75,8 +77,39 @@ def _parking_context_for_live(
     ``parking_context`` dependiera de ``get_current_user_or_query_token``,
     lo cual expandía el scope a TODOS los routers que la usan. Eso
     revertió y se opt-in por endpoint.
+
+    NOTA: este dep **no** se usa en el endpoint del preview (ver
+    ``live_preview``): una dependencia con ``Depends(get_db)`` mantiene su
+    sesión viva hasta que la respuesta termina, y en un stream eso es
+    toda la duración del stream.
     """
     return enforce_parking_membership(current, parking_id, db)
+
+
+async def _usuario_con_membrescia(parking_id: int, request: Request) -> User:
+    """Autenticación + RBAC con una sesión de BD **corta**.
+
+    Por qué no como dependencia: ``Depends(get_db)`` mantiene la sesión
+    (y su conexión del pool) viva hasta que la respuesta termina. En un
+    endpoint de streaming eso significa **toda la duración del stream**:
+    con el objetivo de 50 streams simultáneos eso agota el pool de
+    conexiones y deja conexiones *idle in transaction* cuando el stream
+    se aborta (bug P1 encontrado por la prueba de carga del 2026-10-21,
+    T-13).
+
+    Aquí se abre la sesión, se comprueba y se cierra ANTES de empezar a
+    emitir. El comportamiento (401 sin token, 403 sin membresía) es el
+    mismo que con dependencias.
+    """
+    with db_mod.SessionLocal() as db:
+        bearer = await oauth2_scheme(request)
+        current = get_current_user_or_query_token(
+            request=request,
+            token=request.query_params.get("token"),
+            bearer_token=bearer,
+            db=db,
+        )
+        return enforce_parking_membership(current, parking_id, db)
 
 
 @router.get("/{parking_id}/cameras/{camera_id}/live")
@@ -84,17 +117,41 @@ async def live_preview(
     parking_id: int,
     camera_id: int,
     request: Request,
-    _user: User = Depends(get_current_user_or_query_token),
-    _ctx: User = Depends(_parking_context_for_live),
-    db: Session = Depends(get_db),
 ) -> StreamingResponse:
-    cam = (
-        db.query(Camera)
-        .filter(Camera.id == camera_id, Camera.parking_id == parking_id)
-        .one_or_none()
-    )
-    if not cam:
-        raise HTTPException(status_code=404, detail="Cámara no encontrada")
+    # OJO: aquí NO se usan dependencias con ``Depends(get_db)``. Con esas
+    # dependencias la sesión (y su conexión al pool) se mantiene viva
+    # hasta que el stream termina: con 50 streams simultáneos —el
+    # objetivo de producto— eso agota el pool de conexiones (5 + 10 de
+    # salida) y deja conexiones "idle in transaction" cuando el stream
+    # se aborta (bug P1 encontrado por la prueba de carga del
+    # 2026-10-21, T-13).
+    #
+    # La sesión se abre, se comprueba auth + RBAC, se lee lo justo de la
+    # cámara y se cierra ANTES de empezar a emitir frames; el generador
+    # recibe un ``CameraRef`` (sólo id y rtsp_url), no un modelo ORM vivo.
+    #
+    # Se usa ``db_mod.SessionLocal()`` y no ``from app.core.db import
+    # SessionLocal`` a propósito: el nombre importado queda congelado en
+    # el momento del import y los tests (que parchean
+    # ``app.core.db.SessionLocal``) no lo alcanzarían.
+    with db_mod.SessionLocal() as db:
+        bearer = await oauth2_scheme(request)
+        current = get_current_user_or_query_token(
+            request=request,
+            token=request.query_params.get("token"),
+            bearer_token=bearer,
+            db=db,
+        )
+        enforce_parking_membership(current, parking_id, db)
+
+        cam = (
+            db.query(Camera)
+            .filter(Camera.id == camera_id, Camera.parking_id == parking_id)
+            .one_or_none()
+        )
+        if not cam:
+            raise HTTPException(status_code=404, detail="Cámara no encontrada")
+        ref = CameraRef(id=cam.id, rtsp_url=cam.rtsp_url)
 
     session = await live_streams.try_acquire(camera_id)
     if session is None:
@@ -106,7 +163,7 @@ async def live_preview(
     async def safe_gen():
         try:
             async for chunk in mjpeg_generator(
-                cam,
+                ref,
                 session.shutdown_event,
                 request.is_disconnected,
             ):

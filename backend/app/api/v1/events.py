@@ -29,10 +29,12 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.core import db as db_mod
 from app.core.db import get_db
 from app.core.deps import (
     enforce_parking_membership,
     get_current_user_or_query_token,
+    oauth2_scheme,
 )
 from app.core.redis_async import get_async_redis
 from app.models.user import User
@@ -74,10 +76,26 @@ def _parking_context_for_events(
 async def stream_parking_events(
     request: Request,
     parking_id: int,
-    _user: User = Depends(get_current_user_or_query_token),
-    _ctx: User = Depends(_parking_context_for_events),
-    _db: Session = Depends(get_db),
 ) -> StreamingResponse:
+    # OJO: este endpoint **no** usa dependencias con ``Depends(get_db)``.
+    # Con ellas, la sesión (y su conexión del pool) se mantendría viva
+    # hasta que el stream terminaría: con 50 streams simultáneos —el
+    # objetivo de producto— eso agota el pool de conexiones y deja
+    # conexiones "idle in transaction" cuando el stream se aborta (bug P1
+    # encontrado por la prueba de carga del 2026-10-21, T-13). El stream
+    # SSE no usa la BD para nada más: todo pasa por Redis (pub/sub).
+    #
+    # Auth + RBAC se resuelven con una sesión CORTA, abierta y cerrada
+    # aquí, antes de empezar a emitir.
+    with db_mod.SessionLocal() as db:
+        bearer = await oauth2_scheme(request)
+        current = get_current_user_or_query_token(
+            request=request,
+            token=request.query_params.get("token"),
+            bearer_token=bearer,
+            db=db,
+        )
+        enforce_parking_membership(current, parking_id, db)
     """Stream SSE con eventos de la sucursal.
 
     Autenticación: ``Authorization: Bearer <jwt>`` o ``?token=<jwt>``

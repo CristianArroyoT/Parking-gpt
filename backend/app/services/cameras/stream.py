@@ -61,7 +61,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import AsyncIterator
 
@@ -193,8 +195,77 @@ def _open_capture(rtsp_url: str) -> cv2.VideoCapture:
     return cap
 
 
+@dataclass(frozen=True)
+class CameraRef:
+    """Datos mínimos de una cámara para el preview en vivo.
+
+    Existe para que el preview **no mantenga una sesión de BD abierta
+    durante todo el stream**. Con ``Depends(get_db)`` la sesión (y su
+    conexión al pool) se queda viva hasta que el stream termina: con el
+    objetivo de 50 streams simultáneos eso **agota el pool** de
+    conexiones (5 + 10 de salida) y las conexiones quedan *idle in
+    transaction* cuando el stream se aborta (bug P1 encontrado por la
+    prueba de carga, T-13).
+
+    El endpoint extrae ``id`` y ``rtsp_url`` y cierra la sesión antes de
+    empezar a emitir frames.
+    """
+
+    id: int
+    rtsp_url: str
+
+
+class CapturaSincronizada:
+    """Envuelve un ``cv2.VideoCapture`` y serializa TODAS sus llamadas.
+
+    Por qué hace falta (bug P0, encontrado por la prueba de carga del
+    2026-10-21, T-13): las lecturas se ejecutan con ``asyncio.to_thread``,
+    o sea **en un hilo del pool**. Si el cliente cierra el stream
+    mientras ese hilo sigue dentro de ``cap.grab()``, el ``finally`` del
+    generador llama a ``cap.release()`` **en paralelo con la lectura en
+    vuelo**: OpenCV/FFmpeg libera las estructuras internas del decoder
+    mientras otro hilo las está usando y el proceso **aborta con
+    SIGSEGV (exit 139)**.
+
+    Medido: 4 de 4 reproducciones. En QA el ``--reload`` lo tapa (el
+    proceso revierte y aparece como "recarga"), pero **en producción el
+    backend entero cae cada vez que un operador cierra el modal de
+    previsualización**.
+
+    El lock es un ``threading.Lock`` (NO asyncio) porque las partes
+    implicadas viven en hilos distintos: el ``grab()`` en el hilo del
+    pool y el ``release()`` en el hilo del event loop. Con este lock,
+    ``release()`` **espera** a que termine la lectura en curso en vez de
+    competir con ella.
+
+    El coste es acotado: el ``release()`` bloquea el hilo del event loop
+    lo que tarde la lectura en curso (milisegundos con una cámara viva).
+    Es un precio menor que un SIGSEGV.
+    """
+
+    def __init__(self, cap: cv2.VideoCapture) -> None:
+        self._cap = cap
+        self._lock = threading.Lock()
+
+    def is_opened(self) -> bool:
+        with self._lock:
+            return bool(self._cap.isOpened())
+
+    def grab(self) -> bool:
+        with self._lock:
+            return bool(self._cap.grab())
+
+    def retrieve(self):
+        with self._lock:
+            return self._cap.retrieve()
+
+    def release(self) -> None:
+        with self._lock:
+            self._cap.release()
+
+
 async def mjpeg_generator(
-    camera: Camera,
+    camera: Camera | CameraRef,
     shutdown_event: asyncio.Event,
     is_disconnected_callable,
     frame_interval_s: float | None = None,
@@ -202,7 +273,10 @@ async def mjpeg_generator(
     """Genera frames JPEG multipart hasta que el cliente desconecte.
 
     Args:
-        camera: modelo SQLAlchemy con ``rtsp_url``.
+        camera: modelo SQLAlchemy ``Camera`` o un ``CameraRef`` con los
+            mismos campos. Se usa **sólo** ``id`` y ``rtsp_url``: el
+            preview no mantiene ninguna sesión de BD abierta (ver
+            ``CameraRef``).
         shutdown_event: ``asyncio.Event`` que el ``LiveStreamRegistry``
             activa cuando queremos terminar la sesión (registry.release()
             o cierre del modal en el cliente).
@@ -223,7 +297,7 @@ async def mjpeg_generator(
     if interval_s < 0:
         interval_s = 0.0
     try:
-        cap = await asyncio.to_thread(_open_capture, camera.rtsp_url)
+        cap_cv = await asyncio.to_thread(_open_capture, camera.rtsp_url)
     except Exception as exc:  # noqa: BLE001 — defensiva
         log.warning(
             "mjpeg: no se pudo instanciar VideoCapture camera=%s: %s",
@@ -231,7 +305,12 @@ async def mjpeg_generator(
         )
         return
 
-    if not cap.isOpened():
+    # Todas las llamadas a OpenCV pasan por el wrapper con lock: así
+    # ``release()`` nunca compite con un ``grab()`` en vuelo (SIGSEGV,
+    # ver CapturaSincronizada).
+    cap = CapturaSincronizada(cap_cv)
+
+    if not cap.is_opened():
         log.warning(
             "mjpeg: stream no abierto camera=%s url=%s",
             camera.id, camera.rtsp_url,

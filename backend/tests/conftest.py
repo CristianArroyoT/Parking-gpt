@@ -188,6 +188,15 @@ def db_session(monkeypatch, test_engine):
     monkeypatch.setattr(ingest_mod, "SessionLocal", SessionLocal)
     monkeypatch.setattr(inc_mod, "SessionLocal", SessionLocal)
 
+    # También el ``SessionLocal`` de la app. Los endpoints que abren su
+    # propia sesión corta (p.ej. el preview MJPEG, que no puede mantener
+    # una conexión del pool durante todo el stream) usan
+    # ``app.core.db.SessionLocal``: sin este parche apuntan al motor
+    # original, que en SQLite en memoria es OTRA base distinta (cada
+    # conexión abre su propia) y en PostgreSQL es la base de desarrollo.
+    from app.core import db as db_mod
+    monkeypatch.setattr(db_mod, "SessionLocal", SessionLocal)
+
     session = SessionLocal()
     try:
         yield session
