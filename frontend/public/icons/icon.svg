@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="solidAPP">
+  <!--
+    Icono de la PWA de solidAPP (T-24).
+
+    Es la FUENTE DE VERDAD del diseño: los PNG de `frontend/public/icons/`
+    se generan con `frontend/scripts/generar-iconos-pwa.py`, que comparte
+    esta misma geometría (degradado #0f172a → #2563eb y la "P" formada
+    por un asta y un aro).
+
+    "P" = asta (184..240 x 72..420) + media corona de radio exterior 112
+    e interior 62 con centro en (240, 184), con el hueco recortado.
+  -->
+  <defs>
+    <linearGradient id="solidapp-marca" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f172a" />
+      <stop offset="1" stop-color="#2563eb" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#solidapp-marca)" />
+  <path
+    fill="#ffffff"
+    fill-rule="evenodd"
+    d="M184 72 H240 A112 112 0 0 1 240 296 V420 H184 Z M240 122 A62 62 0 0 1 240 246 Z"
+  />
+</svg>
