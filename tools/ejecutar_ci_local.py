@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -64,21 +65,53 @@ def _pasos(job: dict) -> list[tuple[str, str, dict, bool]]:
     return salida
 
 
+def _a_ipv4(valor: str) -> str:
+    """Cambia ``localhost`` por ``127.0.0.1`` en las URLs de servicio.
+
+    POR QUÉ (2026-10-21): en esta máquina (Windows) ``localhost``
+    resuelve **primero a IPv6 (``::1``)**, y Docker publica PostgreSQL y
+    Redis **sólo en IPv4**. El cliente de PostgreSQL prueba ``::1``
+    primero, se queda esperando el *timeout* de conexión (8,4 s medidos
+    para una conexión que con ``127.0.0.1`` tarda 1 ms) y sólo después
+    prueba IPv4. Con los pasos del CI, que abren varias conexiones, eso
+    convertía el job "integration" en un paso de minutos que parecía
+    colgado.
+
+    En un runner de Linux (el de GitHub) no pasa: ahí ``localhost`` es
+    127.0.0.1. Por eso el cambio va **sólo en la réplica local**, no en
+    el workflow.
+
+    OJO con el patrón: la URL del CI es
+    ``postgresql+psycopg://parking:parking@localhost:5432/...``, así que
+    ``localhost`` va **detrás de la arroba**, no detrás de ``://``.
+    """
+    return re.sub(r"localhost(?=:\d)", "127.0.0.1", valor)
+
+
 def _ejecutar_job(nombre_job: str, job: dict, bash: str, saltar: list[str]) -> tuple[int, int]:
     """Ejecuta un job. Devuelve (fallos, pasos tolerados)."""
     # El directorio de trabajo y las variables del job.
     cwd = RAIZ / job.get("defaults", {}).get("run", {}).get("working-directory", ".")
     entorno = {**os.environ, **(job.get("env", {}) or {})}
+    entorno = {clave: _a_ipv4(valor) for clave, valor in entorno.items()}
+    # Sin búfer: si un paso escribe en una tubería y el lector no está
+    # pendiente, la salida se queda en el búfer del hijo y se pierde al
+    # terminar. Con esto, lo que el paso ha escrito se ve ya.
+    entorno["PYTHONUNBUFFERED"] = "1"
 
-    print(f"\n{'=' * 70}\nJob '{nombre_job}' en {cwd}")
+    print(f"\n{'=' * 70}\nJob '{nombre_job}' en {cwd}", flush=True)
     fallos = 0
     tolerados = 0
     for nombre, orden, env_paso, continue_on_error in _pasos(job):
         if any(m in nombre for m in saltar):
-            print(f"\n=== {nombre}  (SALTADO)")
+            print(f"\n=== {nombre}  (SALTADO)", flush=True)
             continue
-        print(f"\n=== {nombre}")
+        print(f"\n=== {nombre}", flush=True)
         entorno_paso = {**entorno, **env_paso}
+        # El ``env`` del propio paso manda sobre el del job, así que
+        # también hay que pasarlo por IPv4 (aquí es donde vive el
+        # DATABASE_URL del job "integration").
+        entorno_paso = {clave: _a_ipv4(valor) for clave, valor in entorno_paso.items()}
         resultado = subprocess.run(
             [bash, "-c", orden],
             cwd=str(cwd), env=entorno_paso, check=False,
@@ -130,12 +163,18 @@ def main() -> int:
     if args.all:
         # Todos los jobs, como en GitHub (donde corren en paralelo y uno
         # no para los demás). Al final, un resumen.
+        #
+        # OJO: todos los ``print`` van con ``flush=True``. Si el proceso
+        # muere (o lo matan) a mitad, la salida que ya se ha producido
+        # queda en el buffer y se pierde: sin ``flush``, el informe de
+        # una ejecución que se cuelga es una pantalla en blanco, que es
+        # justo cuando más falta hace.
         resultados: list[tuple[str, int, int]] = []
         for nombre_job, job in jobs.items():
             fallos, tolerados = _ejecutar_job(nombre_job, job, bash, args.saltar)
             resultados.append((nombre_job, fallos, tolerados))
-        print("\n" + "=" * 70)
-        print("RESUMEN DEL CI LOCAL")
+        print("\n" + "=" * 70, flush=True)
+        print("RESUMEN DEL CI LOCAL", flush=True)
         for nombre_job, fallos, tolerados in resultados:
             if fallos:
                 estado = "ROJO"
@@ -143,12 +182,12 @@ def main() -> int:
                 estado = f"VERDE ({tolerados} paso(s) con continue-on-error)"
             else:
                 estado = "VERDE"
-            print(f"  {estado:<45} {nombre_job}")
+            print(f"  {estado:<45} {nombre_job}", flush=True)
         total = sum(f for _n, f, _t in resultados)
         if total:
-            print(f"\n{total} job(s) en rojo.")
+            print(f"\n{total} job(s) en rojo.", flush=True)
             return 1
-        print("\nTodos los jobs pasan en local.")
+        print("\nTodos los jobs pasan en local.", flush=True)
         return 0
 
     if args.job not in jobs:

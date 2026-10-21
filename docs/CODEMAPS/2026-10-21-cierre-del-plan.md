@@ -498,6 +498,49 @@ puntos que fallaban:
 Verificado con Redis caído: `{"database":"ok","redis":"TimeoutError"}` a
 la primera, sin esperar.
 
+### 3-quattuordecima. El CI local se colgaba: `localhost` es IPv6 en Windows (2026-10-21)
+
+El job "integration" de la réplica local se quedaba **minutos** en el paso
+"Las migraciones y los modelos coinciden", sin error visible. La causa no
+era el código:
+
+| Medida | Tiempo |
+|---|---|
+| `psycopg.connect` a `localhost:5432` | **8,42 s** |
+| `psycopg.connect` a `127.0.0.1:5432` | **1 ms** |
+
+En esta máquina (Windows) `localhost` resuelve **primero a IPv6
+(`::1`)**, y Docker publica PostgreSQL y Redis **sólo en IPv4**. El
+cliente prueba `::1`, se queda esperando el *timeout* de conexión y sólo
+después prueba IPv4. En un runner de Linux (el de GitHub) no pasa: ahí
+`localhost` es `127.0.0.1`. Por eso el arreglo va **sólo en la réplica
+local**, no en el workflow.
+
+El arreglo, en `tools/ejecutar_ci_local.py`: las variables de entorno de
+cada paso se pasan por un filtro que cambia `localhost` por `127.0.0.1`
+cuando va seguido de `:<puerto>`. Ojo con el patrón: la URL del CI es
+`postgresql+psycopg://parking:parking@localhost:5432/...`, así que
+`localhost` va **detrás de la arroba**, no detrás de `://` (la primera
+versión del filtro no cubría ese caso y no arreglaba nada).
+
+De paso, dos robustezas de la misma tanda:
+
+| Cambio | Por qué |
+|---|---|
+| La salida de los subprocesos va a un **fichero** temporal, con `stdin` a `DEVNULL` y un tope de 600 s | Un hijo que hereda una tubería puede quedarse esperando un EOF que no llega: el paso se cuelga sin ningún error visible |
+| Los `print` del ejecutor van con `flush=True` y los pasos con `PYTHONUNBUFFERED=1` | Sin esto, si el proceso muere a mitad, la salida ya producida se queda en el búfer y se pierde: el informe de una ejecución colgada era una pantalla en blanco |
+
+Y una nota de método: **`task_stop` no mata a los hijos**. Al limpiar
+había **tres** ejecuciones del CI local simultáneas peleándose por las
+mismas bases de datos (`solidapp_migraciones`, `solidapp_despliegue`),
+que se dropeaban mutuamente. Eso también provocaba "cuelgues" que no
+tenían nada que ver con el código. Hay que matar a los hijos a mano
+antes de relanzar.
+
+**Resultado**: los cuatro jobs del workflow pasan en local (backend,
+integration, docker-build y frontend), con el único `mypy` tolerado por
+`continue-on-error`.
+
 
 | Modelo | Tabla | Notas |
 |---|---|---|
