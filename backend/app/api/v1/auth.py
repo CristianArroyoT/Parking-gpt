@@ -30,6 +30,32 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def _bind_audit_user(request: Request | None, user: User) -> None:
+    """Enriquece el contexto de auditoría con el ``user_id`` del login.
+
+    POR QUÉ (T-08, plan maestro 2026-10-21): la petición de login NO
+    lleva header ``Authorization`` — el cliente todavía no tiene token—,
+    así que el ``AuditMiddleware`` no tiene ningún JWT que decodificar
+    y su ``request.state.audit["user_id"]`` queda a ``None``. Pero el
+    handler, después de validar la contraseña, SÍ sabe quién entra.
+
+    Sin este enrichment la auditoría de accesos queda coja: la fila
+    ``login_success`` no dice QUIÉN entró, sólo que alguien entró. Y
+    como el login es el único punto donde el usuario aún no tiene
+    token, es la única acción del sistema en la que el middleware
+    estructuralmente no puede completar la fila.
+
+    El enrichment es aditivo: no se toca ``ip`` ni ``correlation_id``
+    (que sólo el middleware puede conocer), sólo se rellena el
+    ``user_id`` que el middleware no puede deducir aquí.
+    """
+    if request is None:
+        return
+    audit_ctx = getattr(request.state, "audit", None)
+    if isinstance(audit_ctx, dict):
+        audit_ctx["user_id"] = user.id
+
+
 def _build_tokens(user: User) -> TokenPair:
     settings = get_settings()
     role_value = user.role.value if hasattr(user.role, "value") else str(user.role)
@@ -109,6 +135,9 @@ def login_json(
             status_code=status.HTTP_403_FORBIDDEN, detail="Usuario inactivo"
         )
     # Login OK: audit.
+    # El middleware no puede saber quién entra (no hay token en la
+    # request), así que le damos el user_id que el handler sí conoce.
+    _bind_audit_user(request, user)
     record_audit_from_request(
         request, db,
         action="login_success",
@@ -139,6 +168,9 @@ def login_oauth(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas"
         )
+    # Mismo enrichment que en el login JSON: el handler sabe quién
+    # entra, el middleware no (no hay token en la request de login).
+    _bind_audit_user(request, user)
     record_audit_from_request(
         request, db,
         action="login_success",
