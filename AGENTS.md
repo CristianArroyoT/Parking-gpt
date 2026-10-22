@@ -41,11 +41,11 @@ Hace falta una **tercera** fuente: el caso de mentira escrito a mano.
 ## Comandos que funcionan (verificados)
 
 ```bash
-# La salud del repo en un comando: 24 comprobaciones (~2 min)
+# La salud del repo en un comando: 25 comprobaciones (~2 min)
 python tools/verificar_repo.py
 python tools/verificar_repo.py --completo      # + CI local y QA en 5 anchos (~40 min)
 
-# Las 23 autopruebas de las puertas
+# Las 24 autopruebas de las puertas
 python tools/autopruebas.py
 python tools/autopruebas.py --estricto          # lo "no comprobado" tambien falla
 
@@ -76,6 +76,7 @@ python tools/verificar_nginx_body_size.py --autoprueba
 python tools/verificar_contexto_build.py --autoprueba
 python tools/verificar_rate_limit_unico.py --autoprueba
 python tools/verificar_lockfile.py --autoprueba
+python tools/verificar_dependencias.py --autoprueba   # OSV: vulnerabilidades
 python tools/verificar_compose_produccion.py --autoprueba
 python tools/verificar_readme_despliegue.py --autoprueba
 python tools/extraer_api.py --autoprueba
@@ -144,8 +145,8 @@ docker run --rm -v "D:\Parking:/repo" -w /repo rhysd/actionlint:latest .github/w
   una vez por rol, así que **no la lances 5 veces seguidas** (15 inicios →
   429): usa `python frontend/scripts/qa_visual.py --anchos
   "414,768,1024,1232,1440"`, que recorre los 5 anchos con 3 inicios.
-- La suite da **652 passed, 9 skipped** en SQLite y **661 passed** en PostgreSQL
-  en el host (lo que ve el CI), y **651 passed, 10 skipped** / **660 passed, 1 skipped** en el
+- La suite da **679 passed, 9 skipped** en SQLite y **688 passed** en PostgreSQL
+  en el host (lo que ve el CI), y **670 passed, 10 skipped** / **679 passed, 1 skipped** en el
   contenedor de desarrollo: allí sólo se monta `backend/`, así que el test
   que comprueba la nota del README sobre el reconocimiento facial se salta
   (el contenedor no tiene el README). No es una deriva.
@@ -181,7 +182,41 @@ docker run --rm -v "D:\Parking:/repo" -w /repo rhysd/actionlint:latest .github/w
   `ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION` (autorizar Node *inseguro*).
   Esa variable ya no está en el workflow: no la vuelvas a poner.
 
-## El bloqueo conocido
+- **La puerta de dependencias necesita red.** `tools/verificar_dependencias.py`
+  consulta **OSV** (la base que alimenta `pip-audit` y `npm audit`). Si OSV no
+  responde devuelve el **código 3** ("no comprobado"), que **no** es verde: en
+  el CI eso es un paso rojo, a propósito (un verde sin mirar no vale). Las
+  excepciones están en `tools/dependencias_aceptadas.json` y cada una
+  necesita un **motivo** y una **prueba**; una excepción sin motivo hace
+  fallar la puerta.
+- **El backend tiene 26 dependencias directas y el frontend 55 paquetes de
+  producción**: la puerta mira esas, y **informa** del resto (el árbol
+  transitivo y las dependencias de desarrollo). Mirar *todo* lo instalado
+  daba 260 avisos de los que sólo 68 eran reales (el resto, paquetes del
+  host ajenos al proyecto): una puerta que grita de más es una puerta que
+  nadie mira.
+- **`python-jose` tiene un aviso sin versión arreglada** (GHSA-3qf3-8w2g-rqmx)
+  y está en la lista de excepciones: no es alcanzable porque el despliegue es
+  de clave compartida (HS256), `decode_token` restringe los algoritmos y la
+  configuración **rechaza** cualquier `JWT_ALGORITHM` que no sea HS256. La
+  prueba son los tests de `backend/tests/test_jwt_algoritmos.py`.
+- **Pillow 13 exige Python >= 3.11** (el CI y el contenedor ya lo son) y trae
+  tipos más estrictos: `Image.open` devuelve `ImageFile` y `convert`
+  devuelve `Image`, así que reasignar la misma variable con las dos cosas ya
+  no compila con `mypy --strict`.
+- **Añadir una tarea de Celery exige reiniciar el worker**: los workers no
+  recargan el código, y una tarea nueva sale como *"unregistered task"*. En
+  producción no pasa (la imagen se reconstruye), pero en el stack de QA:
+  `docker compose restart celery-worker`.
+- **Todo el compose se publica en `127.0.0.1`** (T-92): la API ya no es
+  alcanzable desde la red de la sucursal. Dentro de la red de Docker se sigue
+  hablando por el nombre del servicio (`backend:8000`).
+- **El access log no guarda la query string** (T-91): nginx usa un
+  `log_format` con `$uri` y el backend filtra el logger `uvicorn.access`. El
+  frontend manda el JWT en la query string para las miniaturas y el stream
+  MJPEG (un `<img>` no puede mandar cabeceras), así que **cualquier log de
+  peticiones** es un sitio donde puede aparecer una credencial.
+- **El bloqueo conocido**
 
 El **CI remoto no puede correr**: la cuenta de GitHub tiene el pago
 pendiente y GitHub rechaza los jobs antes de asignarles un runner. El

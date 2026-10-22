@@ -431,14 +431,33 @@ def purgar_adjuntos_vencidos(
     """
     settings = get_settings()
     dias = retention_days if retention_days is not None else settings.incident_attachment_retention_days
-    corte = datetime.now(timezone.utc) - timedelta(days=dias)
+    ahora = datetime.now(timezone.utc)
+    corte = ahora - timedelta(days=dias)
     base = base_dir or directorio_base()
 
-    adjuntos = (
-        db.query(IncidentAttachment)
-        .filter(IncidentAttachment.created_at < corte)
-        .all()
-    )
+    # Criterio de purga (T-95): el MISMO que usa el endpoint al servir.
+    # Antes se purgaba por ``created_at < ahora - retencion`` y el
+    # endpoint no miraba nada: la foto se seguia sirviendo aunque
+    # ``expires_at`` hubiera pasado. Dos criterios para la misma regla
+    # es como se rompe una regla.
+    if retention_days is None:
+        criterio = or_(
+            # Lo que ha caducado: es exactamente lo que el endpoint
+            # devuelve con 410 Gone.
+            IncidentAttachment.expires_at.is_not(None)
+            & (IncidentAttachment.expires_at < ahora),
+            # Los antiguos, sin ``expires_at`` (antes de que existiera
+            # el campo), se purgan por su fecha de creacion: si no, esos
+            # ficheros no se borrarian nunca.
+            IncidentAttachment.expires_at.is_(None)
+            & (IncidentAttachment.created_at < corte),
+        )
+    else:
+        # Retencion explicita (``--retention-days``): se purga por la
+        # fecha de creacion, que es lo que el operador ha pedido.
+        criterio = IncidentAttachment.created_at < corte
+
+    adjuntos = db.query(IncidentAttachment).filter(criterio).all()
     rutas: list[Path] = []
     for adjunto in adjuntos:
         for relativa in (adjunto.storage_path, adjunto.thumbnail_path):

@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **523 de 524 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **529 de 530 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1829,6 +1829,24 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] La puerta de tareas de Celery sigue en verde y reconoce la tarea nueva como despachada.
   - [x] 4 tests nuevos; prueba inversa: sin el encolado y sin el suelo, los tests **fallan**.
   - [x] Los 27 tests que ya había del flujo de reset siguen pasando (el seam que interceptan pasa a ser el encolado).
+
+
+
+### T-95 · P2 (privacidad) — la retención de las fotos no se aplicaba al descargarlas
+
+- **Estado**: **completado** — la caducidad se aplica al leer y la purga está programada
+- **Contexto**: al subir un adjunto se calcula su `expires_at` (90 días por defecto, por minimización de datos: LOPDGDD). Pero **nadie lo comprobaba al descargarlo**: la foto se servía igual aunque su plazo hubiera vencido. Y la purga era un script manual (`python -m app.scripts.purge_incident_attachments`) que nadie se acordaba de lanzar: la retención existía en el papel y no en los hechos.
+- **El arreglo** (dos mitades, y el mismo criterio en las dos):
+  1. **al leer**: la descarga y la miniatura devuelven **410 Gone** si el adjunto ha caducado. El `DELETE` **sí** puede borrar uno caducado (para eso está: para limpiarlo).
+  2. **al purgar**: una tarea de Celery (`solidapp.purge_incident_attachments`) en el `beat_schedule` (diario, a las 3:17) borra los caducados y sus ficheros.
+- **El criterio es uno solo**: la purga filtraba por `created_at < ahora - retención` y el endpoint no miraba nada. Dos criterios para la misma regla es como se rompe una regla: ahora los dos usan `expires_at` (y los adjuntos antiguos sin `expires_at` se purgan por su fecha de creación, para que no se queden ahí para siempre).
+- **Criterios de aceptación**:
+  - [x] Un adjunto caducado da **410** en la descarga y en la miniatura; uno vigente se sigue sirviendo (200).
+  - [x] El `DELETE` de un adjunto caducado sigue funcionando (204).
+  - [x] La tarea programada borra los caducados y **no toca** los que están en plazo.
+  - [x] La tarea está en el `beat_schedule` y la puerta de tareas de Celery la reconoce.
+  - [x] 5 tests nuevos; prueba inversa: sin la comprobación de caducidad, el test **falla**.
+  - [x] Ojo con las fechas: SQLite no guarda la zona horaria, así que el `datetime` vuelve «naive» y hay que normalizarlo antes de compararlo (el mismo ajuste que hace el resto del repo).
 
 
 ### T-14 · I3 — OCR con GPU

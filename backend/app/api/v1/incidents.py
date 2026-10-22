@@ -38,6 +38,7 @@ acepta como adjunto (es XML ejecutable).
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import (
@@ -190,6 +191,35 @@ def _adjunto_de_sucursal(
     return adjunto
 
 
+def _exigir_no_caducado(adjunto: IncidentAttachment) -> None:
+    """Si el adjunto ha caducado por la retencion, no se sirve (410 Gone).
+
+    POR QUE (T-95, 2026-10-23): la retencion (90 dias por defecto, por
+    minimizacion de datos: LOPDGDD) se calculaba al subir el adjunto
+    (``expires_at``) pero **nadie lo comprobaba al descargar**: la foto
+    se servia igual aunque su plazo hubiera vencido. El unico sitio
+    donde se cumplia era la purga, que era un script manual que nadie
+    se acordaba de lanzar.
+
+    OJO: el ``DELETE`` **si** puede borrar un adjunto caducado (para
+    eso esta: para limpiarlo), asi que la comprobacion va en los
+    endpoints que sirven los BYTES, no en el helper comun.
+    """
+    caducidad = adjunto.expires_at
+    if caducidad is None:
+        return
+    if caducidad.tzinfo is None:
+        # SQLite no guarda la zona horaria: al releerlo, el datetime
+        # vuelve "naive" y compararlo con un datetime con tz peta. Es el
+        # mismo ajuste que hacen el resto de servicios del repo.
+        caducidad = caducidad.replace(tzinfo=timezone.utc)
+    if caducidad <= datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="El adjunto ha caducado por la política de retención",
+        )
+
+
 @router.delete(
     "/attachments/{attachment_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -238,6 +268,7 @@ def descargar_adjunto_incidente(
     navegador nunca lo interpreta como HTML.
     """
     adjunto = _adjunto_de_sucursal(attachment_id, db, current_user)
+    _exigir_no_caducado(adjunto)
     ruta = adjuntos.directorio_base() / adjunto.storage_path
     if not ruta.exists():
         raise HTTPException(
@@ -265,6 +296,7 @@ def ver_miniatura_incidente(
     ``image/jpeg`` siempre y se puede servir en línea con ``nosniff``.
     """
     adjunto = _adjunto_de_sucursal(attachment_id, db, current_user)
+    _exigir_no_caducado(adjunto)
     if not adjunto.thumbnail_path:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

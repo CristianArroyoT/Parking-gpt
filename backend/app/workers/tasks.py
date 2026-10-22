@@ -356,6 +356,26 @@ def enviar_correo_reset(
     return {"enviado": enviado, "token_id": token_id}
 
 
+@celery_app.task(name="solidapp.purge_incident_attachments")  # type: ignore[untyped-decorator]
+def purgar_adjuntos_incidentes(retention_days: int | None = None) -> dict[str, Any]:
+    """Purga las fotos de incidentes que han pasado la retencion (T-95).
+
+    Antes esto era un script manual (``python -m
+    app.scripts.purge_incident_attachments``) que nadie se acordaba de
+    lanzar: la retencion existia en el papel y no en los hechos. Y
+    mientras tanto, la foto caducada **se seguia sirviendo** al
+    descargarla (T-95 lo cierra tambien en el endpoint).
+
+    Idempotente: si no hay nada que borrar, ``deleted=0``.
+    """
+    from app.services.incident_attachments import purgar_adjuntos_vencidos
+
+    with SessionLocal() as db:
+        resultado = purgar_adjuntos_vencidos(db, retention_days=retention_days)
+    log.info("purga de adjuntos de incidentes: %s", resultado)
+    return dict(resultado)
+
+
 @celery_app.task(name="solidapp.cleanup_failed_frames")  # type: ignore[untyped-decorator]
 def cleanup_failed_frames() -> dict[str, int]:
     """Purga /tmp/ocr-failed/*.jpg con mtime > N días.

@@ -60,6 +60,13 @@ celery_app.conf.beat_schedule = {
         "task": "solidapp.probe_heartbeats",
         "schedule": 60.0,  # cada 60 segundos exactos
     },
+    # T-95 (2026-10-23): purga diaria de las fotos de incidentes que han
+    # pasado la retencion (90 dias por defecto, LOPDGDD). Antes era un
+    # script manual que nadie lanzaba.
+    "purge-incident-attachments-daily": {
+        "task": "solidapp.purge_incident_attachments",
+        "schedule": crontab(minute=17, hour=3),  # 3:17 AM, hora valle.
+    },
     # Sprint Fase 3C: rotación de audit_logs (sprint 2026-07-01).
     # Borra ``audit_logs`` con ``created_at < now - audit_log_retention_days``
     # (default 365). Necesita el índice ``ix_audit_logs_created_at``
