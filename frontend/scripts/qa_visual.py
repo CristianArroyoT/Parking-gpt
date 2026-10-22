@@ -62,6 +62,7 @@ class Resultado:
     etiqueta: str
     ruta: str
     url_final: str
+    ancho: int = 0
     consola: list[str] = field(default_factory=list)
     red: list[str] = field(default_factory=list)
     texto: str = ""
@@ -240,25 +241,93 @@ def _visitar(pagina: Page, ruta: str) -> str | None:
     return None
 
 
-def _login(page: Page, email: str, password: str) -> bool:
-    """Inicia sesión. Devuelve False si no se pudo (no lanza).
+def _login(page: Page, email: str, password: str) -> tuple[bool, str]:
+    """Inicia sesión. Devuelve ``(ok, motivo_del_fallo)``.
 
     Es importante que **no lance**: si el servidor de desarrollo acaba
     de arrancar y tarda en responder, un timeout en la navegación
     tumbaría la QA entera y no dejaría revisar ninguna pantalla.
+
+    El motivo importa: sin él, un fallo de login se reportaba como
+    "no se pudo iniciar sesión" y no se distinguía un 429 (límite de
+    intentos) de un timeout. Con el motivo, el 429 se ve.
+
+    OJO con el 429: ``POST /auth/login`` tiene un rate-limit de 10
+    intentos por IP cada 5 minutos. Por eso la QA **inicia sesión una
+    sola vez por rol** y luego barre los anchos cambiando el viewport
+    de la misma página: 3 inicios de sesión en total, no 3 por ancho.
     """
+    estados: list[int] = []
+
+    def _capturar(respuesta) -> None:
+        if "/auth/login" in respuesta.url:
+            estados.append(respuesta.status)
+
+    page.on("response", _capturar)
     try:
         page.goto(f"{BASE}/login", wait_until="domcontentloaded", timeout=30000)
         page.fill("input[type=email]", email)
         page.fill("input[type=password]", password)
         page.click("button[type=submit]")
-    except Exception:
-        return False
+    except Exception as exc:  # noqa: BLE001 — la QA no debe abortar
+        return False, f"{type(exc).__name__}: {exc}"
     try:
         page.wait_for_url(lambda u: "/login" not in u, timeout=15000)
-    except Exception:
-        return False
-    return True
+    except Exception as exc:  # noqa: BLE001
+        estado = f" (HTTP {estados[-1]})" if estados else ""
+        if estados and estados[-1] == 429:
+            return False, (
+                "HTTP 429: límite de intentos de login (10 por IP cada 5 min). "
+                "No es un fallo de la pantalla: espera a que pase la ventana."
+            )
+        return False, f"no salió del login{estado}: {type(exc).__name__}"
+    return True, ""
+
+
+def _recorrer(
+    pagina: Page,
+    destino: Path,
+    ancho: int,
+    rol_esperado: str,
+    consola: list[str],
+    red: list[str],
+    resultados: list[Resultado],
+    avisos: list[str],
+) -> None:
+    """Recorre las pantallas de un rol (o las públicas) en un ancho."""
+    for etiqueta, ruta, rol_needed, nombre in PANTALLAS:
+        if rol_esperado == "ninguno":
+            if rol_needed != "ninguno":
+                continue
+        elif rol_needed != rol_esperado:
+            continue
+        consola.clear()
+        red.clear()
+        aviso = _visitar(pagina, ruta)
+        if aviso:
+            avisos.append(f"{etiqueta} @{ancho}px: {aviso}")
+        pagina.wait_for_timeout(700)
+        texto = pagina.inner_text("body")[:400].strip()
+        vacia = len(texto) < 40
+        captura = destino / f"{nombre}.png"
+        try:
+            pagina.screenshot(path=str(captura), full_page=True)
+        except Exception as exc:  # noqa: BLE001
+            consola.append(f"captura: {type(exc).__name__}")
+        resultados.append(
+            Resultado(
+                etiqueta=etiqueta,
+                ruta=ruta,
+                url_final=pagina.url,
+                ancho=ancho,
+                consola=list(consola[:6]),
+                red=list(red[:6]),
+                texto=texto,
+                vacia=vacia,
+                captura=str(captura),
+                desbordes=_desbordes(pagina),
+            )
+        )
 
 
 def main() -> int:
@@ -266,7 +335,7 @@ def main() -> int:
     ap.add_argument("--salida", default="D:/tmp/qa-solidapp")
     ap.add_argument(
         "--autoprueba", action="store_true",
-        help="Comprueba que el detector de desbordes sigue detectando (no necesita la app)",
+        help="Comprueba que el detector de desbordes sigue viendo (no necesita la app)",
     )
     ap.add_argument(
         "--ancho", type=int, default=1440,
@@ -276,16 +345,35 @@ def main() -> int:
             "donde se encontró el recorte de la columna 'Estado'."
         ),
     )
+    ap.add_argument(
+        "--anchos", default="",
+        help=(
+            "Varios anchos separados por comas, p. ej. '414,768,1024,1232,1440'. "
+            "En un solo proceso: se inicia sesión UNA vez por rol y se cambia "
+            "el viewport para cada ancho (si no, el rate-limit de login "
+            "bloquea la QA a partir del cuarto ancho)."
+        ),
+    )
     args = ap.parse_args()
     if args.autoprueba:
         return _autoprueba()
+
+    if args.anchos:
+        anchos = [int(a.strip()) for a in args.anchos.split(",") if a.strip()]
+    else:
+        anchos = [args.ancho]
+    if not anchos:
+        print("No hay ningún ancho que comprobar.")
+        return 2
+
     salida = Path(args.salida)
     salida.mkdir(parents=True, exist_ok=True)
-    viewport = {"width": args.ancho, "height": 900}
+    altura = 900
 
     resultados: list[Resultado] = []
     errores_login: list[str] = []
     avisos: list[str] = []
+    inicios_de_sesion = 0
 
     with sync_playwright() as p:
         navegador = p.chromium.launch(headless=True)
@@ -293,91 +381,73 @@ def main() -> int:
         # Las pantallas públicas (login, recuperación de contraseña) se
         # capturan en su propio contexto, SIN sesión: si se visitaran
         # después de iniciar sesión, el guard de ruta las redirigiría.
-        contexto_publico = navegador.new_context(viewport=viewport)
+        contexto_publico = navegador.new_context(
+            viewport={"width": anchos[0], "height": altura}
+        )
         pagina_publica = contexto_publico.new_page()
-        for etiqueta, ruta, rol_needed, nombre in PANTALLAS:
-            if rol_needed != "ninguno":
-                continue
-            consola: list[str] = []
-            red: list[str] = []
-            pagina_publica.on("console", lambda m: consola.append(f"{m.type}: {m.text}")
-                              if m.type in ("error", "warning") else None)
-            pagina_publica.on("response", lambda r: red.append(
-                f"{r.status} {r.request.method} {r.url}") if r.status >= 400 else None)
-            aviso = _visitar(pagina_publica, ruta)
-            if aviso:
-                avisos.append(f"{etiqueta}: {aviso}")
-            pagina_publica.wait_for_timeout(700)
-            texto = pagina_publica.inner_text("body")[:400].strip()
-            vacia = len(texto) < 40
-            captura = salida / f"{nombre}.png"
-            try:
-                pagina_publica.screenshot(path=str(captura), full_page=True)
-            except Exception as exc:
-                consola.append(f"captura: {type(exc).__name__}")
-            resultados.append(
-                Resultado(
-                    etiqueta=etiqueta,
-                    ruta=ruta,
-                    url_final=pagina_publica.url,
-                    consola=consola[:6],
-                    red=red[:6],
-                    texto=texto,
-                    vacia=vacia,
-                    captura=str(captura),
-                    desbordes=_desbordes(pagina_publica),
-                )
+        consola_publica: list[str] = []
+        red_publica: list[str] = []
+        pagina_publica.on(
+            "console",
+            lambda m: consola_publica.append(f"{m.type}: {m.text}")
+            if m.type in ("error", "warning") else None,
+        )
+        pagina_publica.on(
+            "response",
+            lambda r: red_publica.append(f"{r.status} {r.request.method} {r.url}")
+            if r.status >= 400 else None,
+        )
+        for ancho in anchos:
+            pagina_publica.set_viewport_size({"width": ancho, "height": altura})
+            destino = salida / str(ancho) if len(anchos) > 1 else salida
+            destino.mkdir(parents=True, exist_ok=True)
+            _recorrer(
+                pagina_publica, destino, ancho, "ninguno",
+                consola_publica, red_publica, resultados, avisos,
             )
         contexto_publico.close()
 
         for rol in ("gestor", "cliente", "admin"):
-            contexto = navegador.new_context(viewport=viewport)
+            contexto = navegador.new_context(
+                viewport={"width": anchos[0], "height": altura}
+            )
             pagina = contexto.new_page()
+            consola: list[str] = []
+            red: list[str] = []
+            # Los manejadores se registran **una vez** por página: antes se
+            # registraban en cada pantalla y se acumulaban (21 pantallas x
+            # 5 anchos = 105 manejadores disparando a la vez).
+            pagina.on(
+                "console",
+                lambda m: consola.append(f"{m.type}: {m.text}")
+                if m.type in ("error", "warning") else None,
+            )
+            pagina.on(
+                "response",
+                lambda r: red.append(f"{r.status} {r.request.method} {r.url}")
+                if r.status >= 400 else None,
+            )
             email, password = CUENTAS[rol]
-            if not _login(pagina, email, password):
-                errores_login.append(f"{rol}: no se pudo iniciar sesión")
+            ok, motivo = _login(pagina, email, password)
+            inicios_de_sesion += 1
+            if not ok:
+                errores_login.append(f"{rol}: no se pudo iniciar sesión ({motivo})")
                 contexto.close()
                 continue
 
-            for etiqueta, ruta, rol_needed, nombre in PANTALLAS:
-                if rol_needed not in (rol, "ninguno"):
-                    continue
-                if rol_needed == "ninguno":
-                    continue
-                consola: list[str] = []
-                red: list[str] = []
-                pagina.on("console", lambda m: consola.append(f"{m.type}: {m.text}")
-                          if m.type in ("error", "warning") else None)
-                pagina.on("response", lambda r: red.append(
-                    f"{r.status} {r.request.method} {r.url}") if r.status >= 400 else None)
-                aviso = _visitar(pagina, ruta)
-                if aviso:
-                    avisos.append(f"{etiqueta}: {aviso}")
-                pagina.wait_for_timeout(700)
-                texto = pagina.inner_text("body")[:400].strip()
-                vacia = len(texto) < 40
-                captura = salida / f"{nombre}.png"
-                try:
-                    pagina.screenshot(path=str(captura), full_page=True)
-                except Exception as exc:
-                    consola.append(f"captura: {type(exc).__name__}")
-                resultados.append(
-                    Resultado(
-                        etiqueta=etiqueta,
-                        ruta=ruta,
-                        url_final=pagina.url,
-                        consola=consola[:6],
-                        red=red[:6],
-                        texto=texto,
-                        vacia=vacia,
-                        captura=str(captura),
-                        desbordes=_desbordes(pagina),
-                    )
+            for ancho in anchos:
+                pagina.set_viewport_size({"width": ancho, "height": altura})
+                destino = salida / str(ancho) if len(anchos) > 1 else salida
+                destino.mkdir(parents=True, exist_ok=True)
+                _recorrer(
+                    pagina, destino, ancho, rol, consola, red, resultados, avisos,
                 )
             contexto.close()
         navegador.close()
 
     informe = {
+        "anchos": anchos,
+        "inicios_de_sesion": inicios_de_sesion,
         "errores_login": errores_login,
         "avisos": avisos,
         "pantallas": [r.__dict__ for r in resultados],
@@ -386,11 +456,11 @@ def main() -> int:
         json.dumps(informe, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
-    print(f"{'pantalla':<24} {'vacia':<6} consola/red/desbordes")
+    print(f"{'pantalla':<24} {'ancho':>6} {'vacia':<6} consola/red/desbordes")
     for r in resultados:
         marca = "SI" if r.vacia else "no"
         print(
-            f"{r.etiqueta:<24} {marca:<6} "
+            f"{r.etiqueta:<24} {r.ancho:>6} {marca:<6} "
             f"{len(r.consola)}/{len(r.red)}/{len(r.desbordes)}"
         )
         for c in r.consola:
@@ -409,7 +479,11 @@ def main() -> int:
     if total_desbordes:
         print(f"\nATENCION: {total_desbordes} contenido(s) recortado(s) sin desplazar")
     print(f"\nCapturas e informe en {salida}")
-    return 1 if total_desbordes else 0
+    print(
+        f"{len(resultados)} capturas · {len(anchos)} ancho(s) · "
+        f"{inicios_de_sesion} inicio(s) de sesión"
+    )
+    return 1 if (total_desbordes or errores_login) else 0
 
 
 if __name__ == "__main__":

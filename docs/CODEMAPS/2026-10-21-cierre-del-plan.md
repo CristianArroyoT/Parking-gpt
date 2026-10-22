@@ -825,8 +825,8 @@ porque el host no resolvía los nombres de servicio de Docker:
 
 | Paso del CI | En el host |
 |---|---|
-| Tests (pytest, SQLite) | **563 passed**, 9 skipped |
-| Tests contra PostgreSQL (pytest) | **572 passed** |
+| Tests (pytest, SQLite) | **566 passed**, 9 skipped |
+| Tests contra PostgreSQL (pytest) | **575 passed** |
 | Test de funciones sólo de SQLite | **13 passed** |
 | Type-check (vue-tsc) y build del frontend | exit 0 |
 | Los cuatro jobs | **VERDE** |
@@ -864,8 +864,9 @@ Distingue dos fallos, porque se arreglan distinto:
 - la ruta **existe pero con otro método**.
 
 El detalle que hace que la puerta sirva: **normaliza los dos lados**. El
-frontend escribe `${parkingId}` y el backend `{parking_id}`. Sin esa
-normalización, las 39 llamadas darían 39 falsos positivos y la puerta no
+frontend escribe `${parkingId}` y el backend `{parking_id}`, y la query
+string se quita (`/alerts?type=x` y `/alerts` son la misma ruta). Sin esa
+normalización, las 83 llamadas darían 83 falsos positivos y la puerta no
 serviría para nada —o, peor, se desactivaría por ruidosa.
 
 **Dónde vive**: en la meta-puerta (`tools/autopruebas.py`, que pasa de 5 a
@@ -978,6 +979,54 @@ roles se queda con sólo el primero.
 **Comprobado en los dos sentidos**: con el defecto reintroducido, 3 de los
 6 casos pasan a rojo; al arreglarlo, los 6 vuelven a verde. La meta-puerta
 pasa de 9 a **10 autopruebas**.
+
+
+### 3-trigésimotercera. La QA visual se bloqueaba a sí misma con el rate-limit de login (2026-10-22)
+
+Al ir a medir las cifras de la documentación, la QA falló en 2 de los 5
+anchos con "no se pudo iniciar sesión". El mensaje no decía por qué, así
+que no era diagnosticable.
+
+**La causa, medida**: `POST /auth/login` tiene un rate-limit de **10
+intentos por IP cada 5 minutos** (`login_rate_limit_max_attempts=10`,
+`login_rate_limit_window_seconds=300`, con buckets por IP **y** por email;
+cuenta **todos** los intentos, los exitosos también).
+
+La QA inicia sesión **una vez por rol** (gestor, cliente, admin) → **3
+inicios por ejecución**. Recorrer 5 anchos en 5 procesos son **15
+inicios** → a partir del cuarto, el login devolvía **429**.
+
+Comprobado a mano: 12 inicios seguidos contra la API → los 9 primeros
+`200`, el 10º ya `429`.
+
+**Consecuencia**: `python tools/verificar_repo.py --completo` era una
+**puerta que fallaba por el rate limit, no por el código**. Y como el
+mensaje no decía "429", el diagnóstico empezaba por el sitio equivocado.
+
+**El arreglo (3 cosas)**:
+
+1. **`--anchos`**: un solo proceso recorre varios anchos. Se **inicia
+   sesión una sola vez por rol** y para cada ancho se cambia el
+   **viewport de la misma página** (`page.set_viewport_size`), con lo que
+   la sesión se conserva. De 15 inicios a **3**.
+2. **El motivo del fallo de login se reporta**: `_login` devuelve
+   `(ok, motivo)` y distingue el **429** ("límite de intentos, no es un
+   fallo de la pantalla") de un timeout o un error de navegación.
+3. **Los manejadores de consola y de red se registran una vez por
+   página** en vez de uno por pantalla: antes se acumulaban (21 pantallas
+   × 5 anchos = 105 manejadores disparando a la vez).
+
+**Resultado medido tras el arreglo**:
+
+| | |
+|---|---|
+| Anchos en un proceso | 5 (414, 768, 1024, 1232, 1440) |
+| Inicios de sesión | **3** (en vez de 15) |
+| Capturas | **105** (21 pantallas × 5 anchos) |
+| Desbordes | **0** |
+| Errores de consola | **0** |
+| Errores de login | **0** |
+| Avisos | 10 (2 por ancho: `/mapa` y `/vivo`, que nunca dejan la red en reposo) |
 
 
 | Modelo | Tabla | Notas |

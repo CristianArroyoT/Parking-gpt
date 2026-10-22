@@ -128,15 +128,17 @@ def _comprobaciones() -> list[Comprobacion]:
             peso="completo",
             timeout=3600,
         ),
-    ] + [
         Comprobacion(
-            f"QA visual a {ancho} px",
-            [py, "frontend/scripts/qa_visual.py", "--salida", f"D:/tmp/qa-verify-{ancho}", "--ancho", str(ancho)],
+            "QA visual en los 5 anchos",
+            [
+                py, "frontend/scripts/qa_visual.py",
+                "--salida", "D:/tmp/qa-verify",
+                "--anchos", ",".join(str(a) for a in ANCHOS_QA),
+            ],
             patron=r"(Capturas e informe en .*)",
             peso="completo",
-            timeout=1200,
-        )
-        for ancho in ANCHOS_QA
+            timeout=1800,
+        ),
     ]
 
 

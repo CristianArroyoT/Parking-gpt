@@ -74,11 +74,26 @@ python scripts/qa_visual.py --salida D:/tmp/qa-solidapp-1232 --ancho 1232
 
 # con el ancho de un móvil
 python scripts/qa_visual.py --salida D:/tmp/qa-solidapp-414 --ancho 414
+
+# los cinco anchos en UN solo proceso (esto es lo que usa verificar_repo.py)
+python scripts/qa_visual.py --salida D:/tmp/qa-solidapp \
+  --anchos "414,768,1024,1232,1440"
 ```
 
-Salida: un `informe.json` con el detalle y un PNG por pantalla. El script
-devuelve **1** si alguna pantalla tiene contenido recortado o desbordado, y
-0 si todo está bien.
+> **Por qué existe `--anchos`**: `POST /auth/login` tiene un rate-limit de
+> **10 intentos por IP cada 5 minutos**. La QA inicia sesión **una vez por
+> rol** (3 inicios), así que recorrer 5 anchos en 5 procesos distintos
+> son 15 inicios: a partir del cuarto, el login devolvía **429** y la QA
+> reportaba "no se pudo iniciar sesión" sin decir por qué. Con
+> `--anchos`, el proceso **inicia sesión una sola vez por rol** y cambia
+> el viewport de la misma página para cada ancho: 3 inicios en total, y
+> los 5 anchos salen de una tirada. Además, el motivo del fallo de login
+> ahora se reporta: un 429 se distingue de un timeout.
+
+Salida: un `informe.json` con el detalle y un PNG por pantalla (con
+`--anchos`, en una subcarpeta por ancho). El script devuelve **1** si
+alguna pantalla tiene contenido recortado o desbordado, y 0 si todo está
+bien.
 
 Las pantallas de **mapa** y de **vídeo en directo** no dejan de cargar
 nunca (teselas del mapa y flujo SSE), así que la espera de "networkidle"
@@ -201,9 +216,10 @@ sin red: la app arranca desde la cache del service worker
 > documentado como propuesta (T-24+1) para cuando el CI vuelva a estar
 > en marcha.
 
-Resultado de la última ejecución (2026-10-21, con el stack completo):
-**19 pantallas sin incidencias y 0 errores de consola**, en los tres
-anchos. Quedan dos avisos que **no son fallos**: `/mapa` y `/vivo` agotan el
+Resultado de la última ejecución (2026-10-22, con el stack completo):
+**21 pantallas × 5 anchos (414, 768, 1024, 1232 y 1440 px) = 105 capturas,
+0 desbordes, 0 errores de consola y 0 errores de login**. Quedan 10 avisos
+que **no son fallos** (2 por ancho): `/mapa` y `/vivo` agotan el
 tiempo de espera de `networkidle` porque mantienen una conexión abierta (el
 SSE del mapa y el preview MJPEG), así que la red nunca queda en reposo. Es
 inherente a esas dos pantallas; el resto se captura bien.

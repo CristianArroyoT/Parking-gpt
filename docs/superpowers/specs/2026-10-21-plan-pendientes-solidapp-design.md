@@ -4,12 +4,12 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **244 de 245 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **249 de 250 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
-> | Suite completa | **565 passed** en SQLite · **574 passed** en PostgreSQL |
-> | QA visual (Chromium) | 21 pantallas a **5 anchos** (414, 768, 1024, 1232, 1440 px): 0 desbordes, 0 errores de consola |
+> | Suite completa | **566 passed** en SQLite · **575 passed** en PostgreSQL |
+> | QA visual (Chromium) | 21 pantallas a **5 anchos** (414, 768, 1024, 1232, 1440 px): 105 capturas, **0 desbordes, 0 errores de consola, 0 errores de login** |
 > | PWA | verificado: instalable y **arranca sin red** |
 > | API | **101 rutas** inventariadas (coinciden con el código) y **99 de 99 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
 > | Esquema | Los modelos y las migraciones coinciden: `alembic check` limpio y **el CI migra una base vacía** |
@@ -628,7 +628,7 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] `mypy app` → **0 errores** en modo `strict`.
   - [x] Verde **en los dos entornos**: Python 3.11 (la del CI, con mypy 1.20.2) y Python 3.13 (el del host). El resultado de mypy **depende de la versión** (con 1.20.2 en 3.11 aparecía un error de `order_by` que el host no reportaba), así que se comprobó en los dos.
   - [x] `ruff check app tests` → sin errores.
-  - [x] La suite completa sigue en verde: **565 passed** en SQLite y **574** en PostgreSQL.
+  - [x] La suite completa sigue en verde: **566 passed** en SQLite y **575** en PostgreSQL.
   - [x] El paso del CI **deja de tolerar** los fallos de mypy (`continue-on-error` fuera), validado con el job replicado en local.
   - [x] `actionlint` exit 0.
 - **Qué NO se ha tocado**: la lógica. Todos los cambios son anotaciones, `cast` y dos correcciones de import. El único cambio de comportamiento posible (el `response_model` implícito de `api/v1/incidents.py` al anotar su retorno) lo cubre la suite.
@@ -730,10 +730,10 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
 - **Contexto**: la definición de hecho del plan es el contrato del trabajo, y varios de sus números se habían quedado obsoletos (o no se habían comprobado nunca con el rigor que la propia definición exigía).
 - **Lo que salió al auditarla, criterio por criterio**:
   - **Deriva silenciosa**: `docs/API-INTERNAL.md` decía *"100 endpoints"* cuando ya eran **101**. La causa: el número de endpoints de salud estaba **duplicado** en dos herramientas (`verificar_api_doc.py` los sumaba a mano; `generar_seccion_api.py` sumaba `+1` por `/health`), así que al añadir `/health/ready` (T-27) el generador siguió contando uno. **Ahora la lista vive en un solo sitio** (`extraer_api.RUTAS_FUERA_DE_ROUTER`) y las dos herramientas la importan. Comprobado que el aviso funciona: con el generador arreglado, el verificador detectó la deriva (documento=100, código=101) y falló con código 1; tras regenerar, vuelve a pasar, y la autoprueba sigue detectando las dos caras.
-  - **Cifras obsoletas**: "530 tests" y "100 endpoints" en el README, "22 routers" en el CODEMAP (son 24), "548/557 passed" en la definición de hecho (ahora 562/571) y un "10 pantallas" que ya se había corregido a 6 en otro sitio del mismo documento.
+  - **Cifras obsoletas**: "530 tests" y "100 endpoints" en el README, "22 routers" en el CODEMAP (son 24), "548/557 passed" en la definición de hecho (ahora 566/575) y un "10 pantallas" que ya se había corregido a 6 en otro sitio del mismo documento.
   - **Criterios que se daban por cumplidos sin comprobar**: *"todos los servicios healthy"* → **faltaban cuatro healthcheck** (T-33) y *"sin 4xx/5xx en el log del backend"* → comprobado ahora contra el log real (145 líneas en 30 min, cero 4xx/5xx).
 - **Criterios de aceptación**:
-  - [x] Todas las cifras de la documentación contrastadas con comandos reales: **101 endpoints** (en 24 routers), **19 modelos**, **562 tests**, **11 servicios healthy**.
+  - [x] Todas las cifras de la documentación contrastadas con comandos reales: **101 endpoints** (en 24 routers), **19 modelos**, **565 tests**, **11 servicios healthy**.
   - [x] La lista de rutas fuera de los routers tiene **una sola fuente** (`extraer_api.RUTAS_FUERA_DE_ROUTER`).
   - [x] El verificador de la API **detecta** la deriva en la prosa (probado: falla con código 1 si el documento no se regenera).
   - [x] La autoprueba del verificador sigue en verde.
@@ -805,7 +805,7 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - la ruta **no existe** en el backend;
   - la ruta **existe pero con otro método**.
 - **Cubre las dos formas de llamar**: las funciones de los módulos de `@/api/` (39) y las **44 llamadas escritas a mano** con `http.get(...)` dentro de las vistas. (Ampliado en T-39: la primera versión miraba sólo los módulos y dejaba fuera casi la mitad del cliente.)
-- **Normalización de los dos lados**: el frontend escribe `${parkingId}` y el backend `{parking_id}`, y la query string se quita (`/alerts?type=x` y `/alerts` son la misma ruta). Sin esa normalización, las 39 llamadas darían 39 falsos positivos y la puerta no serviría para nada.
+- **Normalización de los dos lados**: el frontend escribe `${parkingId}` y el backend `{parking_id}`, y la query string se quita (`/alerts?type=x` y `/alerts` son la misma ruta). Sin esa normalización, las 83 llamadas darían 83 falsos positivos y la puerta no serviría para nada.
 - **Criterios de aceptación**:
   - [x] El verificador encuentra una ruta que el backend no tiene, y una ruta con el método equivocado (autoprueba en las dos direcciones).
   - [x] La comparación real sale en verde: **83 llamadas** del cliente contra **101 rutas** del backend, 0 desajustes.
@@ -855,6 +855,24 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Se ha comprobado que **falla** con el defecto reintroducido (3 de los 6 casos pasan a rojo), y que vuelve a verde al arreglarlo.
   - [x] Está en la meta-puerta, que pasa de 9 a **10 autopruebas**.
   - [x] El inventario sigue coincidiendo con el código (`verificar_api_doc.py` en verde).
+
+### T-41 · P1 — la QA visual se bloqueaba a sí misma con el rate-limit de login
+
+- **Estado**: **completado** — la QA recorre los 5 anchos con 3 inicios de sesión, y dice por qué falla un login
+- **Contexto**: al intentar medir las cifras de la documentación, la QA falló en 2 de los 5 anchos con "no se pudo iniciar sesión". El mensaje no decía por qué, así que no era diagnosticable.
+- **La causa (medida, no supuesta)**: `POST /auth/login` tiene un rate-limit de **10 intentos por IP cada 5 minutos** (`login_rate_limit_max_attempts=10`, `login_rate_limit_window_seconds=300`, con buckets por IP **y** por email; cuenta **todos** los intentos, los exitosos también). La QA inicia sesión **una vez por rol** (gestor, cliente, admin) → **3 inicios por ejecución**. Recorrer 5 anchos en 5 procesos son **15 inicios** → a partir del cuarto, el login devolvía **429** y la QA se quedaba sin poder revisar 2 de los 5 anchos.
+  - Comprobado a mano: 12 inicios seguidos contra la API → los 9 primeros 200, el 10º ya **429**.
+  - Consecuencia: **`python tools/verificar_repo.py --completo` era una puerta que fallaba por el rate limit, no por el código**. Y como el mensaje no decía "429", el diagnóstico empezaba por el sitio equivocado.
+- **El arreglo (3 cosas)**:
+  1. **`--anchos`**: un solo proceso recorre varios anchos. Se **inicia sesión una sola vez por rol** y para cada ancho se cambia el **viewport de la misma página** (`page.set_viewport_size`), con lo que la sesión se conserva. De 15 inicios a **3**.
+  2. **El motivo del fallo de login se reporta**: `_login` devuelve `(ok, motivo)` y distingue el **429** ("límite de intentos, no es un fallo de la pantalla") de un timeout o un error de navegación.
+  3. **Los manejadores de consola y de red se registran una vez por página** en vez de uno por pantalla: antes se acumulaban (21 pantallas × 5 anchos = 105 manejadores disparando a la vez).
+- **Criterios de aceptación**:
+  - [x] La QA recorre los **5 anchos en un solo proceso** con **3 inicios de sesión** en total.
+  - [x] Resultado medido: **105 capturas** (21 pantallas × 5 anchos), **0 desbordes**, **0 errores de consola**, **0 errores de login**; sólo los 10 avisos conocidos (2 por ancho: `/mapa` y `/vivo`, que nunca dejan la red en reposo).
+  - [x] `tools/verificar_repo.py --completo` usa ahora el modo multi-anchos (una sola QA, no cinco).
+  - [x] El fallo de login dice **por qué** falla.
+  - [x] La autoprueba del detector de desbordes sigue en verde tras el refactor.
 
 ### T-14 · I3 — OCR con GPU
 
@@ -1164,7 +1182,7 @@ T-22 (recuperación de contraseña) ──> T-24 (PWA, que necesita self-service
 
 - [x] `cd backend && ruff check app tests` → sin errores.
 - [x] `cd backend && mypy app` → **sin errores** (modo `strict`). Antes daba 77 y su paso iba con `continue-on-error: true`; ver T-28.
-- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **565 passed en SQLite y 574 en PostgreSQL**.
+- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **566 passed en SQLite y 575 en PostgreSQL** (las cifras del CI; en el contenedor de desarrollo son **565 passed, 10 skipped** y **574 passed, 1 skipped**, porque allí sólo se monta `backend/` y el test que comprueba la nota del README sobre el reconocimiento facial se salta).
 - [x] `docker compose up -d` → todos los servicios *healthy* y `/health` responde 200.
 - [x] QA visual en el navegador de las pantallas tocadas (con la app real, no sólo tests).
       → **HECHA** con Chromium headless (Playwright) sobre la app real
