@@ -825,8 +825,8 @@ porque el host no resolvía los nombres de servicio de Docker:
 
 | Paso del CI | En el host |
 |---|---|
-| Tests (pytest, SQLite) | **566 passed**, 9 skipped |
-| Tests contra PostgreSQL (pytest) | **575 passed** |
+| Tests (pytest, SQLite) | **587 passed**, 9 skipped |
+| Tests contra PostgreSQL (pytest) | **596 passed** |
 | Test de funciones sólo de SQLite | **13 passed** |
 | Type-check (vue-tsc) y build del frontend | exit 0 |
 | Los cuatro jobs | **VERDE** |
@@ -1542,6 +1542,47 @@ crea el vehículo.
 distingue**. En la práctica ese caso lo filtra el cruce con la geocerca
 (el rótulo está en una esquina, fuera del rectángulo pintado) y el umbral
 de confianza.
+
+
+### 3-trigésimonovena. La suite del host tardaba 25 minutos y además fallaba por contaminación (2026-10-22)
+
+Al medir la cifra de la suite para el CI, la del host se quedó **colgada
+con 0 % de CPU** y luego tardó 25+ minutos. No era el código: era el
+`conftest.py`.
+
+**La causa, medida**:
+
+- El `conftest.py` cogía la URL de Redis de `REDIS_URL` y, si no estaba,
+  usaba `"redis://redis:6379/0"`: el **nombre del servicio de Docker**,
+  que sólo resuelve **dentro** de la red de Docker. Desde el host
+  (Windows) **no resuelve** y el intento tardaba **2,7 s** en fallar (el
+  resolver del sistema).
+- Como el fixture de limpieza de contadores (`_clean_redis_counters`)
+  corre en **TODOS** los tests, eran 585 × 2,7 s ≈ **26 minutos de
+  espera pura** por un fallo de DNS.
+- Peor: la limpieza **no se hacía**. Los buckets de rate-limit (`rl:*`)
+  no se aislaban, así que la suite veía los contadores **de la app que
+  está en marcha en el mismo Redis** → 429 → `test_costs.py` y otros
+  fallando. Es el "fallo intermitente" que el propio comentario del
+  `conftest.py` describía desde el 2026-10-21, sin saber la causa.
+
+**El arreglo (3 cosas)**:
+
+1. **El `conftest.py` prueba candidatos y se queda con el que
+   responde**: el `REDIS_URL` del entorno (en el CI,
+   `redis://localhost:6379/0`), el nombre del servicio de Docker (que es
+   donde corre la suite en el contenedor) y el puerto publicado en el
+   host (`127.0.0.1:6379/0`). La comprobación es un `PING` con timeout
+   de 1 s.
+2. **El fixture usa un cliente con timeout de socket corto** y, si
+   Redis no está accesible, **no se reintenta en cada test**.
+3. El aislamiento por PID de la base de Redis (8..15) **ahora funciona
+   en todas partes**: en el host también.
+
+**Medido**: la suite del host pasa de **25+ min a 6,7 min** (587 passed,
+9 skipped) y **sin** los fallos de `test_costs.py`. El contenedor sigue
+igual (585 en SQLite; 595 contra PostgreSQL). El CI no cambia de
+comportamiento: allí `REDIS_URL` viene en el entorno.
 
 
 | Modelo | Tabla | Notas |

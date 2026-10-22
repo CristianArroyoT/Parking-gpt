@@ -4,11 +4,11 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **302 de 303 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **306 de 307 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
-> | Suite completa | **566 passed** en SQLite · **575 passed** en PostgreSQL |
+> | Suite completa | **587 passed** en SQLite · **596 passed** en PostgreSQL |
 > | QA visual (Chromium) | **26 pantallas** a **5 anchos** (414, 768, 1024, 1232, 1440 px): 130 capturas, **0 desbordes, 0 errores de consola, 0 errores de login** |
 > | PWA | verificado: instalable y **arranca sin red** |
 > | API | **101 rutas** inventariadas (coinciden con el código) y **99 de 99 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
@@ -628,7 +628,7 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] `mypy app` → **0 errores** en modo `strict`.
   - [x] Verde **en los dos entornos**: Python 3.11 (la del CI, con mypy 1.20.2) y Python 3.13 (el del host). El resultado de mypy **depende de la versión** (con 1.20.2 en 3.11 aparecía un error de `order_by` que el host no reportaba), así que se comprobó en los dos.
   - [x] `ruff check app tests` → sin errores.
-  - [x] La suite completa sigue en verde: **566 passed** en SQLite y **575** en PostgreSQL.
+  - [x] La suite completa sigue en verde: **587 passed** en SQLite y **596** en PostgreSQL.
   - [x] El paso del CI **deja de tolerar** los fallos de mypy (`continue-on-error` fuera), validado con el job replicado en local.
   - [x] `actionlint` exit 0.
 - **Qué NO se ha tocado**: la lógica. Todos los cambios son anotaciones, `cast` y dos correcciones de import. El único cambio de comportamiento posible (el `response_model` implícito de `api/v1/incidents.py` al anotar su retorno) lo cubre la suite.
@@ -1122,6 +1122,24 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Verificado **en la cámara real**: 0 vehículos fantasma, 0 tickets.
   - [x] 20 tests nuevos; suite, `ruff` y `mypy` en verde.
 
+### T-53 · P1 — la suite del host tardaba 25 minutos y además fallaba por contaminación
+
+- **Estado**: **completado** — la suite encuentra un Redis alcanzable y aísla de verdad
+- **Contexto**: al medir la cifra de la suite para el CI (T-52), la del host se quedó **colgada con 0 % de CPU** y luego tardó 25+ minutos. No era el código: era el `conftest.py`.
+- **La causa, medida**:
+  - El `conftest.py` cogía la URL de Redis de `REDIS_URL` y, si no estaba, usaba `"redis://redis:6379/0"`: el **nombre del servicio de Docker**, que sólo resuelve **dentro** de la red de Docker. Desde el host (Windows) **no resuelve** y el intento tardaba **2,7 s** en fallar (el resolver del sistema).
+  - Como el fixture de limpieza de contadores (`_clean_redis_counters`) corre en **TODOS** los tests, eran 585 × 2,7 s ≈ **26 minutos de espera pura** por un fallo de DNS.
+  - Peor: la limpieza **no se hacía**. Los buckets de rate-limit (`rl:*`) no se aislaban, así que la suite veía los contadores **de la app que está en marcha en el mismo Redis** → 429 → `test_costs.py` y otros fallando. Es el "fallo intermitente" que el propio comentario del `conftest.py` describía desde el 2026-10-21, sin saber la causa.
+- **El arreglo (3 cosas)**:
+  1. **El `conftest.py` prueba candidatos y se queda con el que responde**: el `REDIS_URL` del entorno (en el CI, `redis://localhost:6379/0`), el nombre del servicio de Docker (que es donde corre la suite en el contenedor) y el puerto publicado en el host (`127.0.0.1:6379/0`, que es a donde se llega desde Windows). La comprobación es un `PING` con timeout de 1 s.
+  2. **El fixture usa un cliente con timeout de socket corto** y, si Redis no está accesible, **no se reintenta en cada test** (un flag a nivel de módulo).
+  3. El aislamiento por PID de la base de Redis (8..15) **ahora funciona en todas partes**: en el host también.
+- **Criterios de aceptación**:
+  - [x] La suite del host pasa de **25+ min a 6,7 min** (587 passed, 9 skipped), y **sin los fallos** de `test_costs.py` que aparecían por la contaminación.
+  - [x] En el contenedor sigue funcionando igual (585 passed, 10 skipped en SQLite; 595 passed, 1 skipped contra PostgreSQL).
+  - [x] El CI no cambia de comportamiento: allí `REDIS_URL` viene en el entorno y se usa el primer candidato.
+  - [x] `ruff` y el escáner de texto en verde.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.
@@ -1430,7 +1448,7 @@ T-22 (recuperación de contraseña) ──> T-24 (PWA, que necesita self-service
 
 - [x] `cd backend && ruff check app tests` → sin errores.
 - [x] `cd backend && mypy app` → **sin errores** (modo `strict`). Antes daba 77 y su paso iba con `continue-on-error: true`; ver T-28.
-- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **566 passed en SQLite y 575 en PostgreSQL** (las cifras del CI; en el contenedor de desarrollo son **565 passed, 10 skipped** y **574 passed, 1 skipped**, porque allí sólo se monta `backend/` y el test que comprueba la nota del README sobre el reconocimiento facial se salta).
+- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **587 passed en SQLite y 596 en PostgreSQL** (las cifras del CI; en el contenedor de desarrollo son **585 passed, 10 skipped** y **595 passed, 1 skipped**, porque allí sólo se monta `backend/` y el test que comprueba la nota del README sobre el reconocimiento facial se salta).
 - [x] `docker compose up -d` → todos los servicios *healthy* y `/health` responde 200.
 - [x] QA visual en el navegador de las pantallas tocadas (con la app real, no sólo tests).
       → **HECHA** con Chromium headless (Playwright) sobre la app real

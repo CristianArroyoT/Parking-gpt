@@ -35,6 +35,8 @@ from __future__ import annotations
 
 import os
 
+import redis  # sólo el paquete: no depende de las variables de entorno
+
 # ──────────────────────────────────────────────────────────────────────────
 # Motor de la BD de test
 # ──────────────────────────────────────────────────────────────────────────
@@ -93,7 +95,45 @@ os.environ.setdefault("ENVIRONMENT", "test")
 #
 # Redis tiene 16 bases por defecto (0-15); la 0 la usa la app, así que
 # la suite se queda entre la 8 y la 15.
-_URL_REDIS_REAL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+#: Candidatos a URL de Redis, por orden de preferencia:
+#:
+#: 1. La que venga en el entorno (en el CI es ``redis://localhost:6379/0``).
+#: 2. El **nombre del servicio de Docker** (``redis://redis:6379/0``): es
+#:    lo que funciona DENTRO de la red de Docker, que es donde corre la
+#:    suite cuando va en el contenedor.
+#: 3. El **puerto publicado en el host** (``redis://127.0.0.1:6379/0``):
+#:    es a donde se llega desde el host (Windows).
+#:
+#: POR QUÉ la lista (2026-10-22): con el nombre del servicio de Docker
+#: como único candidato, desde el host la URL **no resuelve** y cada test
+#: pagaba **2,7 s** de timeout de DNS (el fixture de limpieza corre en
+#: TODOS los tests: 585 × 2,7 s ≈ 26 minutos de espera pura). Peor: la
+#: limpieza **no se hacía**, así que los buckets de rate-limit no se
+#: aislaban y los tests de rate-limit veían los contadores de la app
+#: que está en marcha en el mismo Redis (el "fallo intermitente" del
+#: comentario de arriba).
+_CANDIDATOS_REDIS = (
+    os.environ.get("REDIS_URL", ""),
+    "redis://redis:6379/0",
+    "redis://127.0.0.1:6379/0",
+)
+
+
+def _redis_alcanzable(url: str) -> bool:
+    """¿Este Redis responde? (con timeout corto: es una comprobación)"""
+    try:
+        redis.Redis.from_url(
+            url, socket_connect_timeout=1, socket_timeout=1
+        ).ping()
+        return True
+    except Exception:
+        return False
+
+
+_URL_REDIS_REAL = next(
+    (url for url in _CANDIDATOS_REDIS if url and _redis_alcanzable(url)),
+    "redis://127.0.0.1:6379/0",
+)
 _BASE_REDIS_SUITE = 8 + (os.getpid() % 8)
 os.environ["REDIS_URL"] = (
     _URL_REDIS_REAL.rsplit("/", 1)[0] + f"/{_BASE_REDIS_SUITE}"
@@ -230,6 +270,11 @@ def db_session(monkeypatch, test_engine):
             engine.dispose()
 
 
+#: ``None`` = sin probar; ``False`` = Redis no es accesible desde aqui
+#: (se deja de reintentar en cada test); ``True`` = accesible.
+_REDIS_ACCESIBLE: bool | None = None
+
+
 @pytest.fixture(autouse=True)
 def _clean_redis_counters():
     """Limpia todas las claves de Redis usadas por ``app.services.alerts``.
@@ -249,14 +294,34 @@ def _clean_redis_counters():
     bajos en la práctica. Si Redis no responde, ignoramos: el resto
     de la suite sigue funcionando y los tests que tocan Redis son
     tolerantes a fallos del broker.
+
+    POR QUÉ el timeout corto y el flag (2026-10-22): en el host, la URL
+    del compose (``redis://redis:6379``) **no resuelve** y el intento
+    tardaba **2,7 s** en fallar (el resolver del sistema). Como este
+    fixture corre en **todos** los tests, la suite del host pasaba de
+    7 minutos a más de 25 (585 tests × 2,7 s de espera pura).
+    Ahora: timeout de socket corto y, si Redis no está accesible, **no
+    se reintenta en cada test** (en el CI sí está: redis://localhost).
     """
+    global _REDIS_ACCESIBLE
+    if _REDIS_ACCESIBLE is False:
+        # Ya se comprobó que no hay Redis: no se vuelve a intentarlo.
+        return
     try:
         from app.services.alerts import (
             _consecutive_key, _lock_key,
             _consecutive_offline_key, _offline_lock_key,
-            _redis_client,
         )
-        client = _redis_client()
+        from app.core.config import get_settings
+
+        # Timeout corto: si Redis no está, hay que enterarse deprisa.
+        client = redis.Redis.from_url(
+            get_settings().redis_url,
+            decode_responses=True,
+            socket_connect_timeout=1,
+            socket_timeout=2,
+        )
+        client.ping()
         for cam_id in range(1, 200):
             client.delete(
                 _consecutive_key(cam_id), _lock_key(cam_id),
@@ -290,7 +355,10 @@ def _clean_redis_counters():
         for key in client.scan_iter("user:*:active_jtis"):
             client.delete(key)
     except Exception:
-        pass
+        # Redis no está accesible: no se reintenta en cada test.
+        _REDIS_ACCESIBLE = False
+        return
+    _REDIS_ACCESIBLE = True
     return
 
 

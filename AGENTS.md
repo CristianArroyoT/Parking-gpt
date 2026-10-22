@@ -114,7 +114,10 @@ docker run --rm -v "D:\Parking:/repo" -w /repo rhysd/actionlint:latest .github/w
 - Locust tiene que correr **dentro** de la red Docker
   (`--network parking_default`).
 - `task_stop` **no** mata a los hijos: hubo tres ejecuciones del CI local
-  peleándose por las mismas bases de datos.
+  peleándose por las mismas bases de datos. Y **no lances la suite del host
+  y la del contenedor a la vez**: la del host se queda **colgada con 0 %
+  de CPU** (no es un test lento, es un bloqueo) y hay que matarla. Lanza
+  una, espera, y luego la otra.
 - La salida por tubería en subprocesos puede colgarse esperando EOF:
   manda la salida a un fichero temporal.
 - La consola de Windows es cp1252: fuerza `encoding="utf-8",
@@ -129,8 +132,8 @@ docker run --rm -v "D:\Parking:/repo" -w /repo rhysd/actionlint:latest .github/w
   una vez por rol, así que **no la lances 5 veces seguidas** (15 inicios →
   429): usa `python frontend/scripts/qa_visual.py --anchos
   "414,768,1024,1232,1440"`, que recorre los 5 anchos con 3 inicios.
-- La suite da **566** en SQLite y **575** en PostgreSQL en el host (lo
-  que ve el CI), y **565/574** en el contenedor de desarrollo: allí sólo
+- La suite da **587** en SQLite y **596** en PostgreSQL en el host (lo
+  que ve el CI), y **585/595** en el contenedor de desarrollo: allí sólo
   se monta `backend/`, así que el test que comprueba la nota del README
   sobre el reconocimiento facial se salta. No es una deriva.
 - **Ojo con qué ejecución se parece al CI**: el CI corre en **Linux con
