@@ -79,6 +79,10 @@ AUTOPRUEBAS: list[tuple[str, list[str]]] = [
         [sys.executable, "tools/verificar_cobertura_frontend.py", "--autoprueba"],
     ),
     (
+        "La puerta de enums del backend sigue viendo",
+        [sys.executable, "tools/verificar_enums_frontend.py", "--autoprueba"],
+    ),
+    (
         "La puerta de roles del frontend sigue viendo",
         [sys.executable, "tools/verificar_roles_frontend.py", "--autoprueba"],
     ),

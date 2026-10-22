@@ -1342,6 +1342,50 @@ mismo código, los dos pueden quedarse ciegos a la vez).
 la puerta la canta y sale con código 1; al quitarla, vuelve a verde.
 
 
+### 3-trigésimocuarta. El frontend replica a mano los enums del backend y nada lo comparaba (2026-10-22)
+
+El frontend replica las enumeraciones del backend **a mano, en muchos
+sitios**:
+
+| Sitio | Qué replica |
+|---|---|
+| `layouts/AppLayout.vue` y `views/cliente/ProfileView.vue` | el mapa de etiquetas de cada rol (**dos copias**) |
+| `views/admin/UsersView.vue` | la lista de roles que el admin puede asignar |
+| `api/client.ts` y `api/gestorOps.ts` | el tipo `role` (**dos copias**) |
+| `views/cliente/TicketsView.vue` | el tipo `TicketStatus` |
+| `views/gestor/MovementsView.vue` y `views/cliente/TicketsView.vue` | la función `statusBadge()` |
+| `views/gestor/AlertsView.vue` | el mapa de tipos de alerta |
+| `views/gestor/CamerasView.vue` | el tipo de cámara y el sentido de la geocerca |
+
+**Nada lo comparaba.** Hoy los dos lados coinciden, pero si el backend
+añade un rol, un tipo de alerta o un estado de ticket:
+
+- el mapa de etiquetas devuelve `undefined` y la pantalla muestra un
+  **hueco**;
+- el desplegable de "asignar rol" del admin **no ofrece el rol nuevo**,
+  así que ese rol no se puede asignar desde la interfaz;
+- y, lo peor, `statusBadge()` **etiquetaba cualquier estado desconocido
+  como "Anulado"**: la pantalla afirmaba que un ticket estaba anulado
+  cuando no lo estaba.
+
+**El arreglo (2 cosas)**:
+
+1. **Puerta nueva** (`tools/verificar_enums_frontend.py`): si el frontend
+   conoce algún valor de un enum del backend, tiene que conocer **todos**.
+   El mensaje dice **en qué ficheros** se usa ese enum, para que se sepa
+   dónde tocar. Con 11 enums en el backend y 11 usados por el frontend,
+   hoy sale en verde.
+2. **`statusBadge` deja de mentir**: los tres estados del backend se
+   tratan explícitamente y **cualquier otro se muestra tal cual**, con
+   etiqueta neutra. La UI ya no afirma nada falso sobre el estado de un
+   ticket.
+
+**Probado con el defecto reintroducido**: añadiendo `SUSPENDIDO` a
+`TicketStatus` en el backend, la puerta canta `TicketStatus.suspendido`
+y dice que se usa en `MapView.vue`, `MovementsView.vue` y
+`TicketsView.vue`; al quitarlo, vuelve a verde.
+
+
 | Modelo | Tabla | Notas |
 |---|---|---|
 | `IncidentAttachment` | `incident_attachments` | `alert_id` con `ON DELETE CASCADE`; el binario **no** está en la BD, vive en el volumen `incident_attachments` |

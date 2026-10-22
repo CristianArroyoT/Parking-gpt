@@ -96,7 +96,12 @@ function durationMinutes(entry: string, exit: string | null): string {
 function statusBadge(status: TicketStatus): { label: string; cls: string } {
   if (status === 'activo') return { label: 'Activo', cls: 'text-emerald-700 bg-emerald-100' }
   if (status === 'cerrado') return { label: 'Cerrado', cls: 'text-slate-700 bg-slate-100' }
-  return { label: 'Anulado', cls: 'text-rose-700 bg-rose-100' }
+  if (status === 'anulado') return { label: 'Anulado', cls: 'text-rose-700 bg-rose-100' }
+  // Un estado que no conocemos se muestra TAL CUAL: antes caia en el
+  // "Anulado" de la ultima rama, que es una afirmacion falsa sobre el
+  // ticket. La puerta tools/verificar_enums_frontend.py avisa si el
+  // backend anade un estado que el frontend no conoce.
+  return { label: status, cls: 'text-slate-700 bg-slate-100' }
 }
 function originLabel(o: TicketOrigin): string {
   if (o === 'automatic') return 'Automático (OCR)'

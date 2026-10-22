@@ -259,6 +259,23 @@ jobs:
         # motivo).
         run: python ../tools/verificar_cobertura_frontend.py
 
+      - name: El frontend conoce todos los valores de los enums del backend
+        # POR QUÉ (2026-10-22): el frontend replica a mano las
+        # enumeraciones del backend, en muchos sitios: los mapas de
+        # etiquetas de rol (dos copias), la lista de roles que el admin
+        # asigna, el tipo ``role`` de la API (dos copias), el tipo
+        # ``TicketStatus``, la función ``statusBadge()`` y el mapa de
+        # tipos de alerta.
+        #
+        # Nada lo comparaba. Si el backend añade un rol, un tipo de
+        # alerta o un estado de ticket, el frontend deja de poder
+        # mostrarlo: la pantalla muestra un hueco y, en el caso de
+        # ``statusBadge()``, dice "Anulado" a un ticket que no está
+        # anulado (que es una afirmación falsa). Además, el desplegable
+        # de "asignar rol" del admin no ofrecería el rol nuevo, así que
+        # no se podría asignar desde la interfaz.
+        run: python ../tools/verificar_enums_frontend.py
+
       - name: Las migraciones y los modelos coinciden
         # POR QUÉ (2026-10-21): los tests crean el esquema con
         # ``Base.metadata.create_all``, es decir, **NO ejecutan las

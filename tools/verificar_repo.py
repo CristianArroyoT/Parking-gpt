@@ -100,6 +100,11 @@ def _comprobaciones() -> list[Comprobacion]:
             patron=r"(OK: la QA visual recorre todas las pantallas.*)",
         ),
         Comprobacion(
+            "El frontend conoce todos los valores de los enums",
+            [py, "tools/verificar_enums_frontend.py"],
+            patron=r"(OK: el frontend conoce todos los valores.*)",
+        ),
+        Comprobacion(
             "Modelos y migraciones coinciden",
             [
                 "docker", "exec",

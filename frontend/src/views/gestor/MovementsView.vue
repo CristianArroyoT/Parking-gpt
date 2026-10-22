@@ -132,7 +132,13 @@ function originLabel(o: string): string {
 function statusBadge(status: string): { label: string; cls: string } {
   if (status === 'activo') return { label: 'Dentro', cls: 'text-emerald-700 bg-emerald-100' }
   if (status === 'cerrado') return { label: 'Cerrado', cls: 'text-slate-700 bg-slate-100' }
-  return { label: 'Anulado', cls: 'text-rose-700 bg-rose-100' }
+  if (status === 'anulado') return { label: 'Anulado', cls: 'text-rose-700 bg-rose-100' }
+  // Un estado que no conocemos se muestra TAL CUAL. Antes caia en el
+  // "Anulado" de la ultima rama, que es afirmar algo falso sobre el
+  // ticket (y hides un estado nuevo del backend en vez de delatarlo).
+  // La puerta tools/verificar_enums_frontend.py avisa si el backend
+  // añade un estado que el frontend no conoce.
+  return { label: status, cls: 'text-slate-700 bg-slate-100' }
 }
 
 function resetFilters(): void {
