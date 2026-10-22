@@ -944,6 +944,42 @@ inexistentes — un falso positivo que habría hecho que la puerta se
 desactivara por ruidosa.
 
 
+### 3-trigésimosegunda. La puerta del inventario comparaba el documento contra el extractor, y los dos mentían (2026-10-22)
+
+El bug de T-39 (el extractor leía sólo el primer rol) vivió **sin que
+ninguna comprobación se enterara**, y el motivo es estructural:
+
+`tools/verificar_api_doc.py` compara el documento contra el **extractor**.
+Es decir, la puerta comparaba dos cosas que salían del **mismo código con
+el mismo defecto**. Cuando el extractor mentía, el documento se
+regeneraba con la misma mentira y la puerta daba el visto bueno: **verde
+sobre mentira**.
+
+**La lección**: dos comprobaciones que comparten la fuente de verdad no se
+vigilan entre sí. Para que una puerta vigile a otra hace falta una
+**tercera** fuente: el caso de mentira escrito a mano.
+
+`tools/extraer_api.py --autoprueba` monta **6 routers de mentira** en un
+directorio temporal y comprueba qué roles saca el extractor de cada uno:
+
+| Caso | Roles esperados |
+|---|---|
+| `require_role("admin")` | admin |
+| `require_role(UserRole.ADMIN.value, UserRole.GESTOR.value, UserRole.OPERADOR.value)` | admin, gestor, operador |
+| `require_role(UserRole.ADMIN.value, UserRole.GESTOR.value)` | admin, gestor |
+| `require_role('admin', 'cliente')` | admin, cliente |
+| `require_role(UserRole.ADMIN.value)` | admin |
+| `require_role(*_STAFF)` | los de la constante desplegada |
+
+El fichero nunca se importa: sólo se parsea con `ast`. Además se recorre
+el **código real** y se comprueba que ningún `require_role` con varios
+roles se queda con sólo el primero.
+
+**Comprobado en los dos sentidos**: con el defecto reintroducido, 3 de los
+6 casos pasan a rojo; al arreglarlo, los 6 vuelven a verde. La meta-puerta
+pasa de 9 a **10 autopruebas**.
+
+
 | Modelo | Tabla | Notas |
 |---|---|---|
 | `IncidentAttachment` | `incident_attachments` | `alert_id` con `ON DELETE CASCADE`; el binario **no** está en la BD, vive en el volumen `incident_attachments` |
@@ -964,6 +1000,8 @@ Migraciones: `0012_reset_and_face_templates` (T-22 + T-23) y `0013_incident_atta
 
 ## 6. Documentación relacionada
 
+- `AGENTS.md` — cómo se trabaja en este repo: la convención de las
+  puertas, los comandos verificados y las trampas de este entorno.
 - `docs/adr/0001-orquestacion-produccion.md` — Compose en el edge, K8s en el central.
 - `docs/adr/0002-ocr-cpu-vs-gpu.md` — la GPU no aporta con la carga real.
 - `docs/API-INTERNAL.md` — los 101 endpoints con su RBAC y la política de deprecación.

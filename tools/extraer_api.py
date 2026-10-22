@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import argparse
 import ast
+import re
 import sys
+import tempfile
 import warnings
 from pathlib import Path
 
@@ -449,11 +451,143 @@ def _rutas_openapi() -> set[tuple[str, str]]:
     return reales
 
 
+def _roles_de_quien(quien: str) -> set[str]:
+    """Los roles que la columna "Quién" dice que exige un endpoint."""
+    roles: set[str] = set()
+    for grupo in re.findall(r"require_role\(\s*((?:'[^']*'\s*,?\s*)+)\)", quien):
+        roles.update(re.findall(r"'([^']+)'", grupo))
+    return roles
+
+
+#: (nombre, llamada a ``require_role``, roles que hay que extraer)
+CASOS_ROLES: list[tuple[str, str, set[str]]] = [
+    ("un solo rol", 'require_role("admin")', {"admin"}),
+    (
+        "varios roles con valores de enum",
+        "require_role(UserRole.ADMIN.value, UserRole.GESTOR.value, UserRole.OPERADOR.value)",
+        {"admin", "gestor", "operador"},
+    ),
+    (
+        "dos roles con valores de enum",
+        "require_role(UserRole.ADMIN.value, UserRole.GESTOR.value)",
+        {"admin", "gestor"},
+    ),
+    ("dos roles literales", "require_role('admin', 'cliente')", {"admin", "cliente"}),
+    ("rol con valor de enum", "require_role(UserRole.ADMIN.value)", {"admin"}),
+]
+
+
+def _autoprueba() -> int:
+    """Comprueba que el extractor sigue sacando **todos** los roles.
+
+    POR QUÉ (2026-10-22): el extractor leía sólo el **primer** argumento
+    de ``require_role(...)``, así que un endpoint que admitía tres roles
+    se documentaba como "sólo admin". Cinco endpoints de
+    ``docs/API-INTERNAL.md`` mentían sobre quién puede usarlos, y
+    **ninguna** comprobación se enteró: la puerta de inventario compara
+    el documento con el extractor, y los dos mentían igual.
+
+    Una puerta que compara dos extractores que comparten el mismo
+    defecto no ve nada. Por eso el extractor necesita su propia
+    autoprueba, contra casos de mentira.
+    """
+    fallos = 0
+    with tempfile.TemporaryDirectory(prefix="extraer_api_") as temporal:
+        raiz = Path(temporal)
+
+        for nombre, llamada, esperados in CASOS_ROLES:
+            modulo = raiz / "caso.py"
+            modulo.write_text(
+                "from fastapi import APIRouter, Depends\n"
+                "from app.core.deps import require_role\n"
+                "from app.models.user import UserRole\n"
+                "\n"
+                "router = APIRouter(prefix='/prueba')\n"
+                "\n"
+                "@router.get('/decorador', dependencies=[Depends(" + llamada + ")])\n"
+                "def decorador():\n"
+                "    return {}\n"
+                "\n"
+                "@router.get('/firma')\n"
+                "def firma(_r=Depends(" + llamada + ")):\n"
+                "    return {}\n",
+                encoding="utf-8",
+            )
+            encontrados: set[str] = set()
+            for _m, _r, quien, _mod in extraer_de_modulo(modulo):
+                encontrados |= _roles_de_quien(quien)
+            if esperados <= encontrados:
+                print(f"  OK: {nombre} -> {sorted(encontrados)}")
+            else:
+                print(f"  FALLO: {nombre} -> esperaba {sorted(esperados)}, "
+                      f"saco {sorted(encontrados)}")
+                fallos += 1
+
+        # El caso de la constante desplegada: ``require_role(*_STAFF)``.
+        modulo = raiz / "constante.py"
+        modulo.write_text(
+            "from fastapi import APIRouter, Depends\n"
+            "from app.core.deps import require_role\n"
+            "from app.models.user import UserRole\n"
+            "\n"
+            "_STAFF = (UserRole.ADMIN.value, UserRole.GESTOR.value)\n"
+            "router = APIRouter(prefix='/prueba')\n"
+            "\n"
+            "@router.get('/x', dependencies=[Depends(require_role(*_STAFF))])\n"
+            "def x():\n"
+            "    return {}\n",
+            encoding="utf-8",
+        )
+        encontrados = set()
+        for _m, _r, quien, _mod in extraer_de_modulo(modulo):
+            encontrados |= _roles_de_quien(quien)
+        if {"admin", "gestor"} <= encontrados:
+            print(f"  OK: roles de una constante desplegada -> {sorted(encontrados)}")
+        else:
+            print(f"  FALLO: roles de una constante desplegada -> {sorted(encontrados)}")
+            fallos += 1
+
+    # Y el caso de verdad: en el código real, **ningún** ``require_role``
+    # con varios roles puede quedarse con sólo el primero.
+    for fichero in sorted(V1.glob("*.py")):
+        if fichero.stem == "__init__":
+            continue
+        texto = fichero.read_text(encoding="utf-8")
+        for coincidencia in re.finditer(
+            r"require_role\(\s*((?:[A-Za-z_][\w.]*\s*,\s*)+[A-Za-z_][\w.]*)\s*\)",
+            texto,
+        ):
+            argumentos = [a.strip() for a in coincidencia.group(1).split(",") if a.strip()]
+            esperados = {a.rsplit(".", 1)[-1].lower() for a in argumentos}
+            if len(esperados) < 2:
+                continue
+            completo = False
+            for _m, _r, quien, _mod in extraer_de_modulo(fichero):
+                if esperados <= _roles_de_quien(quien):
+                    completo = True
+                    break
+            if not completo:
+                print(f"  FALLO: {fichero.name} tiene un require_role con "
+                      f"{sorted(esperados)} y el extractor no los dice todos")
+                fallos += 1
+
+    if fallos:
+        print(f"Autoprueba FALLIDA: {fallos} caso(s).")
+        return 1
+    print("Autoprueba correcta: el extractor sigue sacando todos los roles.")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--markdown", action="store_true",
                     help="Salida en formato de tabla para el documento")
+    ap.add_argument("--autoprueba", action="store_true",
+                    help="Comprueba que el extractor sigue sacando todos los roles")
     args = ap.parse_args()
+
+    if args.autoprueba:
+        return _autoprueba()
 
     filas: list[tuple[str, str, str, str]] = []
     for fichero in sorted(V1.glob("*.py")):

@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **240 de 241 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **244 de 245 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -835,6 +835,26 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
 #### Una nota sobre la query string
 
 Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` y `/alerts` son la misma ruta para el backend). Sin esa normalización, las 2 llamadas de `LiveView.vue` con query string salían como rutas inexistentes: un falso positivo que habría hecho que la puerta se desactivara por ruidosa.
+
+### T-40 · P1 — la puerta del inventario comparaba el documento contra el extractor, y los dos mentían
+
+- **Estado**: **completado** — autoprueba propia del extractor, verificada contra el defecto reintroducido
+- **Contexto**: el bug de T-39 (el extractor leía sólo el primer rol) lived **sin que ninguna comprobación se enterara**, y el motivo es estructural: `tools/verificar_api_doc.py` compara el documento contra el **extractor**. Es decir, la puerta comparaba dos cosas que salían del **mismo código con el mismo defecto**. Cuando el extractor mentía, el documento se regeneraba con la misma mentira y la puerta daba el visto bueno: **verde sobre mentira**.
+- **La lección**: dos comprobaciones que comparten la fuente de verdad no se vigilan entre sí. Para que una puerta vigile a otra, hace falta una **tercera** fuente: el caso de mentira escrito a mano.
+- **La autoprueba** (`tools/extraer_api.py --autoprueba`) comprueba el extractor contra **6 casos de mentira** escritos a mano:
+  1. `require_role("admin")` → un rol.
+  2. `require_role(UserRole.ADMIN.value, UserRole.GESTOR.value, UserRole.OPERADOR.value)` → **tres** roles (el caso que fallaba).
+  3. `require_role(UserRole.ADMIN.value, UserRole.GESTOR.value)` → dos roles.
+  4. `require_role('admin', 'cliente')` → dos roles literales.
+  5. `require_role(UserRole.ADMIN.value)` → un rol.
+  6. `require_role(*_STAFF)` → los roles de la constante desplegada.
+  
+  Cada caso se monta como un router de mentira en un directorio temporal y se extrae de verdad (el fichero nunca se importa: sólo se parsea con `ast`). Además, se recorre el **código real** y se comprueba que ningún `require_role` con varios roles se queda con sólo el primero.
+- **Criterios de aceptación**:
+  - [x] La autoprueba detecta un rol único, varios roles con valores de enum, dos roles literales y una constante desplegada.
+  - [x] Se ha comprobado que **falla** con el defecto reintroducido (3 de los 6 casos pasan a rojo), y que vuelve a verde al arreglarlo.
+  - [x] Está en la meta-puerta, que pasa de 9 a **10 autopruebas**.
+  - [x] El inventario sigue coincidiendo con el código (`verificar_api_doc.py` en verde).
 
 ### T-14 · I3 — OCR con GPU
 
