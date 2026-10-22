@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **297 de 298 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **302 de 303 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1094,6 +1094,32 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] El comentario de cada ajuste muerto dice **dónde vive de verdad** lo que el operador quiere cambiar.
   - [x] La suite sigue en verde tras el cambio de `config.py` (565 passed, 10 skipped en el contenedor).
   - [x] Está en la meta-puerta (que pasa de 15 a **16 autopruebas**), en `tools/verificar_repo.py` (18 comprobaciones) y en el CI.
+
+### T-52 · P0 — el OCR aceptaba cualquier texto como matrícula (vehículos fantasma)
+
+- **Estado**: **completado** — filtro de formato en el punto único de ingesta, con 20 tests
+- **Contexto**: T-50 dejó al descubierto que `ping_camera` no se despacha. Al ejecutarla **a mano, una vez, como diagnóstico**, se vio que la cadena sí funciona (frame → OCR → ingesta) y que el OCR **lee texto, no matrículas**.
+- **La medida (con la cámara real del entorno, `CAM-01` → el stream RTSP del `rtsp-push`)**:
+  - El vídeo de QA lleva **dos rótulos quemados en la imagen**: `SOLIDAPP QA — CAM 01` (arriba) y el timestamp `t=105.0s frame=2625` (abajo, en verde).
+  - El OCR devolvió `"t=105.0sframe=2625"` como si fuera una matrícula, y en la siguiente pasada `"SOLIDAPPQACAM01"`.
+  - El primero se descartó **sólo por medir 19 caracteres** (el `max_length=16` del esquema), por casualidad. El segundo (15 caracteres) **pasaba**.
+- **Por qué es grave**: `vehicles.plate` es `String(16) unique`. Una basura corta aceptada crea un **vehículo fantasma permanente**, y si la geocerca estuviera pintada encima, un **ticket** a un vehículo que no existe. Y esto no es hipotético: **casi todas las cámaras reales queman el timestamp en la imagen**, y a veces la marca.
+- **El arreglo**:
+  1. **Nuevo módulo** `app/services/plates.py` con la regla `parece_matricula()`: normaliza (mayúsculas, sin separadores) y exige la forma de una matrícula — `1234ABC` (español actual), `1234B` (antiguo), `E1234A` (diplomática). La regla es **permisiva a propósito**: no se quiere rechazar una matrícula legítima, sólo el texto que no la es.
+  2. **El filtro va en `process_plate_hit`**, que es el **punto único** por el que pasa una lectura para convertirse en vehículo y ticket (lo usan tanto la tarea de Celery como el push HTTP `POST /parkings/{id}/plates-detected`). Un hit que no es matrícula devuelve el estado nuevo `skipped_not_a_plate` y **no toca la base**.
+  3. **También en `ping_camera`**, antes de persistir la fila de auditoría: `plates_detected.plate` es de 16 caracteres, así que un texto más largo **reventaba el INSERT** ("value too long"), y uno más corto creaba el vehículo fantasma.
+  4. **Los contadores ya no mienten**: `plates_found` cuenta las matrículas válidas y hay un `plates_descartadas` para el texto quemado.
+- **Lo que se verificó**:
+  - Con la cámara real: el OCR leyó los dos rótulos, los dos se descartaron, `plates_found: 0`, `plates_descartadas: 1`, **0 vehículos y 0 tickets creados**.
+  - **20 tests nuevos** (`backend/tests/test_plates_ocr.py`): la regla acepta las 8 matrículas legítimas (incluidas la diplomática y la antigua, con y sin separadores) y rechaza las 7 formas de texto quemado; un hit basura **no crea vehículo ni ticket**; y una matrícula de verdad **sí** crea el vehículo.
+  - `ruff` y `mypy app` en verde (108 ficheros).
+- **Lo que queda fuera (y está documentado, no escondido)**: un rótulo como `HD 1080P` tiene **exactamente la misma forma** que una matrícula antigua (`M 1234 A`) o diplomática (`E 1234 A`), así que **ningún formato las distingue**. En la práctica ese caso lo filtra el cruce con la geocerca (el rótulo está en una esquina, fuera del rectángulo pintado) y el umbral de confianza.
+- **Criterios de aceptación**:
+  - [x] El filtro está en el punto único de ingesta (`process_plate_hit`) y también en la tarea de Celery, antes de persistir.
+  - [x] Un hit que no es matrícula no crea vehículo ni ticket (test con la BD real de la suite).
+  - [x] Una matrícula legítima sigue funcionando (test).
+  - [x] Verificado **en la cámara real**: 0 vehículos fantasma, 0 tickets.
+  - [x] 20 tests nuevos; suite, `ruff` y `mypy` en verde.
 
 ### T-14 · I3 — OCR con GPU
 

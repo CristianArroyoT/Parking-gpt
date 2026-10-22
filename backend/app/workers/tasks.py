@@ -46,6 +46,7 @@ from app.services.cameras.capture import grab_frame
 from app.services.cameras.heartbeat import probe_camera
 from app.services.ingest_service import process_plate_hits
 from app.services.ocr.client import get_ocr_client
+from app.services.plates import parece_matricula
 from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
@@ -211,8 +212,34 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
         # Lecturas válidas: reset del detector.
         reset_ocr_failure(cam.id)
 
-        now = datetime.now(timezone.utc)
+        # El OCR devuelve TEXTO, no matrículas: también lee el timestamp
+        # quemado de la cámara o el rótulo de la marca (2026-10-22). Con
+        # el vídeo de QA del repo devolvió "t=105.0sframe=2625". Se
+        # filtra ANTES de persistir: la columna ``plates_detected.plate``
+        # es de 16 caracteres, así que un texto más largo revienta el
+        # INSERT, y uno más corto crearía un vehículo fantasma.
+        hits_validos = []
         for h in hits:
+            if not parece_matricula(h.plate):
+                log.warning(
+                    "ping_camera: el OCR no leyó una matrícula (se ignora): %r",
+                    h.plate,
+                    extra={"correlation_id": cid, "camera_id": cam.id},
+                )
+                continue
+            hits_validos.append(h)
+        if len(hits_validos) != len(hits):
+            log.info(
+                "ping_camera: id=%s code=%s leídos=%s descartados=%s (no eran matrículas)",
+                cam.id,
+                cam.code,
+                len(hits),
+                len(hits) - len(hits_validos),
+                extra={"correlation_id": cid, "camera_id": cam.id},
+            )
+
+        now = datetime.now(timezone.utc)
+        for h in hits_validos:
             db.add(
                 PlatesDetected(
                     camera_id=cam.id,
@@ -233,7 +260,7 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
         # el worker. Encapsulamos por defensa (el servicio ya devuelve
         # IngestResult en lugar de propagar, pero blindamos el beat).
         try:
-            ingest_results = process_plate_hits(hits, cam)
+            ingest_results = process_plate_hits(hits_validos, cam)
         except Exception as exc:  # noqa: BLE001 — defensiva
             log.warning(
                 "ping_camera: error en ingest_service: %s", exc,
@@ -245,10 +272,11 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
         closed = sum(1 for r in ingest_results if r.status == "ticket_closed")
         if created or closed:
             log.info(
-                "ping_camera: id=%s code=%s source=rtsp plates_found=%s tickets_created=%s tickets_closed=%s",
+                "ping_camera: id=%s code=%s source=rtsp plates_found=%s "
+                "tickets_created=%s tickets_closed=%s",
                 cam.id,
                 cam.code,
-                len(hits),
+                len(hits_validos),
                 created,
                 closed,
                 extra={
@@ -260,17 +288,23 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
             )
         else:
             log.info(
-                "ping_camera: id=%s code=%s source=rtsp plates_found=%s",
+                "ping_camera: id=%s code=%s source=rtsp plates_found=%s "
+                "descartadas=%s",
                 cam.id,
                 cam.code,
-                len(hits),
+                len(hits_validos),
+                len(hits) - len(hits_validos),
                 extra={"correlation_id": cid, "camera_id": cam.id},
             )
         return {
             "status": "ok",
             "code": cam.code,
             "source": "rtsp",
-            "plates_found": len(hits),
+            # Matrículas **válidas** (las que el OCR leyó y que además
+            # tienen forma de matrícula). Las descartadas van aparte: no
+            # son matrículas, son texto quemado en la imagen.
+            "plates_found": len(hits_validos),
+            "plates_descartadas": len(hits) - len(hits_validos),
             "tickets_created": created,
             "tickets_closed": closed,
         }

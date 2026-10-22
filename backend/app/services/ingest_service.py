@@ -54,6 +54,7 @@ from app.models.ticket import Ticket
 from app.models.vehicle import Vehicle
 from app.schemas.plate import PlateHit
 from app.services.pdf import save_ticket_pdf
+from app.services.plates import parece_matricula
 from app.services.pricing import PricingError, calculate_ticket_total
 from app.services.event_bus import EventType, publish as publish_event
 
@@ -71,6 +72,10 @@ class IngestStatus(StrEnum):
     SKIPPED_SPACE_OCCUPIED = "skipped_space_occupied"
     SKIPPED_SPACE_BROKEN = "skipped_space_broken"
     SKIPPED_ALREADY_INSIDE = "skipped_already_inside"
+    #: El OCR leyó un texto que no es una matrícula (2026-10-22): el
+    #: timestamp quemado de la cámara, el rótulo de la marca... No se
+    #: crea ni vehículo ni ticket.
+    SKIPPED_NOT_A_PLATE = "skipped_not_a_plate"
     SKIPPED_NO_ACTIVE_TICKET = "skipped_no_active_ticket"
 
 
@@ -109,6 +114,31 @@ def process_plate_hit(
     descriptivo. Esto es coherente con la regla "worker nunca propaga".
     """
     now = now or datetime.now(timezone.utc)
+    # 0. ¿Es una matrícula o es otro texto? (2026-10-22)
+    #
+    # El OCR devuelve TEXTO, no matrículas: también lee el timestamp
+    # quemado de la cámara o el rótulo de la marca. Con el vídeo de QA
+    # del repo, devolvió "t=105.0sframe=2625" como si fuera una
+    # matrícula. Si pasara, crearía un vehículo fantasma (la columna
+    # ``vehicles.plate`` es UNIQUE) y, si la geocerca estuviera pintada
+    # encima, un ticket.
+    #
+    # Se comprueba ANTES de tocar la base: aquí no se crea nada.
+    if not parece_matricula(hit.plate):
+        log.warning(
+            "ingest: el OCR no leyó una matrícula (se ignora): %r", hit.plate
+        )
+        return IngestResult(
+            plate=hit.plate,
+            camera_id=camera.id,
+            parking_id=camera.parking_id,
+            status=IngestStatus.SKIPPED_NOT_A_PLATE,
+            confidence=hit.confidence,
+            reason=(
+                f"el OCR leyó '{hit.plate}', que no tiene forma de matrícula "
+                "(normalmente es el timestamp o el rótulo quemado en la imagen)"
+            ),
+        )
     try:
         with SessionLocal() as db:
             return _process_in_tx(db, hit, camera, now=now)

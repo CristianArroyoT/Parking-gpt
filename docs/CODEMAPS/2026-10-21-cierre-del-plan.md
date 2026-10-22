@@ -1480,6 +1480,62 @@ estaría haciendo.
    motivo y **cualquier otro es un fallo del CI**.
 
 
+### 3-trigésimooctava. El OCR aceptaba cualquier texto como matrícula (2026-10-22)
+
+T-50 dejó al descubierto que `ping_camera` no se despacha. Al ejecutarla
+**a mano, una vez, como diagnóstico**, se vio que la cadena sí funciona
+(frame → OCR → ingesta) y que el OCR **lee texto, no matrículas**.
+
+**La medida (con la cámara real del entorno)**: el vídeo de QA lleva **dos
+rótulos quemados en la imagen** — `SOLIDAPP QA — CAM 01` arriba y el
+timestamp `t=105.0s frame=2625` abajo —. El OCR devolvió
+`"t=105.0sframe=2625"` como si fuera una matrícula, y en la siguiente
+pasada `"SOLIDAPPQACAM01"`.
+
+El primero se descartó **sólo por medir 19 caracteres** (el `max_length=16`
+del esquema), por casualidad. El segundo (15 caracteres) **pasaba**.
+
+**Por qué es grave**: `vehicles.plate` es `String(16) unique`. Una basura
+corta aceptada crea un **vehículo fantasma permanente**, y si la geocerca
+estuviera pintada encima, un **ticket** a un vehículo que no existe. Y no
+es hipotético: **casi todas las cámaras reales queman el timestamp en la
+imagen**, y a veces la marca.
+
+**El arreglo**:
+
+1. **Nuevo módulo** `app/services/plates.py` con la regla
+   `parece_matricula()`: normaliza (mayúsculas, sin separadores) y exige
+   la forma de una matrícula — `1234ABC` (español actual), `1234B`
+   (antiguo), `E1234A` (diplomática). La regla es **permisiva a
+   propósito**: no se quiere rechazar una matrícula legítima, sólo el
+   texto que no la es.
+2. **El filtro va en `process_plate_hit`**, que es el **punto único** por
+   el que pasa una lectura para convertirse en vehículo y ticket (lo usan
+   tanto la tarea de Celery como el push HTTP
+   `POST /parkings/{id}/plates-detected`). Un hit que no es matrícula
+   devuelve el estado nuevo `skipped_not_a_plate` y **no toca la base**.
+3. **También en `ping_camera`**, antes de persistir la fila de auditoría:
+   `plates_detected.plate` es de 16 caracteres, así que un texto más
+   largo **reventaba el INSERT** ("value too long").
+4. **Los contadores ya no mienten**: `plates_found` cuenta las matrículas
+   válidas y hay un `plates_descartadas` para el texto quemado.
+
+**Verificado con la cámara real**: el OCR leyó los dos rótulos, los dos se
+descartaron, `plates_found: 0`, `plates_descartadas: 1`, **0 vehículos y
+0 tickets creados**. Y **20 tests nuevos** (`backend/tests/test_plates_ocr.py`):
+la regla acepta las 8 matrículas legítimas (incluida la diplomática y la
+antigua, con y sin separadores) y rechaza las 7 formas de texto quemado;
+un hit basura **no crea vehículo ni ticket**; y una matrícula de verdad
+**sí** crea el vehículo.
+
+**Lo que queda fuera (documentado, no escondido)**: un rótulo como
+`HD 1080P` tiene **exactamente la misma forma** que una matrícula antigua
+(`M 1234 A`) o diplomática (`E 1234 A`), así que **ningún formato las
+distingue**. En la práctica ese caso lo filtra el cruce con la geocerca
+(el rótulo está en una esquina, fuera del rectángulo pintado) y el umbral
+de confianza.
+
+
 | Modelo | Tabla | Notas |
 |---|---|---|
 | `IncidentAttachment` | `incident_attachments` | `alert_id` con `ON DELETE CASCADE`; el binario **no** está en la BD, vive en el volumen `incident_attachments` |
