@@ -769,6 +769,34 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] `ruff check ../tools` en verde con los cambios.
   - [x] La meta-puerta está en el CI y en `tools/verificar_repo.py`.
 
+### T-37 · P1 — el detector de asimetrías no comparaba nada, y detrás había 5 holes vivos
+
+- **Estado**: **completado** — detector arreglado, 5 asimetrías corregidas y test permanente
+- **Contexto**: `tools/revisar_esquemas.py` es la puerta que el plan cita como la que encontró el hueco del `CameraUpdate.rtsp_url`. Al añadirle su autoprueba (T-36) salió que **esa puerta llevaba desde su creación sin comparar absolutely nada**:
+  1. Buscaba la pareja con `nombre[:-5]`, pero **"Create" tiene seis letras** → la pareja se llamaba `CameraCUpdate` y no se encontraba jamás. Su "OK" era vacío.
+  2. Miraba sólo el **cuerpo** de la clase, así que era ciego a los esquemas que **heredan** sus campos de una clase base (`ParkingCreate(ParkingBase)`, `UserCreate(UserBase)`).
+- **Lo que encontró al arreglarlo (5 asimetrías vivas)**:
+
+  | Esquema | Campo | En el alta | En la edición |
+  |---|---|---|---|
+  | `CameraUpdate.name` | `name` | 2-128 | **sin límite** |
+  | `ParkingUpdate.name` | `name` | 2-255 | **sin límite** |
+  | `ParkingUpdate.address` | `address` | 2-512 | **sin límite** |
+  | `ParkingUpdate.city` | `city` | 2-128 | **sin límite** |
+  | `UserUpdate.phone` | `phone` | máx. 32 | **sin límite** |
+
+  Son del **mismo tipo** que el hueco del `rtsp_url` (T-25) y que el del `full_name` (T-19): el POST los rechazaba y el PATCH los aceptaba. Un PATCH podía dejar una sucursal sin nombre o un teléfono de 500 caracteres, que después invalidaba la fila al serializar.
+- **El arreglo**:
+  - Los 5 campos Update validan lo mismo que sus altas.
+  - `tools/revisar_esquemas.py` corrige el `[:-5]` y **resuelve la herencia** (los campos heredados de una clase base del mismo módulo también se comparan).
+  - **Test permanente y general**: `backend/tests/test_esquemas_simetricos.py` recorre todos los pares Create/Update de todos los esquemas y compara sus restricciones con las de pydantic. Así la regla queda cubierta por la suite, no sólo por la herramienta: si alguien añade una validación en un alta y olvida el PATCH, lo dice el CI.
+- **Criterios de aceptación**:
+  - [x] El detector encuentra una asimetría de mentira y no marca una pareja simétrica (autoprueba).
+  - [x] El detector encuentra asimetrías **heredadas** de una clase base.
+  - [x] Los esquemas reales no tienen asimetrías.
+  - [x] El test general pasa, y **se ha comprobado que falla** reintroduciendo el defecto (sólo en el lado Update: el test lo canta).
+  - [x] La suite completa sigue en verde.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.

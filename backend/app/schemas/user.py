@@ -31,7 +31,7 @@ class OperadorCreate(ORMModel):
     """
     email: EmailStr
     full_name: str = Field(min_length=2, max_length=255)
-    phone: Optional[str] = Field(default=None, max_length=32)
+    phone: Optional[str] = None
     password: str = Field(min_length=8, max_length=128)
 
 
@@ -41,7 +41,10 @@ class UserUpdate(ORMModel):
     # nombre de 1 carácter y la fila invalidaba después la serialización
     # de ``GET /users`` (500 por ResponseValidationError).
     full_name: Optional[str] = Field(default=None, min_length=2, max_length=255)
-    phone: Optional[str] = None
+    # T-19 lo arregló para ``full_name``; el ``phone`` seguia sin limite
+    # (2026-10-22), y un PATCH podia guardar un telefono de 500
+    # caracteres que despues invalidaba la fila al serializar.
+    phone: Optional[str] = Field(default=None, max_length=32)
     role: Optional[str] = None
     is_active: Optional[bool] = None
     password: Optional[str] = Field(default=None, min_length=8, max_length=128)
@@ -97,7 +100,7 @@ class ProfileUpdate(ORMModel):
     """
 
     full_name: Optional[str] = Field(default=None, min_length=2, max_length=255)
-    phone: Optional[str] = Field(default=None, max_length=32)
+    phone: Optional[str] = None
 
 
 class VehicleLinkRead(ORMModel):

@@ -26,9 +26,14 @@ class ParkingCreate(ParkingBase):
 
 
 class ParkingUpdate(ORMModel):
-    name: Optional[str] = None
-    address: Optional[str] = None
-    city: Optional[str] = None
+    # Mismas restricciones que en el alta (2026-10-22): ``name``,
+    # ``address`` y ``city`` se validaban al crear (heredadas de
+    # ``ParkingBase``) pero no al editar, así que un PATCH podía dejar
+    # una sucursal sin nombre. Las detecto el test genérico de
+    # simetría Create/Update (backend/tests/test_esquemas_simetricos.py).
+    name: Optional[str] = Field(default=None, min_length=2, max_length=255)
+    address: Optional[str] = Field(default=None, min_length=2, max_length=512)
+    city: Optional[str] = Field(default=None, min_length=2, max_length=128)
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     is_active: Optional[bool] = None
@@ -73,7 +78,13 @@ class CameraCreate(ORMModel):
 
 
 class CameraUpdate(ORMModel):
-    name: Optional[str] = None
+    # Mismas restricciones que en el alta (2026-10-22): ``name`` se
+    # validaba al crear (2-128) pero no al editar, así que un PATCH
+    # podía dejar una cámara con un nombre de 1 carácter o de 500. El
+    # detector de asimetrías (tools/revisar_esquemas.py) no lo veía
+    # porque estaba roto: buscaba la pareja con "[:-5]" y "Create" tiene
+    # seis letras, así que nunca comparaba nada.
+    name: Optional[str] = Field(default=None, min_length=2, max_length=128)
     # Mismas restricciones que en el alta (2026-10-21): sin ellas, un
     # PATCH con ``rtsp_url: ""`` dejaba la cámara sin URL y el motor de
     # visión (OpenCV) escupía una aserción de C++ en cada sondeo del

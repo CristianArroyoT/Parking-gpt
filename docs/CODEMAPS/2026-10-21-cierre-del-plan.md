@@ -775,6 +775,50 @@ escriben literales en el source. Si estuvieran literales, el propio
 escaner los encontraría — y con razón: el repositorio es público y un
 token real en un literal es una credencial filtrada.
 
+### 3-vigésimonovena. La puerta de asimetrías no comparaba nada (2026-10-22)
+
+`tools/revisar_esquemas.py` es la puerta que el plan cita como la que
+encontró el hueco del `CameraUpdate.rtsp_url`. Al añadirle su autoprueba
+(T-36) salió que **llevaba desde su creación sin comparar nada**:
+
+1. Buscaba la pareja con `nombre[:-5]`, pero **"Create" tiene seis
+   letras** → la pareja se llamaba `CameraCUpdate` y no se encontraba
+   jamás. Su "OK: los campos validados en el alta se validan igual en la
+   edicion" era **vacío**.
+2. Miraba sólo el **cuerpo** de la clase, así que era ciego a los
+   esquemas que **heredan** sus campos de una clase base
+   (`ParkingCreate(ParkingBase)`, `UserCreate(UserBase)`).
+
+Al arreglarlo aparecieron **5 asimetrías vivas**, del mismo tipo que el
+hueco del `rtsp_url` (T-25) y el del `full_name` (T-19): el POST los
+rechazaba y el PATCH los aceptaba.
+
+| Esquema | Campo | En el alta | En la edición |
+|---|---|---|---|
+| `CameraUpdate.name` | `name` | 2-128 | **sin límite** |
+| `ParkingUpdate.name` | `name` | 2-255 | **sin límite** |
+| `ParkingUpdate.address` | `address` | 2-512 | **sin límite** |
+| `ParkingUpdate.city` | `city` | 2-128 | **sin límite** |
+| `UserUpdate.phone` | `phone` | máx. 32 | **sin límite** |
+
+Un PATCH podía dejar una sucursal sin nombre o un teléfono de 500
+caracteres, que después invalidaba la fila al serializar.
+
+**Las dos lecciones:**
+
+- El arreglo: los 5 campos Update validan lo mismo que sus altas, el
+  detector corrige el `[:-5]` y resuelve la herencia, y se añade
+  `backend/tests/test_esquemas_simetricos.py`, que recorre **todos** los
+  pares Create/Update de todos los esquemas y compara sus restricciones
+  con las de pydantic. La regla queda cubierta por la suite, no sólo por
+  la herramienta: si alguien añade una validación en un alta y olvida
+  el PATCH, lo dice el CI. Se ha comprobado que el test **falla**
+  reintroduciendo el defecto (sólo en el lado Update).
+- **La lección**: una puerta que nunca ha saltado no es una puerta. El
+  "OK" de este detector era tan vacío como su código: informaba de que
+  no había asimetrías sin haber mirado ninguna. La autoprueba es lo que
+  destapa ese tipo de puerta zombie.
+
 Y con el IPv4 arreglado, la réplica local pasó a poder ejecutar **el CI
 completo**, incluidos los dos pasos de test que antes se saltaban
 porque el host no resolvía los nombres de servicio de Docker:
