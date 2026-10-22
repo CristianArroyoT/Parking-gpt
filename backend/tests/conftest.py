@@ -134,7 +134,48 @@ _URL_REDIS_REAL = next(
     (url for url in _CANDIDATOS_REDIS if url and _redis_alcanzable(url)),
     "redis://127.0.0.1:6379/0",
 )
-_BASE_REDIS_SUITE = 8 + (os.getpid() % 8)
+
+#: Clave con la que una ejecucion reclama una base de Redis.
+CLAVE_LOCK_SUITE = "solidapp:suite:lock"
+#: Bases de Redis que puede usar la suite (la 0 la usa la app real).
+BASES_SUITE = range(8, 16)
+#: Caducidad del lock: si el proceso muere sin soltarlo, la base queda
+#: libre al cabo de una hora (las suites duran 7-10 minutos).
+CADUCIDAD_LOCK = 3600
+
+
+def _elegir_base_redis_suite(url_base: str) -> int:
+    """Toma una base de Redis libre para esta ejecución de la suite.
+
+    POR QUÉ (T-65, 2026-10-22): antes se elegía con ``8 + (pid % 8)``, que
+    **no** garantiza que dos ejecuciones paralelas caigan en bases
+    distintas: dos PIDs que difieren en un múltiplo de 8 comparten base.
+    Medido: con dos suites del host en paralelo (SQLite y PostgreSQL) los
+    tests de rate-limit se rompieron mutuamente (5 fallos en cada una:
+    "esperaba 429, obtuve 201"), porque compartían base y cada una
+    borraba los contadores de la otra al limpiar.
+
+    Ahora cada ejecución **reclama** una base con un lock (``SET NX``): si
+    está ocupada, se prueba la siguiente.
+    """
+    for base in BASES_SUITE:
+        cliente = redis.Redis.from_url(
+            f"{url_base}/{base}", socket_connect_timeout=1, socket_timeout=1
+        )
+        try:
+            if cliente.set(
+                CLAVE_LOCK_SUITE, os.getpid(), nx=True, ex=CADUCIDAD_LOCK
+            ):
+                return base
+        except Exception:
+            continue
+    raise RuntimeError(
+        "no hay ninguna base de Redis libre (8-15) para la suite: hay "
+        "demasiadas ejecuciones en paralelo"
+    )
+
+
+_BASE_REDIS_SUITE = _elegir_base_redis_suite(_URL_REDIS_REAL.rsplit("/", 1)[0])
 os.environ["REDIS_URL"] = (
     _URL_REDIS_REAL.rsplit("/", 1)[0] + f"/{_BASE_REDIS_SUITE}"
 )

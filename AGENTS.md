@@ -41,11 +41,11 @@ Hace falta una **tercera** fuente: el caso de mentira escrito a mano.
 ## Comandos que funcionan (verificados)
 
 ```bash
-# La salud del repo en un comando: 18 comprobaciones (~2 min)
+# La salud del repo en un comando: 20 comprobaciones (~2 min)
 python tools/verificar_repo.py
 python tools/verificar_repo.py --completo      # + CI local y QA en 5 anchos (~40 min)
 
-# Las 16 autopruebas de las puertas
+# Las 19 autopruebas de las puertas
 python tools/autopruebas.py
 python tools/autopruebas.py --estricto          # lo "no comprobado" tambien falla
 
@@ -72,6 +72,8 @@ python tools/verificar_enums_frontend.py --autoprueba
 python tools/verificar_tareas_celery.py --autoprueba
 python tools/verificar_ajustes_muertos.py --autoprueba
 python frontend/scripts/verificar_servidor_produccion.py --autoprueba
+python tools/verificar_nginx_body_size.py --autoprueba
+python tools/verificar_contexto_build.py --autoprueba
 python tools/extraer_api.py --autoprueba
 python tools/revisar_esquemas.py --autoprueba
 python tools/cobertura_api.py --autoprueba
@@ -119,6 +121,11 @@ docker run --rm -v "D:\Parking:/repo" -w /repo rhysd/actionlint:latest .github/w
   y la del contenedor a la vez**: la del host se queda **colgada con 0 %
   de CPU** (no es un test lento, es un bloqueo) y hay que matarla. Lanza
   una, espera, y luego la otra.
+- **Dos suites del host sí pueden ir en paralelo** (SQLite y PostgreSQL a
+  la vez): la base de Redis de cada una se **toma con un lock** (`SET NX`).
+  Antes se elegía con `8 + (pid % 8)`, y dos PIDs que difieren en un
+  múltiplo de 8 compartían base: las dos suites se rompían mutuamente los
+  tests de rate-limit (medido el 2026-10-22: 5 fallos en cada una).
 - La salida por tubería en subprocesos puede colgarse esperando EOF:
   manda la salida a un fichero temporal.
 - La consola de Windows es cp1252: fuerza `encoding="utf-8",
@@ -133,10 +140,11 @@ docker run --rm -v "D:\Parking:/repo" -w /repo rhysd/actionlint:latest .github/w
   una vez por rol, así que **no la lances 5 veces seguidas** (15 inicios →
   429): usa `python frontend/scripts/qa_visual.py --anchos
   "414,768,1024,1232,1440"`, que recorre los 5 anchos con 3 inicios.
-- La suite da **587** en SQLite y **596** en PostgreSQL en el host (lo
-  que ve el CI), y **585/595** en el contenedor de desarrollo: allí sólo
-  se monta `backend/`, así que el test que comprueba la nota del README
-  sobre el reconocimiento facial se salta. No es una deriva.
+- La suite da **604 passed, 9 skipped** en SQLite y **613 passed** en PostgreSQL
+  en el host (lo que ve el CI), y **603 passed, 10 skipped** / **612 passed, 1 skipped** en el
+  contenedor de desarrollo: allí sólo se monta `backend/`, así que el test
+  que comprueba la nota del README sobre el reconocimiento facial se salta
+  (el contenedor no tiene el README). No es una deriva.
 - **Ojo con qué ejecución se parece al CI**: el CI corre en **Linux con
   Python 3.11**, y el host es **Windows con 3.13**. El contenedor
   (`python:3.11-slim`, el mismo Python que el `Dockerfile`) es Linux y
