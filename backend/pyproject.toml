@@ -23,9 +23,20 @@ dependencies = [
     "jinja2>=3.1,<4.0",
     "python-dotenv>=1.0,<2.0",
     "httpx>=0.27,<1.0",
-    "pillow>=10.0,<11.0",
+    # T-90 (2026-10-23): Pillow abre las imagenes que suben los usuarios
+    # (``app/services/incident_attachments.py``). Con el pin anterior
+    # (``>=10.0,<11.0``) la version instalada era la 10.4.0, con **68
+    # avisos de OSV** (bombas de descompresion, desbordamientos de bufer,
+    # bucles infinitos). Pillow 13.0.0 es la primera version **sin
+    # ningun aviso**: medido consultando OSV para 10.4.0 (68), 11.3.0
+    # (74), 12.3.0 (39) y 13.0.0 (0).
+    "pillow>=13.0.0,<14.0",
     "opencv-python-headless>=4.10,<5.0",
-    "pytest>=8.0,<10.0",
+    # T-90 (2026-10-23): el suelo de pytest estaba en 8.0, y las
+    # versiones 8.x tienen un aviso de manejo del ``tmpdir`` que se
+    # arregla en 9.0.3. El rango permitia instalar una version con
+    # vulnerabilidad sin que nada se quejara.
+    "pytest>=9.0.3,<10.0",
     # Sprint Fase 3A: logger JSON estructurado para Loki.
     "python-json-logger>=2.0,<3.0",
 ]

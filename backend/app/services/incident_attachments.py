@@ -269,18 +269,24 @@ def generar_miniatura(contenido: bytes) -> bytes:
     """
     with Image.open(io.BytesIO(contenido)) as imagen:
         imagen.load()
+        # OJO (T-90): Pillow 13 viene con tipos y ``Image.open`` devuelve
+        # un ``ImageFile``, mientras que ``convert`` devuelve un ``Image``.
+        # Antes se reasignaba la misma variable con las dos cosas y
+        # ``mypy --strict`` (que el CI ejecuta) lo hacia fallar: se
+        # reescriben las conversiones en otra variable.
+        resultado: Image.Image = imagen
         if imagen.mode in ("RGBA", "LA", "P"):
             # El alfa se compone sobre blanco: un PNG con transparencia
             # no puede convertirse a JPEG directamente.
             fondo = Image.new("RGB", imagen.size, (255, 255, 255))
             rgba = imagen.convert("RGBA")
             fondo.paste(rgba, mask=rgba.split()[-1])
-            imagen = fondo
+            resultado = fondo
         elif imagen.mode != "RGB":
-            imagen = imagen.convert("RGB")
-        imagen.thumbnail((TAM_MINIATURA, TAM_MINIATURA), Image.Resampling.LANCZOS)
+            resultado = imagen.convert("RGB")
+        resultado.thumbnail((TAM_MINIATURA, TAM_MINIATURA), Image.Resampling.LANCZOS)
         buffer = io.BytesIO()
-        imagen.save(buffer, format="JPEG", quality=82, optimize=True)
+        resultado.save(buffer, format="JPEG", quality=82, optimize=True)
         return buffer.getvalue()
 
 
