@@ -825,8 +825,8 @@ porque el host no resolvía los nombres de servicio de Docker:
 
 | Paso del CI | En el host |
 |---|---|
-| Tests (pytest, SQLite) | **640 passed, 9 skipped** |
-| Tests contra PostgreSQL (pytest) | **649 passed** |
+| Tests (pytest, SQLite) | **652 passed, 9 skipped** |
+| Tests contra PostgreSQL (pytest) | **661 passed** |
 | Test de funciones sólo de SQLite | **13 passed** |
 | Type-check (vue-tsc) y build del frontend | exit 0 |
 | Los cuatro jobs | **VERDE** |

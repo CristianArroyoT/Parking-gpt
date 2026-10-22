@@ -144,8 +144,8 @@ docker run --rm -v "D:\Parking:/repo" -w /repo rhysd/actionlint:latest .github/w
   una vez por rol, así que **no la lances 5 veces seguidas** (15 inicios →
   429): usa `python frontend/scripts/qa_visual.py --anchos
   "414,768,1024,1232,1440"`, que recorre los 5 anchos con 3 inicios.
-- La suite da **640 passed, 9 skipped** en SQLite y **649 passed** en PostgreSQL
-  en el host (lo que ve el CI), y **639 passed, 10 skipped** / **648 passed, 1 skipped** en el
+- La suite da **652 passed, 9 skipped** en SQLite y **661 passed** en PostgreSQL
+  en el host (lo que ve el CI), y **651 passed, 10 skipped** / **660 passed, 1 skipped** en el
   contenedor de desarrollo: allí sólo se monta `backend/`, así que el test
   que comprueba la nota del README sobre el reconocimiento facial se salta
   (el contenedor no tiene el README). No es una deriva.
