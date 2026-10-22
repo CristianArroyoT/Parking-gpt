@@ -1,0 +1,58 @@
+# Imagen de PRODUCCIÓN del frontend (T-56).
+#
+# Hasta ahora el único `frontend/Dockerfile` era el de DESARROLLO (Vite
+# con HMR): servía el código fuente, no el build. Para un despliegue
+# real (la sucursal, o el K3s central del ADR-0001) hace falta servir
+# el `dist/` construido con un servidor estático de verdad.
+#
+# Esta imagen hace tres cosas que el servidor de desarrollo no hacía:
+#
+#  1. Construye el bundle (`npm run build`), con el type-check dentro.
+#  2. Lo sirve con nginx, con la configuración que cumple los TRES
+#     requisitos del PWA que documenta `frontend/README.md`:
+#     el manifiesto con su content-type, el service worker sin caché y
+#     el `index.html` sin caché.
+#  3. Proxy de `/api` al backend, porque el bundle usa rutas relativas
+#     a propósito (el navegador no tiene que saber dónde está la API).
+#
+# Construir:
+#     docker build -f frontend/Dockerfile.prod -t solidapp-frontend:prod frontend/
+#
+# Ejecutar (el backend se llama "backend" en la red de Docker):
+#     docker run -p 8080:80 -e API_UPSTREAM=http://backend:8000 solidapp-frontend:prod
+
+# ── Etapa 1: construir ──────────────────────────────────────────────────
+FROM node:20-alpine AS build
+
+WORKDIR /app
+
+# Primero los manifiestos (capa cacheada): si no cambian los
+# dependencias, no se reinstala nada.
+COPY package.json package-lock.json* ./
+RUN npm ci || npm install
+
+COPY . .
+
+# `npm run build` ya ejecuta `vue-tsc --noEmit` (mismo script que el
+# CI), así que un error de tipos rompe la construcción de la imagen.
+RUN npm run build
+
+# ── Etapa 2: servir ─────────────────────────────────────────────────────
+FROM nginx:1.27-alpine
+
+# A dónde va el proxy de /api. Se puede cambiar al arrancar con
+# ``-e API_UPSTREAM=...`` (el entrypoint de nginx sustituye la variable
+# en la plantilla). El valor por defecto es el nombre del servicio del
+# backend en la red de Docker.
+ENV API_UPSTREAM=http://backend:8000
+
+# La plantilla se procesa con envsubst al arrancar: ``API_UPSTREAM``
+# decide a dónde va el proxy de /api.
+COPY nginx/templates/default.conf.template /etc/nginx/templates/default.conf.template
+
+COPY --from=build /app/dist /usr/share/nginx/html
+
+EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -q -O /dev/null http://127.0.0.1/healthz || exit 1

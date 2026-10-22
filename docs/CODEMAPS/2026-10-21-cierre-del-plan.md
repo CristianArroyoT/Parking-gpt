@@ -1671,6 +1671,52 @@ mismo contenido, y **renombrando el marcador el build falla** con
 marcador…` y código 1 (antes: build verde y PWA rota).
 
 
+### 3-trigésimonovena. No había imagen de producción del frontend, y los requisitos del servidor no los cumplía nadie (2026-10-22)
+
+El único `frontend/Dockerfile` era el de **desarrollo** (Vite con HMR), con
+un comentario que lo reconocía: *"para producción usaríamos `npm run build`
++ nginx, fuera del MVP"*.
+
+Pero `frontend/README.md` (§ PWA) documenta **los tres requisitos que
+tiene que cumplir el servidor estático de producción** (el manifiesto con
+su content-type, el service worker sin caché y el `index.html` sin caché) —
+y **nadie los cumplía**, porque no había servidor de producción: la QA del
+PWA servía el build con un `http.server` de usar y tirar.
+
+**El arreglo (3 cosas)**:
+
+1. **`frontend/nginx/templates/default.conf.template`**: la configuración
+   de nginx que cumple los tres requisitos, más el proxy de `/api` (el
+   bundle usa rutas relativas a propósito), el fallback de la SPA
+   (`try_files … /index.html`), el cacheo inmutable de los assets con hash
+   y la sonda `/healthz`.
+2. **`frontend/Dockerfile.prod`**: imagen multi-etapa (node:20-alpine
+   construye → nginx:1.27-alpine sirve), con `ENV API_UPSTREAM` para el
+   proxy y `HEALTHCHECK`.
+3. **`frontend/scripts/verificar_servidor_produccion.sh`** + un paso en el
+   job `docker-build` del CI: levanta la imagen y **comprueba de verdad**
+   los requisitos contra el contenedor (no "debería funcionar": se mide).
+
+**Dos fallos que sólo aparecieron al verificar** (y que habrían roto la
+app en producción):
+
+- **`${API_UPSTREAM:-http://backend:8000}`**: el `envsubst` de la imagen
+  de nginx sólo sustituye las variables que existen **tal cual** (no
+  entiende la sintaxis `:-`), así que nginx se comía el texto y **no
+  arrancaba**. El valor por defecto va ahora en el `ENV` de la imagen.
+- **El bloque `types` de nginx sustituye el mapa MIME heredado** (no lo
+  amplía). Con el tipo del manifiesto declarado a nivel de `server`, el
+  JS y el HTML se servían como `application/octet-stream` y **el
+  navegador no ejecutaba el bundle**. El tipo del manifiesto se declara
+  ahora **sólo** en su ubicación, y el resto conserva el mapa heredado.
+
+**Verificado**: la imagen se construye, el contenedor queda *healthy*, los
+tres requisitos se cumplen **medidos**, el bundle se sirve como
+`application/javascript` con `immutable`, el fallback de la SPA devuelve
+el shell en `/mis-tickets`, y el proxy de `/api` responde (login a través
+del proxy → 200 con token).
+
+
 | Modelo | Tabla | Notas |
 |---|---|---|
 | `IncidentAttachment` | `incident_attachments` | `alert_id` con `ON DELETE CASCADE`; el binario **no** está en la BD, vive en el volumen `incident_attachments` |

@@ -392,6 +392,34 @@ jobs:
           set -o pipefail
           docker build --tag solidapp-frontend:ci frontend/
 
+      - name: La imagen de produccion cumple los requisitos del PWA
+        # POR QUÉ (2026-10-22): hasta ahora la única imagen del frontend
+        # era la de DESARROLLO (Vite con HMR): el bundle construido no
+        # lo servía nunca un servidor estático de verdad. Y los TRES
+        # requisitos que el README (§ PWA) le exige al servidor de
+        # producción no los cumplía nadie, porque no había servidor de
+        # producción (la QA del PWA servía el build con un http.server
+        # de usar y tirar).
+        #
+        # Se comprueban de verdad, contra el contenedor levantado:
+        # el manifiesto con su content-type, el service worker sin
+        # caché, el index.html sin caché, el bundle servido **como
+        # JavaScript** (con el content-type equivocado el navegador no
+        # lo ejecuta y la app no arranca) y el fallback de la SPA.
+        run: |
+          set -o pipefail
+          docker build --file frontend/Dockerfile.prod --tag solidapp-frontend:prod frontend/
+          docker run -d --name solidapp-fe-prod solidapp-frontend:prod
+          for _ in $(seq 1 30); do
+            if docker exec solidapp-fe-prod wget -q -O /dev/null http://127.0.0.1/healthz; then
+              break
+            fi
+            sleep 1
+          done
+          docker cp frontend/scripts/verificar_servidor_produccion.sh solidapp-fe-prod:/tmp/verificar.sh
+          docker exec solidapp-fe-prod sh /tmp/verificar.sh
+          docker rm -f solidapp-fe-prod
+
   # ── Frontend: type-check + build ──────────────────────────────────────
   # OJO (2026-10-22): aquí ya no hace falta el workaround de Node 20. Las
   # tres acciones del workflow corren en node24 (checkout@v5,

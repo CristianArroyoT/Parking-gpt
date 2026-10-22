@@ -1,0 +1,117 @@
+# Configuración de nginx para la app de producción (T-56).
+#
+# El README (§ PWA) documenta los TRES requisitos que tiene que cumplir
+# el servidor estático que sirve `dist/`. Hasta ahora no había ninguno:
+# el `Dockerfile` del frontend era el de DESARROLLO (Vite con HMR) y
+# la QA del PWA servía el build con un `http.server` de usar y tirar.
+# Es decir: los requisitos estaban escritos y nadie los cumplía.
+#
+# Los tres:
+#   1. `Content-Type: application/manifest+json` para el manifiesto.
+#   2. `Cache-Control: no-cache/no-store` para `/sw.js`: si el navegador
+#      cachea el service worker, sigue ejecutando la versión vieja.
+#   3. `index.html` sin cache (o con revalidación), para que un
+#      despliegue nuevo se vea al abrir la app.
+#
+# La API va por proxy a `/api` (mismo criterio que el servidor de
+# desarrollo): el bundle usa rutas relativas '/api/v1' a propósito, para
+# que el navegador no tenga que saber dónde está el backend.
+#
+# La plantilla (`*.template`) la procesa el entrypoint oficial de nginx
+# con `envsubst`, así que `${API_UPSTREAM}` se puede cambiar por entorno
+# sin tocar la imagen.
+#
+# OJO: aquí **no** se puede usar `${API_UPSTREAM:-por_defecto}`: el
+# `envsubst` de la imagen de nginx sólo sustituye las variables que
+# existen tal cual (no entiende la sintaxis `:-`), y nginx reventaba al
+# parsear el resto. El valor por defecto va en el `ENV` de la imagen.
+
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Sonda de vida del propio nginx (la usa el HEALTHCHECK de la imagen).
+    location = /healthz {
+        access_log off;
+        add_header Content-Type text/plain always;
+        return 200 "ok\n";
+    }
+
+    # ── 1. El manifiesto ─────────────────────────────────────────────────
+    # Chrome exige ``application/manifest+json`` para ofrecer "Instalar
+    # app".
+    #
+    # OJO: un bloque ``types`` **sustituye** el mapa MIME que hereda el
+    # servidor (no lo amplía). Si se declarase aquí, el JS y el HTML se
+    # servirían como ``application/octet-stream`` y el navegador **no
+    # ejecutaría el bundle** (y el HTML no se renderizaría). Por eso el
+    # tipo del manifiesto se declara **sólo** en su ubicación, y el resto
+    # de ubicaciones conserva el mapa MIME heredado.
+    location = /manifest.webmanifest {
+        types {
+            application/manifest+json webmanifest;
+        }
+        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+    }
+
+    # ── 2. El service worker, NUNCA cacheado ────────────────────────────
+    # Si el navegador cachea el SW, sigue ejecutando la versión vieja
+    # aunque se haya desplegado otra: el usuario se queda con un bundle
+    # obsoleto (y el SW antiguo puede cachear assets viejos).
+    location = /sw.js {
+        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        expires -1;
+    }
+
+    # ── 3. El shell de la SPA, sin cache ────────────────────────────────
+    location = /index.html {
+        add_header Cache-Control "no-cache, must-revalidate" always;
+    }
+    location = / {
+        add_header Cache-Control "no-cache, must-revalidate" always;
+    }
+
+    # ── La API: siempre a la red, nunca al caché del SW ────────────────
+    location /api/ {
+        proxy_pass ${API_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # Los tickets de SSE (eventos del parking) no deben bufferizarse.
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+    }
+
+    # ── Los assets con hash: se cachean para siempre ───────────────────
+    # `index-<hash>.js` cambia de nombre cuando cambia el contenido, así
+    # que cachearlos para siempre es seguro.
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        try_files $uri =404;
+    }
+
+    # ── El resto de estáticos ─────────────────────────────────────────
+    location ~* \.(png|jpg|jpeg|gif|svg|ico|webp|woff2?|ttf|eot)$ {
+        add_header Cache-Control "public, max-age=604800" always;
+        try_files $uri =404;
+    }
+
+    # ── La SPA: cualquier ruta desconocida devuelve el shell ───────────
+    # (es una SPA con enrutado del lado del cliente: /mis-tickets,
+    # /admin/users, … no son ficheros).
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Ficheros ocultos: no se sirven.
+    location ~ /\. {
+        deny all;
+    }
+}
