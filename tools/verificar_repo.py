@@ -95,6 +95,11 @@ def _comprobaciones() -> list[Comprobacion]:
             patron=r"(OK: el seed, la pantalla de login.*)",
         ),
         Comprobacion(
+            "La QA visual recorre todas las pantallas del router",
+            [py, "tools/verificar_cobertura_frontend.py"],
+            patron=r"(OK: la QA visual recorre todas las pantallas.*)",
+        ),
+        Comprobacion(
             "Modelos y migraciones coinciden",
             [
                 "docker", "exec",

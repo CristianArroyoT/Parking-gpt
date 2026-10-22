@@ -75,6 +75,10 @@ AUTOPRUEBAS: list[tuple[str, list[str]]] = [
         [sys.executable, "tools/verificar_cuentas_demo.py", "--autoprueba"],
     ),
     (
+        "La puerta de cobertura de pantallas sigue viendo",
+        [sys.executable, "tools/verificar_cobertura_frontend.py", "--autoprueba"],
+    ),
+    (
         "La puerta de roles del frontend sigue viendo",
         [sys.executable, "tools/verificar_roles_frontend.py", "--autoprueba"],
     ),

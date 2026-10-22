@@ -4,12 +4,12 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **277 de 278 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **282 de 283 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
 > | Suite completa | **566 passed** en SQLite · **575 passed** en PostgreSQL |
-> | QA visual (Chromium) | 21 pantallas a **5 anchos** (414, 768, 1024, 1232, 1440 px): 105 capturas, **0 desbordes, 0 errores de consola, 0 errores de login** |
+> | QA visual (Chromium) | **26 pantallas** a **5 anchos** (414, 768, 1024, 1232, 1440 px): 130 capturas, **0 desbordes, 0 errores de consola, 0 errores de login** |
 > | PWA | verificado: instalable y **arranca sin red** |
 > | API | **101 rutas** inventariadas (coinciden con el código) y **99 de 99 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
 > | Esquema | Los modelos y las migraciones coinciden: `alembic check` limpio y **el CI migra una base vacía** |
@@ -800,7 +800,7 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
 ### T-38 · P1 — el frontend y el backend no se hablaban
 
 - **Estado**: **completado** — verificador de contrato con autoprueba y paso en el CI
-- **Contexto**: el frontend habla con el backend a través de su propio cliente HTTP (`frontend/src/api/*.ts`) y el backend expone **101 rutas**. **Nada** comparaba las dos listas. La QA visual recorre 21 pantallas, pero sólo llega a los endpoints que esas pantallas tocan: una ruta mal escrita —o una ruta que el backend renombró— en un cliente que nadie abre se queda escondida hasta que un usuario la encuentra. Y el caso inverso, un endpoint con el **método equivocado**, es el más caro: no da 404, da 405 en producción.
+- **Contexto**: el frontend habla con el backend a través de su propio cliente HTTP (`frontend/src/api/*.ts`) y el backend expone **101 rutas**. **Nada** comparaba las dos listas. La QA visual recorre 26 pantallas, pero sólo llega a los endpoints que esas pantallas tocan: una ruta mal escrita —o una ruta que el backend renombró— en un cliente que nadie abre se queda escondida hasta que un usuario la encuentra. Y el caso inverso, un endpoint con el **método equivocado**, es el más caro: no da 404, da 405 en producción.
 - **El verificador** (`tools/verificar_contrato_frontend.py`) compara, de forma estática, **cada ruta que el cliente pide** con **las rutas que el backend expone**. Distingue dos fallos, porque se arreglan distinto:
   - la ruta **no existe** en el backend;
   - la ruta **existe pero con otro método**.
@@ -866,10 +866,10 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
 - **El arreglo (3 cosas)**:
   1. **`--anchos`**: un solo proceso recorre varios anchos. Se **inicia sesión una sola vez por rol** y para cada ancho se cambia el **viewport de la misma página** (`page.set_viewport_size`), con lo que la sesión se conserva. De 15 inicios a **3**.
   2. **El motivo del fallo de login se reporta**: `_login` devuelve `(ok, motivo)` y distingue el **429** ("límite de intentos, no es un fallo de la pantalla") de un timeout o un error de navegación.
-  3. **Los manejadores de consola y de red se registran una vez por página** en vez de uno por pantalla: antes se acumulaban (21 pantallas × 5 anchos = 105 manejadores disparando a la vez).
+  3. **Los manejadores de consola y de red se registran una vez por página** en vez de uno por pantalla: antes se acumulaban (26 pantallas × 5 anchos = 130 manejadores disparando a la vez).
 - **Criterios de aceptación**:
   - [x] La QA recorre los **5 anchos en un solo proceso** con **3 inicios de sesión** en total.
-  - [x] Resultado medido: **105 capturas** (21 pantallas × 5 anchos), **0 desbordes**, **0 errores de consola**, **0 errores de login**; sólo los 10 avisos conocidos (2 por ancho: `/mapa` y `/vivo`, que nunca dejan la red en reposo).
+  - [x] Resultado medido: **130 capturas** (26 pantallas × 5 anchos), **0 desbordes**, **0 errores de consola**, **0 errores de login**; sólo los 10 avisos conocidos (2 por ancho: `/mapa` y `/vivo`, que nunca dejan la red en reposo).
   - [x] `tools/verificar_repo.py --completo` usa ahora el modo multi-anchos (una sola QA, no cinco).
   - [x] El fallo de login dice **por qué** falla.
   - [x] La autoprueba del detector de desbordes sigue en verde tras el refactor.
@@ -993,6 +993,30 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Es estática (no necesita base de datos ni dependencias) → puede ir en el CI.
   - [x] Está en la meta-puerta, que pasa de 11 a **12 autopruebas**, y en `tools/verificar_repo.py` (14 comprobaciones).
   - [x] Paso nuevo en el job `integration` del CI, y `actionlint` exit 0.
+
+### T-48 · P1 — la QA visual no cubría 6 pantallas del router y nada lo decía
+
+- **Estado**: **completado** — las 6 pantallas añadidas, puerta nueva de cobertura con autoprueba y paso en el CI
+- **Contexto**: la QA visual recorre una lista de pantallas escrita a mano (`PANTALLAS` en `frontend/scripts/qa_visual.py`) que es una **copia** de las rutas del router. **Nada las comparaba.** El resultado: **seis rutas del router no se revisaban nunca**:
+  | Ruta | Pantalla |
+  |---|---|
+  | `/dashboard` | el dashboard de admin |
+  | `/admin/parkings` | la lista de parkings |
+  | `/admin/costs` | la lista de costes |
+  | `/forbidden` | la pantalla de acceso denegado |
+  | `/:pathMatch(.*)*` | la pantalla de "no encontrada" |
+
+  La puerta de "despliegue limpio" comprueba que el seed cree 5 parkings, y la de cobertura de endpoints que todos los endpoints tengan test: ninguna de las dos mira **qué pantallas se revisan visualmente**. Y la propia auditoría móvil (T-13) encontró 26 desbordes en 6 pantallas **de las que sí se revisaban** — las 3 pantallas de admin **nunca se habían mirado a 414 px**.
+- **El arreglo (2 cosas)**:
+  1. **Las 5 pantallas se añaden a la QA** (la de "no encontrada" se visita con una ruta que no existe, a propósito). La QA pasa de 21 a **26 pantallas**.
+  2. **Puerta nueva** (`tools/verificar_cobertura_frontend.py`): comprueba que **toda** ruta del router se recorre, avisa de las que no, avisa de las que la QA recorre y no existen (la visita al 404 es la única admitida), y avisa si la pantalla de "no encontrada" no se comprueba nunca. Las rutas que no se puedan recorrer van en una lista de **exenciones con su motivo** (hoy hay dos: `/`, que es una redirección por rol, y `/calibrate/:parkingId/:cameraId`, que necesita ids reales de parking y cámara).
+  - A propósito, esta puerta **no** reutiliza el extractor de rutas de `verificar_roles_frontend.py`: dos extractores independientes que se vigilan mutuamente valen más que uno compartido (si los dos usan el mismo código, los dos pueden quedarse ciegos a la vez).
+- **Criterios de aceptación**:
+  - [x] La puerta detecta una ruta del router sin cubrir, una pantalla huerfana, más de una visita fuera del router (posible errata) y la pantalla de "no encontrada" sin comprobar. **7 casos** de autoprueba.
+  - [x] **Probado con el defecto reintroducido**: añadiendo una ruta de prueba al router, la puerta la canta y sale con código 1; al quitarla, vuelve a verde.
+  - [x] Las 5 pantallas añadidas se comprueban de verdad: las **26 pantallas** en los **5 anchos**, con 0 desbordes, 0 errores de consola y 0 errores de red.
+  - [x] Está en la meta-puerta (que pasa de 12 a **13 autopruebas**), en `tools/verificar_repo.py` (15 comprobaciones) y en el CI.
+  - [x] `actionlint` exit 0 y `ruff` limpio.
 
 ### T-14 · I3 — OCR con GPU
 
@@ -1306,7 +1330,7 @@ T-22 (recuperación de contraseña) ──> T-24 (PWA, que necesita self-service
 - [x] `docker compose up -d` → todos los servicios *healthy* y `/health` responde 200.
 - [x] QA visual en el navegador de las pantallas tocadas (con la app real, no sólo tests).
       → **HECHA** con Chromium headless (Playwright) sobre la app real
-      (`frontend/scripts/qa_visual.py`): las **21 pantallas** de los tres
+      (`frontend/scripts/qa_visual.py`): las **26 pantallas** de los tres
       roles se renderizan, **0 errores de consola** y **0 peticiones de red
       fallidas**. Se revisaron una a una las capturas: catálogo de planes,
       mi plan, mis vehículos, mi perfil, mi plaza, pagos, entradas/salidas,

@@ -1,7 +1,7 @@
 """Comprueba que el frontend llama a endpoints que existen.
 
 POR QUÉ (2026-10-22): el frontend tiene su propio cliente HTTP
-(``frontend/src/api/``) y la QA visual sólo recorre 21 pantallas. Un
+(``frontend/src/api/``) y la QA visual sólo recorre 26 pantallas. Un
 endpoint mal escrito, o una ruta que el backend renombró, se esconde
 hasta que un usuario llega a esa pantalla. Este verificador compara, de
 forma estática, **cada ruta que el cliente pide** con **las rutas que

@@ -60,7 +60,7 @@ nueva que salía como inexistente y un texto que no cambiaba).
 
 ## QA visual (Chromium headless)
 
-`scripts/qa_visual.py` recorre las 21 pantallas de los tres roles con las
+`scripts/qa_visual.py` recorre las 26 pantallas de los tres roles con las
 cuentas **demo** del seed, hace una captura de cada una y recoge los
 **errores de consola** y las **peticiones fallidas**. Es lo que cubre la
 parte de "la pantalla se renderiza" que los tests no pueden.
@@ -217,7 +217,7 @@ sin red: la app arranca desde la cache del service worker
 > en marcha.
 
 Resultado de la última ejecución (2026-10-22, con el stack completo):
-**21 pantallas × 5 anchos (414, 768, 1024, 1232 y 1440 px) = 105 capturas,
+**26 pantallas × 5 anchos (414, 768, 1024, 1232 y 1440 px) = 130 capturas,
 0 desbordes, 0 errores de consola y 0 errores de login**. Quedan 10 avisos
 que **no son fallos** (2 por ancho): `/mapa` y `/vivo` agotan el
 tiempo de espera de `networkidle` porque mantienen una conexión abierta (el

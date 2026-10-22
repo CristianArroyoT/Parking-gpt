@@ -361,7 +361,7 @@ espera de "networkidle" se agotaba siempre ahí y se reportaba como **error
 de red**. Ahora se reporta como **aviso**: es tráfico de fondo perpetuo,
 no una pantalla rota.
 
-Resultado medido: **0 desbordes** en las 21 pantallas a los **cinco**
+Resultado medido: **0 desbordes** en las 26 pantallas a los **cinco**
 anchos (414, 768, 1024, 1232, 1440 px), 0 errores de consola y 0
 peticiones fallidas.
 
@@ -584,7 +584,7 @@ python tools/verificar_repo.py --completo # + CI local y QA visual: ~26 min
 | SLO de carga | 14/14 reglas |
 | El PWA es instalable y arranca sin red | OK |
 | CI local (los 4 jobs del workflow) | **Todos los jobs pasan en local** (19 min) |
-| QA visual en 414 / 768 / 1024 / 1232 / 1440 px | 5 × 21 pantallas, 0 desbordes |
+| QA visual en 414 / 768 / 1024 / 1232 / 1440 px | 5 × 26 pantallas, 0 desbordes |
 | CI remoto en `main` | rechazado por la cuenta (facturación) → **aviso**, no fallo |
 
 Sale con 0 si todo está bien y 1 si algo falla, como haría el CI. Cada
@@ -842,7 +842,7 @@ El frontend habla con el backend a través de su propio cliente HTTP
 (`frontend/src/api/*.ts`) y el backend expone **101 rutas**. **Nada**
 comparaba las dos listas.
 
-La QA visual recorre 21 pantallas, pero sólo llega a los endpoints que
+La QA visual recorre 26 pantallas, pero sólo llega a los endpoints que
 esas pantallas tocan. Una ruta mal escrita en un cliente que nadie abre se
 queda escondida hasta que un usuario la encuentra. Y el caso inverso —un
 endpoint con el **método equivocado**— es el más caro: no da 404, da 405 en
@@ -1013,8 +1013,8 @@ mensaje no decía "429", el diagnóstico empezaba por el sitio equivocado.
    `(ok, motivo)` y distingue el **429** ("límite de intentos, no es un
    fallo de la pantalla") de un timeout o un error de navegación.
 3. **Los manejadores de consola y de red se registran una vez por
-   página** en vez de uno por pantalla: antes se acumulaban (21 pantallas
-   × 5 anchos = 105 manejadores disparando a la vez).
+   página** en vez de uno por pantalla: antes se acumulaban (26 pantallas
+   × 5 anchos = 130 manejadores disparando a la vez).
 
 **Resultado medido tras el arreglo**:
 
@@ -1022,7 +1022,7 @@ mensaje no decía "429", el diagnóstico empezaba por el sitio equivocado.
 |---|---|
 | Anchos en un proceso | 5 (414, 768, 1024, 1232, 1440) |
 | Inicios de sesión | **3** (en vez de 15) |
-| Capturas | **105** (21 pantallas × 5 anchos) |
+| Capturas | **130** (26 pantallas × 5 anchos) |
 | Desbordes | **0** |
 | Errores de consola | **0** |
 | Errores de login | **0** |
@@ -1295,6 +1295,51 @@ Es estática (no necesita base de datos ni dependencias), así que va en
 la meta-puerta (que pasa de 11 a **12 autopruebas**), en
 `tools/verificar_repo.py` (14 comprobaciones) y en el job `integration`
 del CI.
+
+
+### 3-trigésimotercera. La QA visual no cubría 6 pantallas del router y nada lo decía (2026-10-22)
+
+La QA visual recorre una lista de pantallas escrita a mano (`PANTALLAS`
+en `frontend/scripts/qa_visual.py`) que es una **copia** de las rutas del
+router. **Nada las comparaba.**
+
+**Seis rutas no se revisaban nunca**:
+
+| Ruta | Pantalla |
+|---|---|
+| `/dashboard` | el dashboard de admin |
+| `/admin/parkings` | la lista de parkings |
+| `/admin/costs` | la lista de costes |
+| `/forbidden` | la pantalla de acceso denegado |
+| `/:pathMatch(.*)*` | la pantalla de "no encontrada" |
+
+La puerta de "despliegue limpio" comprueba que el seed cree 5 parkings, y
+la de cobertura de endpoints que todos los endpoints tengan test: ninguna
+mira **qué pantallas se revisan visualmente**. Y la propia auditoría móvil
+encontró 26 desbordes en 6 pantallas **de las que sí se revisaban** — las
+3 pantallas de admin **nunca se habían mirado a 414 px**.
+
+**El arreglo (2 cosas)**:
+
+1. **Las 5 pantallas se añaden a la QA** (la de "no encontrada" se visita
+   con una ruta que no existe, a propósito). La QA pasa de 21 a **26
+   pantallas**.
+2. **Puerta nueva** (`tools/verificar_cobertura_frontend.py`): comprueba
+   que **toda** ruta del router se recorre, avisa de las que no, avisa de
+   las que la QA recorre y no existen (la visita al 404 es la única
+   admitida) y avisa si la pantalla de "no encontrada" no se comprueba
+   nunca. Las rutas que no se puedan recorrer van en una lista de
+   **exenciones con su motivo** (hoy dos: `/`, que es una redirección por
+   rol, y `/calibrate/:parkingId/:cameraId`, que necesita ids reales de
+   parking y cámara).
+
+A propósito, esta puerta **no** reutiliza el extractor de rutas de
+`verificar_roles_frontend.py`: dos extractores independientes que se
+vigilan mutuamente valen más que uno compartido (si los dos usan el
+mismo código, los dos pueden quedarse ciegos a la vez).
+
+**Probado en los dos sentidos**: añadiendo una ruta de prueba al router,
+la puerta la canta y sale con código 1; al quitarla, vuelve a verde.
 
 
 | Modelo | Tabla | Notas |

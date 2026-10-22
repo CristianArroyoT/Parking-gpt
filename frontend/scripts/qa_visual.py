@@ -48,10 +48,17 @@ SIN_NAVEGADOR = 3
 BASE = "http://localhost:5173"
 
 # (etiqueta, ruta, rol, nombre de fichero)
+#
+# OJO (2026-10-22): esta lista la vigila ``tools/verificar_cobertura_frontend.py``,
+# que comprueba que **toda** ruta del router aparece aquí. Faltaban cinco
+# pantallas (el dashboard de admin, la lista de parkings, la de costes y las
+# dos de error) y nadie se enteraba de que no se revisaban.
 PANTALLAS = [
     ("login", "/login", "ninguno", "login"),
     ("recuperar-sin-token", "/recuperar-contrasena", "ninguno", "recuperar-sin-token"),
     ("recuperar-con-token", "/recuperar-contrasena?token=abc123", "ninguno", "recuperar-con-token"),
+    ("forbidden", "/forbidden", "ninguno", "forbidden"),
+    ("no-encontrada", "/ruta-que-no-existe", "ninguno", "no-encontrada"),
     ("gestor-dashboard", "/dashboard/gestor", "gestor", "gestor-dashboard"),
     ("gestor-movimientos", "/gestor/movimientos", "gestor", "gestor-movimientos"),
     ("gestor-alertas", "/gestor/alertas", "gestor", "gestor-alertas"),
@@ -66,6 +73,9 @@ PANTALLAS = [
     ("cliente-plan", "/mi-plan", "cliente", "cliente-plan"),
     ("cliente-plaza", "/mi-plaza", "cliente", "cliente-plaza"),
     ("cliente-pagos", "/pagos", "cliente", "cliente-pagos"),
+    ("admin-dashboard", "/dashboard", "admin", "admin-dashboard"),
+    ("admin-parkings", "/admin/parkings", "admin", "admin-parkings"),
+    ("admin-costes", "/admin/costs", "admin", "admin-costes"),
     ("admin-planes", "/admin/planes", "admin", "admin-planes"),
     ("admin-usuarios", "/admin/users", "admin", "admin-usuarios"),
     ("admin-tarifas", "/admin/tariffs", "admin", "admin-tarifas"),
@@ -453,8 +463,8 @@ def main() -> int:
             consola: list[str] = []
             red: list[str] = []
             # Los manejadores se registran **una vez** por página: antes se
-            # registraban en cada pantalla y se acumulaban (21 pantallas x
-            # 5 anchos = 105 manejadores disparando a la vez).
+            # registraban en cada pantalla y se acumulaban (26 pantallas x
+            # 5 anchos = 130 manejadores disparando a la vez).
             pagina.on(
                 "console",
                 lambda m: consola.append(f"{m.type}: {m.text}")

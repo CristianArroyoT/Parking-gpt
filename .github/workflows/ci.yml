@@ -200,7 +200,7 @@ jobs:
 
       - name: El frontend llama a endpoints que existen
         # POR QUÉ (2026-10-22): el frontend tiene su propio cliente HTTP
-        # (``frontend/src/api/``) y la QA visual sólo recorre 21 pantallas.
+        # (``frontend/src/api/``) y la QA visual sólo recorre 26 pantallas.
         # Un endpoint mal escrito, o una ruta que el backend renombró,
         # se esconde hasta que un usuario llega a esa pantalla.
         #
@@ -244,6 +244,20 @@ jobs:
         # usuarios, pero NO que sus contraseñas sean las que la pantalla
         # de login ofrece.
         run: python ../tools/verificar_cuentas_demo.py
+
+      - name: La QA visual recorre todas las pantallas del router
+        # POR QUÉ (2026-10-22): la QA visual recorre una lista de
+        # pantallas escrita a mano, que es una COPIA de las rutas del
+        # router. Nada las comparaba, y seis rutas no se revisaban nunca:
+        # el dashboard de admin, la lista de parkings, la de costes y las
+        # dos pantallas de error. Si cualquiera se hubiera roto, la QA
+        # lo habría dado por bueno.
+        #
+        # Esta puerta comprueba que toda ruta del router se recorre, y
+        # avisa de las que no (las que no se puedan recorrer tienen que
+        # estar en la lista de exenciones de la herramienta, con su
+        # motivo).
+        run: python ../tools/verificar_cobertura_frontend.py
 
       - name: Las migraciones y los modelos coinciden
         # POR QUÉ (2026-10-21): los tests crean el esquema con
