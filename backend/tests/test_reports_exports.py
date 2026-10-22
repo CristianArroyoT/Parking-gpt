@@ -633,7 +633,11 @@ def test_el_csv_de_tickets_neutraliza_una_matricula_con_formula(
     admin = ah._seed_admin(db_session, email="admin-csv@test.es")
     headers = ah._login_headers(client, admin.email, "admin12345")
 
-    matricula = "=cmd|'/c calc'!A0"
+    # OJO: la columna 'vehicles.plate' es VARCHAR(16), asi que la
+    # matricula maliciosa tiene que CABER: con 20 caracteres el INSERT
+    # revienta en PostgreSQL (en SQLite no, porque ignora la longitud: ahi
+    # el test pasaba y en PostgreSQL no). Lo cazó el job 'integration'.
+    matricula = "=1+1"
     _mk_ticket(
         db_session, parking_id=parking.id,
         entry_at=datetime(2026, 1, 10, 9, tzinfo=UTC),
