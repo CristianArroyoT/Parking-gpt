@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -25,6 +25,24 @@ from app.services.endpoint_rate_limit import enforce_endpoint_rate_limit
 
 router = APIRouter(prefix="/vehicles", tags=["vehículos"])
 
+
+def _escapar_like(texto: str) -> str:
+    """Escapa los comodines de LIKE para que el usuario no use de comodín.
+
+    POR QUÉ (T-93, 2026-10-23): el filtro era
+    ``Vehicle.plate.ilike(f"%{plate}%")``, con el texto del usuario metido
+    en el patrón. Eso convierte los comodines de LIKE en comodines de
+    verdad: ``?plate=%`` devolvía **todos** los vehículos de la flota y
+    ``?plate=______`` hacía wildcard sobre cualquier matrícula de 6
+    caracteres. Con un rol de staff, la "búsqueda" era un comodín para
+    enumerar las matrículas entera (y para escanear la tabla).
+
+    El valor sigue yendo **ligado** como parámetro (no es inyección SQL:
+    SQLAlchemy lo escapa); lo que se escapa aquí son los comodines del
+    propio LIKE, para que el usuario busque el texto que escribe.
+    """
+    return texto.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
 _STAFF = (UserRole.ADMIN.value, UserRole.GESTOR.value, UserRole.OPERADOR.value)
 
 
@@ -44,13 +62,17 @@ def _enforce_endpoint_rate_limit(
 
 @router.get("", response_model=list[VehicleRead])
 def list_vehicles(
-    plate: Optional[str] = None,
+    # T-93: el mismo limite que el modelo (16 caracteres): un patron
+    # enorme no es una busqueda de matriculas.
+    plate: Optional[str] = Query(default=None, max_length=16),
     db: Session = Depends(get_db),
     _user: User = Depends(require_role(*_STAFF)),
 ) -> list[Vehicle]:
     query = db.query(Vehicle)
     if plate:
-        query = query.filter(Vehicle.plate.ilike(f"%{plate}%"))
+        query = query.filter(
+            Vehicle.plate.ilike(f"%{_escapar_like(plate)}%", escape="\\")
+        )
     return query.order_by(Vehicle.plate).all()
 
 

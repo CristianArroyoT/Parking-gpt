@@ -30,6 +30,7 @@ from app.core.config import get_settings
 from app.core.db import SessionLocal
 from app.models.audit import AuditLog
 from app.models.parking import Camera
+from app.models.password_reset_token import PasswordResetToken
 from app.models.plates_detected import PlatesDetected
 from app.services.alerts import (
     record_camera_offline,
@@ -310,6 +311,49 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
         }
     finally:
         db.close()
+
+
+@celery_app.task(name="solidapp.send_password_reset_email")  # type: ignore[untyped-decorator]
+def enviar_correo_reset(
+    to_email: str,
+    full_name: str,
+    raw_token: str,
+    expires_minutes: int,
+    token_id: int,
+) -> dict[str, Any]:
+    """Envia el correo de reset de contrasena (T-94).
+
+    Vive en una tarea de Celery para que el SMTP **no** este dentro del
+    ciclo del request: con un SMTP lento, la peticion de
+    forgot-password tardaba **5,03 s** (medido el 2026-10-23 con un SMTP
+    de mentira que acepta la conexion y no contesta) y bloqueaba el
+    worker de la API.
+
+    Si el envio falla, el token se borra: un token que el usuario nunca
+    recibio no debe quedar valido en la base de datos.
+    """
+    from app.services.password_reset_email import (
+        send_password_reset_email as _enviar,
+    )
+
+    enviado = _enviar(
+        to_email=to_email,
+        full_name=full_name,
+        raw_token=raw_token,
+        expires_minutes=expires_minutes,
+    )
+    if not enviado:
+        with SessionLocal() as db:
+            fila = db.get(PasswordResetToken, token_id)
+            if fila is not None:
+                db.delete(fila)
+                db.commit()
+        log.error(
+            "enviar_correo_reset: no se pudo enviar el correo a %s "
+            "(token %s eliminado)",
+            to_email, token_id,
+        )
+    return {"enviado": enviado, "token_id": token_id}
 
 
 @celery_app.task(name="solidapp.cleanup_failed_frames")  # type: ignore[untyped-decorator]

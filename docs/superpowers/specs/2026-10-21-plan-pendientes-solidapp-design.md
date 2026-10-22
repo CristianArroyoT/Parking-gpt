@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **509 de 510 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **523 de 524 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1790,6 +1790,45 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] `docker compose config` resuelve **todos** los puertos publicados con `host_ip: 127.0.0.1`.
   - [x] El compose de producción **overridea** los puertos del backend (antes los heredaba abiertos).
   - [x] La QA visual y la puerta del servidor de producción siguen hablando con `127.0.0.1` (no cambian).
+
+
+
+### T-93 · P2 (datos) — la búsqueda de matrículas tenía comodines LIKE sin escapar
+
+- **Estado**: **completado** — los comodines se escapan y el patrón tiene un límite
+- **Contexto**: el filtro era `Vehicle.plate.ilike(f"%{plate}%")`, con el texto del usuario **metido en el patrón**. Eso convierte los comodines de LIKE en comodines de verdad.
+- **Medido**: `?plate=%` devolvía **todos** los vehículos de la flota y `?plate=______` hacía wildcard sobre cualquier matrícula de 6 caracteres. Con un rol de staff (admin, gestor u operador) la «búsqueda» era un comodín para enumerar las matrículas enteras y para escanear la tabla.
+- **Lo que NO era**: inyección SQL. El valor sigue yendo **ligado** como parámetro (SQLAlchemy lo escapa); lo que faltaba era escapar los comodines **del propio LIKE**.
+- **El arreglo**: `_escapar_like()` (en `backend/app/api/v1/vehicles.py`) escapa `\`, `%` y `_`, y la consulta usa `escape="\"`. Además el parámetro tiene un límite de 16 caracteres (el mismo que el modelo): un patrón enorme no es una búsqueda de matrículas.
+- **Criterios de aceptación**:
+  - [x] Medido: `?plate=%` devolvía la flota entera; `?plate=______` hacía wildcard.
+  - [x] `?plate=%` devuelve **0** vehículos (el `%` se busca como carácter literal) y `?plate=______` también.
+  - [x] Una matrícula que **de verdad** lleva un `%` se encuentra con `?plate=%` (el comodín literal sigue sirviendo para lo que es).
+  - [x] La búsqueda normal (`?plate=34AB` → `1234ABC`) sigue funcionando.
+  - [x] Un patrón de más de 16 caracteres se rechaza con 422.
+  - [x] 5 tests nuevos; prueba inversa: sin el escapado, **3** de ellos fallan.
+
+### T-94 · P1 (disponibilidad) — el correo de reset se enviaba dentro del request
+
+- **Estado**: **completado** — el envío va en una tarea de Celery y la respuesta tiene suelo de latencia
+- **Contexto**: `POST /auth/forgot-password` **enviaba el correo antes de responder**. El envío es un `smtplib.SMTP(..., timeout=5)`: con el SMTP lento o caído, la petición se quedaba **5 segundos** bloqueando un worker de la API. Con varias peticiones simultáneas, el pool de workers se agotaba: el mismo endpoint era un vector de denegación de servicio.
+- **Medido** (2026-10-23, con un SMTP de mentira que acepta la conexión y no contesta nunca):
+  ```
+  enviado=False  duracion=5.03 s
+  ```
+- **Y además era un oráculo**: con la cuenta existente la respuesta tardaba hasta 5 s; sin la cuenta, era instantánea. El endpoint dizia qué correos están registrados sin fallar ni un intento.
+- **El arreglo** (dos cosas):
+  1. **el envío sale del request**: una tarea de Celery (`solidapp.send_password_reset_email`) manda el correo. Si el broker está caído, se envía en línea (más lento, pero llega): es el camino de emergencia.
+  2. **suelo de latencia**: la respuesta tarda siempre lo mismo (350 ms), exista o no la cuenta. Sin él, la diferencia entre «hay cuenta» (unas milésimas más) seguiría siendo medible.
+- **Criterios de aceptación**:
+  - [x] Medido: el envío bloqueaba el request **5,03 s** con el SMTP lento.
+  - [x] El endpoint **encola** el envío y **no** toca el SMTP (verificado con un espía).
+  - [x] La respuesta tarda **≥ 350 ms** exista o no la cuenta, y la diferencia entre los dos casos es **< 150 ms**.
+  - [x] **Probado en el contenedor real**: `codigo=200 tiempo=0.356s`, y el worker registra `Task solidapp.send_password_reset_email [...] received` → `send_password_reset_email[dry-run]: to=...` → `succeeded`.
+  - [x] Si el envío falla, la tarea **borra el token**: un token que el usuario nunca recibió no debe quedar válido.
+  - [x] La puerta de tareas de Celery sigue en verde y reconoce la tarea nueva como despachada.
+  - [x] 4 tests nuevos; prueba inversa: sin el encolado y sin el suelo, los tests **fallan**.
+  - [x] Los 27 tests que ya había del flujo de reset siguen pasando (el seam que interceptan pasa a ser el encolado).
 
 
 ### T-14 · I3 — OCR con GPU

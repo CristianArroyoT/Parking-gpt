@@ -180,7 +180,50 @@ def send_password_reset_email(
         return False
 
 
+def encolar_envio_reset(
+    *,
+    to_email: str,
+    full_name: str,
+    raw_token: str,
+    expires_minutes: int,
+    token_id: int,
+) -> bool:
+    """Encola el envio del correo de reset FUERA del ciclo del request.
+
+    POR QUE (T-94, 2026-10-23): el envio estaba **dentro** del request.
+    Con un SMTP lento o caido, la peticion tardaba **5,03 s** (medido
+    con un SMTP de mentira que acepta la conexion y no contesta nunca) y
+    el worker de la API quedaba bloqueado: con varias peticiones a la
+    vez, el endpoint se convertia en un vector de denegacion de
+    servicio. Ademas esa latencia era un **oraculo**: con la cuenta
+    existente la respuesta tardaba hasta 5 s; sin la cuenta, era
+    instantanea.
+
+    Ahora el correo lo manda una tarea de Celery
+    (``solidapp.send_password_reset_email``) y el request responde
+    enseguida.
+
+    Devuelve ``False`` si no se pudo encolar (el broker esta caido): el
+    llamante envia el correo en linea (mas lento, pero llega).
+    """
+    try:
+        from app.workers.tasks import enviar_correo_reset
+
+        enviar_correo_reset.delay(
+            to_email=to_email,
+            full_name=full_name,
+            raw_token=raw_token,
+            expires_minutes=expires_minutes,
+            token_id=token_id,
+        )
+    except Exception:  # noqa: BLE001 -- el broker puede estar caido
+        log.exception("encolar_envio_reset: no se pudo encolar el correo")
+        return False
+    return True
+
+
 __all__ = [
+    "encolar_envio_reset",
     "es_entorno_real",
     "mail_transport_disponible",
     "render_password_reset_email",

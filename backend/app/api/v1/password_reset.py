@@ -41,6 +41,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 from typing import NoReturn
 
@@ -68,6 +69,27 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 #: Ventana de validez del token de un solo uso (minutos).
 TOKEN_TTL_MINUTES = 30
+
+#: Suelo de latencia de ``forgot-password`` (milisegundos).
+#:
+#: POR QUE (T-94): la respuesta **no** puede ser mas rapida si la cuenta
+#: no existe. Antes el envio del correo estaba dentro del request, asi que
+#: con la cuenta existente tardaba hasta 5,03 s (medido) y sin la cuenta
+#: era instantanea: el tiempo revelaba que correos estan registrados.
+#: Ahora el correo va en una tarea de Celery y el trabajo que queda es de
+#: milisegundos, pero la diferencia entre "hay cuenta" y "no hay cuenta"
+#: sigue siendo medible. El suelo la tapa.
+#:
+#: 350 ms es corto para el usuario y el endpoint esta limitado a 5
+#: peticiones por IP cada 15 minutos, asi que el coste es despreciable.
+SUELO_RESPUESTA_MS = 350
+
+
+def _esperar_suelo(inicio: float) -> None:
+    """Espera lo que falte para que la respuesta tarde al menos el suelo."""
+    restante = SUELO_RESPUESTA_MS / 1000 - (time.perf_counter() - inicio)
+    if restante > 0:
+        time.sleep(restante)
 #: Peticiones de forgot-password permitidas por IP y por email en la ventana.
 FORGOT_RATE_LIMIT_MAX_ATTEMPTS = 5
 FORGOT_RATE_LIMIT_WINDOW_SECONDS = 900  # 15 minutos
@@ -193,6 +215,7 @@ def forgot_password(
             detail="El servicio de correo no está disponible. Inténtalo más tarde.",
         )
 
+    inicio = time.perf_counter()
     client_ip = get_real_ip(request)
     email_normalizado = payload.email.strip().lower()
 
@@ -242,12 +265,24 @@ def forgot_password(
         db.add(fila)
         db.commit()
 
-        enviado = email_module.send_password_reset_email(
+        # T-94: el correo sale en una tarea de Celery, no dentro del
+        # request. Si el broker esta caido se envia en linea (mas lento,
+        # pero llega): es el camino de emergencia.
+        encolado = email_module.encolar_envio_reset(
             to_email=user.email,
             full_name=user.full_name,
             raw_token=token_bruto,
             expires_minutes=TOKEN_TTL_MINUTES,
+            token_id=fila.id,
         )
+        enviado = True
+        if not encolado:
+            enviado = email_module.send_password_reset_email(
+                to_email=user.email,
+                full_name=user.full_name,
+                raw_token=token_bruto,
+                expires_minutes=TOKEN_TTL_MINUTES,
+            )
         if not enviado:
             # El token sin correo no sirve de nada: se elimina para no
             # dejar Tokens válidos que el usuario nunca recibió.
@@ -290,6 +325,9 @@ def forgot_password(
         result="success",
     )
     db.commit()
+    # T-94: el suelo de latencia (tampoco en el caso de que la cuenta no
+    # exista: la respuesta tiene que ser igual de lenta).
+    _esperar_suelo(inicio)
     return MessageResponse(detail=MENSAJE_GENERICO)
 
 

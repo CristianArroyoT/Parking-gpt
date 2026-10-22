@@ -67,21 +67,30 @@ def _limpiar_buckets_rate_limit():
 
 @pytest.fixture()
 def correos(monkeypatch) -> list[dict]:
-    """Intercepta el envío de correo y guarda lo que se habría enviado."""
+    """Intercepta el envío de correo y guarda lo que se habría enviado.
+
+    T-94 (2026-10-23): el envío ya **no** ocurre dentro del request: lo
+    hace una tarea de Celery. El seam que se intercepta es, por tanto, el
+    **encolado** (``encolar_envio_reset``), no la llamada al SMTP. Lo que
+    se comprueba aquí es lo mismo de siempre (que el correo lleva el
+    token, la caducidad y el destinatario), y el envío en sí se comprueba
+    en ``test_password_reset_async.py``.
+    """
     enviados: list[dict] = []
 
-    def _fake(*, to_email, full_name, raw_token, expires_minutes):
+    def _fake(*, to_email, full_name, raw_token, expires_minutes, token_id):
         enviados.append(
             {
                 "to_email": to_email,
                 "full_name": full_name,
                 "raw_token": raw_token,
                 "expires_minutes": expires_minutes,
+                "token_id": token_id,
             }
         )
         return True
 
-    monkeypatch.setattr(email_module, "send_password_reset_email", _fake)
+    monkeypatch.setattr(email_module, "encolar_envio_reset", _fake)
     return enviados
 
 
