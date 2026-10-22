@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **311 de 312 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **315 de 316 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1158,6 +1158,20 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] La QA real sigue en verde: 26 pantallas × 5 anchos, **0 peticiones fallidas y 0 errores de consola**.
   - [x] El informe y la salida de consola incluyen ahora el recuento de peticiones fallidas y de errores de consola.
   - [x] La meta-puerta sigue en verde (16 autopruebas, la de la QA incluida).
+
+### T-55 · P1 — la caché del service worker nunca se purga, y el build se rompía en silencio
+
+- **Estado**: **completado** — versión de caché por build, y el build falla si el precache se queda sin lista
+- **Contexto (la caché)**: `frontend/public/sw.js` usaba `const VERSION = 'v1'` **fijo**. El plugin de Vite inyecta la lista de assets del build en `dist/sw.js`, así que el service worker **sí** se actualiza en cada despliegue (el byte cambia) → el `activate` borra las cachés cuyo nombre **no** sea el actual… pero como el nombre era siempre el mismo (`solidapp-estaticos-v1`), **nunca se borraba nada**: los assets de cada despliegue se acumulaban **para siempre** en el móvil del cliente. El handler `activate` existía exactamente para eso, pero no podía hacer nada.
+- **Contexto (el build)**: el plugin hacía `sw.replace('/* __ASSETS_BUILD__ */', inyeccion)`. Si alguien renombraba ese marcador, el `replace` **no hacía nada y el build terminaba en verde**: la PWA se quedaba sin la lista de assets, la app abría sin conexión **pero en blanco**, y nadie se enteraba hasta que un cliente la instalaba.
+- **El arreglo**:
+  1. **La versión de la caché va dentro del nombre y cambia con cada build**: `const VERSION = 'v1-<hash>'`, donde el hash es el SHA-256 de la lista de assets (primeros 12 hex). Ahora el `activate` **sí** purga la caché anterior, que es justo lo que estaba para hacer. El hash es de **contenido**: el mismo build da el mismo nombre (idempotente) y un build con otro contenido da otro.
+  2. **El build falla si falta el marcador** o si no encuentra la constante `VERSION` en `public/sw.js`, con un mensaje que dice qué hacer. Una PWA rota tiene que romper el build, no aparecer en producción.
+- **Criterios de aceptación**:
+  - [x] El build inyecta la versión: `36 assets para precachear (versión v1-a2283906863f)`, y el `dist/sw.js` la lleva.
+  - [x] El hash es **estable** entre builds con el mismo contenido (verificado: dos builds seguidos → la misma versión).
+  - [x] **Probado que el build falla** si se renombra el marcador: sale `error during build: solidapp-pwa-precache: no se encuentra el marcador "/* __ASSETS_BUILD__ */"…` con código 1 (antes: build verde y PWA rota).
+  - [x] El build vuelve a pasar tras restaurar el marcador.
 
 ### T-14 · I3 — OCR con GPU
 

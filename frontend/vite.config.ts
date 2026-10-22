@@ -1,6 +1,7 @@
 import { fileURLToPath, URL } from 'node:url'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { join, relative, resolve } from 'node:path'
 import { defineConfig, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
@@ -114,9 +115,51 @@ function pwaPrecacheDeAssets(): Plugin {
       if (existsSync(assetsDir)) recorrer(assetsDir)
 
       const sw = readFileSync(swPath, 'utf8')
+
+      // La versión de la caché va **dentro** del nombre, y cambia con
+      // cada build (2026-10-22). Antes era un ``'v1'`` fijo: el
+      // service worker se actualizaba (la lista de assets cambia) pero
+      // el nombre de la caché no, así que el handler ``activate``
+      // NUNCA purtaba la caché anterior y **los assets de cada
+      // despliegue se acumulaban para siempre** en el móvil del
+      // cliente. Con la versión en el nombre, el activate borra la
+      // anterior (que es justo para lo que está).
+      const hash = createHash('sha256')
+        .update(assets.join('\n'))
+        .digest('hex')
+        .slice(0, 12)
+      const conVersion = sw.replace(
+        "const VERSION = 'v1';",
+        `const VERSION = 'v1-${hash}';`,
+      )
+      if (conVersion === sw) {
+        // Si el marcador se renombra, el build tenía que **fallar**: si
+        // no, el build terminaba en verde y la PWA se quedaba sin
+        // precachear los trozos de las rutas (la app abria sin conexión
+        // pero en blanco), sin que nadie se enterase.
+        throw new Error(
+          'solidapp-pwa-precache: no se encuentra "const VERSION = \'v1\';" en ' +
+            'dist/sw.js. Si se renombró, actualiza también este plugin.',
+        )
+      }
+
       const inyeccion = `self.__ASSETS_BUILD__ = ${JSON.stringify(assets)};`
-      writeFileSync(swPath, sw.replace('/* __ASSETS_BUILD__ */', inyeccion), 'utf8')
-      console.log(`[solidAPP] SW: ${assets.length} assets para precachear`)
+      if (!conVersion.includes('/* __ASSETS_BUILD__ */')) {
+        throw new Error(
+          'solidapp-pwa-precache: no se encuentra el marcador ' +
+            '"/* __ASSETS_BUILD__ */" en dist/sw.js: el service worker se ' +
+            'quedaría sin la lista de assets del build (la app abriría sin ' +
+            'conexión pero en blanco).',
+        )
+      }
+      writeFileSync(
+        swPath,
+        conVersion.replace('/* __ASSETS_BUILD__ */', inyeccion),
+        'utf8',
+      )
+      console.log(
+        `[solidAPP] SW: ${assets.length} assets para precachear (versión v1-${hash})`,
+      )
     },
   }
 }

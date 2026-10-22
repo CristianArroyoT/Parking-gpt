@@ -1633,6 +1633,44 @@ anchos), así que la puerta "funcionaba" por casualidad. El fallo era
   aviso de consola** y **una petición cancelada** no la rompen.
 
 
+### 3-trigésimocuarta. La caché del service worker nunca se purga, y el build se rompía en silencio (2026-10-22)
+
+**La caché**: `frontend/public/sw.js` usaba `const VERSION = 'v1'` **fijo**.
+El plugin de Vite inyecta la lista de assets del build en `dist/sw.js`, así
+que el service worker **sí** se actualiza en cada despliegue (el byte
+cambia) → el `activate` borra las cachés cuyo nombre **no** sea el
+actual… pero como el nombre era siempre el mismo
+(`solidapp-estaticos-v1`), **nunca se borraba nada**: los assets de cada
+despliegue se acumulaban **para siempre** en el móvil del cliente. El
+handler `activate` existía exactamente para eso, pero no podía hacer
+nada.
+
+**El build**: el plugin hacía `sw.replace('/* __ASSETS_BUILD__ */',
+inyeccion)`. Si alguien renombraba ese marcador, el `replace` **no hacía
+nada y el build terminaba en verde**: la PWA se quedaba sin la lista de
+assets, la app abría sin conexión **pero en blanco**, y nadie se enteraba
+hasta que un cliente la instalaba.
+
+**El arreglo**:
+
+1. **La versión de la caché va dentro del nombre y cambia con cada
+   build**: `const VERSION = 'v1-<hash>'`, donde el hash es el SHA-256 de
+   la lista de assets (12 hex). Ahora el `activate` **sí** purga la caché
+   anterior, que es justo lo que estaba para hacer. El hash es de
+   **contenido**: el mismo build da el mismo nombre (idempotente) y un
+   build con otro contenido da otro.
+2. **El build falla si falta el marcador** o si no encuentra la
+   constante `VERSION` en `public/sw.js`, con un mensaje que dice qué
+   hacer. Una PWA rota tiene que romper el build, no aparecer en
+   producción.
+
+**Verificado**: el build inyecta la versión (`36 assets para precachear
+(versión v1-a2283906863f)`), el hash es **estable** entre builds con el
+mismo contenido, y **renombrando el marcador el build falla** con
+`error during build: solidapp-pwa-precache: no se encuentra el
+marcador…` y código 1 (antes: build verde y PWA rota).
+
+
 | Modelo | Tabla | Notas |
 |---|---|---|
 | `IncidentAttachment` | `incident_attachments` | `alert_id` con `ON DELETE CASCADE`; el binario **no** está en la BD, vive en el volumen `incident_attachments` |
