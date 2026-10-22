@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pydantic import EmailStr, Field
 
+from app.core.password_policy import ContrasenaBcrypt
 from app.schemas import ORMModel
 
 
@@ -33,7 +34,7 @@ class ResetPasswordRequest(ORMModel):
     """
 
     token: str = Field(min_length=1, max_length=512)
-    new_password: str = Field(min_length=8, max_length=128)
+    new_password: ContrasenaBcrypt = Field(min_length=8, max_length=128)
 
 
 __all__ = ["ForgotPasswordRequest", "ResetPasswordRequest"]

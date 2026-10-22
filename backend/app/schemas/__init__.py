@@ -7,6 +7,8 @@ from typing import Generic, Optional, TypeVar
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+from app.core.password_policy import ContrasenaBcrypt
+
 
 class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -49,7 +51,10 @@ class MessageResponse(ORMModel):
 
 class LoginRequest(ORMModel):
     email: EmailStr
-    password: str
+    # T-87: el login tambien respeta el limite real de bcrypt. Una
+    # contrasena de mas de 72 bytes se comparaba truncada, asi que
+    # servia cualquier sufijo.
+    password: ContrasenaBcrypt
 
 
 class TokenPair(ORMModel):

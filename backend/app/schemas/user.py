@@ -6,6 +6,7 @@ from typing import Literal, Optional
 
 from pydantic import EmailStr, Field
 
+from app.core.password_policy import ContrasenaBcrypt
 from app.schemas import ORMModel, TimestampMixinSchema
 from app.schemas.vehicle import VehicleRead
 
@@ -19,7 +20,9 @@ class UserBase(ORMModel):
 
 
 class UserCreate(UserBase):
-    password: str = Field(min_length=8, max_length=128)
+    # T-87: el limite real es de 72 BYTES (bcrypt), no de 128
+    # caracteres: a partir de ahi el hash solo distingue el prefijo.
+    password: ContrasenaBcrypt = Field(min_length=8, max_length=128)
 
 
 class OperadorCreate(ORMModel):
@@ -32,7 +35,7 @@ class OperadorCreate(ORMModel):
     email: EmailStr
     full_name: str = Field(min_length=2, max_length=255)
     phone: Optional[str] = None
-    password: str = Field(min_length=8, max_length=128)
+    password: ContrasenaBcrypt = Field(min_length=8, max_length=128)
 
 
 class UserUpdate(ORMModel):
@@ -47,7 +50,7 @@ class UserUpdate(ORMModel):
     phone: Optional[str] = Field(default=None, max_length=32)
     role: Optional[str] = None
     is_active: Optional[bool] = None
-    password: Optional[str] = Field(default=None, min_length=8, max_length=128)
+    password: Optional[ContrasenaBcrypt] = Field(default=None, min_length=8, max_length=128)
 
 
 class UserRead(UserBase, TimestampMixinSchema):
@@ -64,8 +67,10 @@ class PasswordChange(ORMModel):
     (min_length=8).
     """
 
-    current_password: str = Field(min_length=1, max_length=128)
-    new_password: str = Field(min_length=8, max_length=128)
+    # T-87: ``current_password`` tambien se limita: verificar una
+    # contrasena de mas de 72 bytes la comparaba truncada.
+    current_password: ContrasenaBcrypt = Field(min_length=1, max_length=128)
+    new_password: ContrasenaBcrypt = Field(min_length=8, max_length=128)
 
 
 class MembershipCreate(ORMModel):

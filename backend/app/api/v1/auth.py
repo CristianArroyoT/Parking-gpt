@@ -16,7 +16,7 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     decode_token,
-    verify_password,
+    verify_password_or_dummy,
 )
 from app.models.user import User
 from app.schemas import LoginRequest, LogoutRequest, MessageResponse, TokenPair
@@ -114,6 +114,62 @@ def _comprobar_rate_limit_login(
     )
 
 
+def _autenticar(
+    request: Request,
+    db: Session,
+    email: str,
+    password: str,
+    extra: dict[str, object] | None = None,
+) -> User:
+    """Comprueba las credenciales y devuelve el usuario ACTIVO.
+
+    La usan **las dos** vias de login (JSON y OAuth2). Antes cada una
+    repetia el codigo y se desincronizaron (T-85): la via JSON
+    comprobaba ``is_active`` y la via OAuth2 **no**. Con esta via, una
+    cuenta desactivada recibia un 200 con tokens y un ``login_success``
+    en la auditoria. El token no servia para nada (todo endpoint
+    protegido vuelve a comprobar ``is_active``), pero la auditoria
+    mentia: decia que un usuario desactivado habia entrado.
+
+    Ademas, el tiempo de respuesta **no depende de que la cuenta
+    exista**: si el email no esta, se verifica igualmente contra un hash
+    senuelo (T-86). Medido antes del arreglo: 13,9 ms con un email
+    inexistente frente a 207,6 ms con un email real y contrasena
+    incorrecta.
+    """
+    user = db.query(User).filter(User.email == email).one_or_none()
+    hashed = user.hashed_password if user is not None else None
+    credenciales_ok = verify_password_or_dummy(password, hashed)
+    extra_payload = dict(extra or {})
+    if user is None or not credenciales_ok:
+        record_audit_from_request(
+            request, db,
+            action="login_failure",
+            payload={
+                "email": email,
+                "reason": "invalid_credentials",
+                **extra_payload,
+            },
+            result="failure",
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas"
+        )
+    if not user.is_active:
+        record_audit_from_request(
+            request, db,
+            action="login_failure",
+            payload={"email": email, "reason": "user_inactive", **extra_payload},
+            result="failure",
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Usuario inactivo"
+        )
+    return user
+
+
 @router.post("/login", response_model=TokenPair)
 def login_json(
     payload: LoginRequest,
@@ -130,30 +186,10 @@ def login_json(
     # olvidaba del limitador: cambiar el ``Content-Type`` de la peticion
     # esquivaba la proteccion de fuerza bruta.
     _comprobar_rate_limit_login(request, db, payload.email)
-    user = db.query(User).filter(User.email == payload.email).one_or_none()
-    if not user or not verify_password(payload.password, user.hashed_password):
-        # Sprint Fase 3A: audit de intento fallido (sin password).
-        record_audit_from_request(
-            request, db,
-            action="login_failure",
-            payload={"email": payload.email, "reason": "invalid_credentials"},
-            result="failure",
-        )
-        db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas"
-        )
-    if not user.is_active:
-        record_audit_from_request(
-            request, db,
-            action="login_failure",
-            payload={"email": payload.email, "reason": "user_inactive"},
-            result="failure",
-        )
-        db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Usuario inactivo"
-        )
+    # OJO (T-85): las dos vias de login usan la MISMA autenticacion
+    # (``_autenticar``). Antes cada una repetia el codigo y la via
+    # OAuth2 se quedo sin la comprobacion de ``is_active``.
+    user = _autenticar(request, db, payload.email, payload.password)
     # Login OK: audit.
     # El middleware no puede saber quién entra (no hay token en la
     # request), así que le damos el user_id que el handler sí conoce.
@@ -186,19 +222,13 @@ def login_oauth(
     _comprobar_rate_limit_login(
         request, db, form.username, extra={"grant_type": "oauth_form"},
     )
-    user = db.query(User).filter(User.email == form.username).one_or_none()
-    if not user or not verify_password(form.password, user.hashed_password):
-        record_audit_from_request(
-            request, db,
-            action="login_failure",
-            payload={"email": form.username, "reason": "invalid_credentials",
-                      "grant_type": "oauth_form"},
-            result="failure",
-        )
-        db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas"
-        )
+    # OJO (T-85): misma autenticacion que la via JSON, incluida la
+    # comprobacion de ``is_active`` (que esta via **no** hacia: una
+    # cuenta desactivada se loggedaba por OAuth2 y recibia tokens).
+    user = _autenticar(
+        request, db, form.username, form.password,
+        extra={"grant_type": "oauth_form"},
+    )
     # Mismo enrichment que en el login JSON: el handler sabe quién
     # entra, el middleware no (no hay token en la request de login).
     _bind_audit_user(request, user)
