@@ -294,6 +294,15 @@ jobs:
         # herramienta, con su motivo.
         run: python ../tools/verificar_tareas_celery.py
 
+      - name: El rate-limit por endpoint tiene una sola implementacion
+        # POR QUÉ (2026-10-22): el flag `User.no_rate_limit` prometía que
+        # las cuentas de servicio se saltan el rate-limit, y el mecanismo
+        # existía... pero nadie lo pedía: el flag no se leía en ninguna
+        # parte, así que un cronjob de carga inicial se comía un 429.
+        # Y el helper del rate-limit estaba COPIADO en cinco routers (con un
+        # sexto escrito en línea): arreglar uno no arreglaba los otros cinco.
+        run: python ../tools/verificar_rate_limit_unico.py
+
       - name: Los ajustes muertos del backend tienen su motivo
         # POR QUÉ (2026-10-22): un ajuste muerto (declarado,
         # configurable por entorno y que NADIE lee) es una trampa

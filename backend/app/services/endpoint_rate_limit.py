@@ -22,11 +22,77 @@ también para endpoints autenticados).
 """
 from __future__ import annotations
 
-from typing import Optional, cast
+import logging
+from typing import TYPE_CHECKING, Optional, cast
 
 import redis
+from fastapi import HTTPException, status
+from redis.exceptions import RedisError
 
 from app.core.config import get_settings
+from app.models.user import User
+from app.services.audit import record_audit_from_request
+
+if TYPE_CHECKING:  # pragma: no cover
+    from fastapi import Request
+    from sqlalchemy.orm import Session
+
+
+def enforce_endpoint_rate_limit(
+    request: "Request",
+    db: "Session",
+    *,
+    scope: str,
+    actor_id: int | None,
+    skip: bool = False,
+) -> None:
+    """Aplica el rate-limit del endpoint y lanza 429 si bloquea.
+
+    **ÚNICO** punto de aplicación del rate-limit por endpoint (T-69).
+    Antes el helper estaba copiado en cinco routers (``users``,
+    ``vehicles``, ``cameras``, ``parkings``, ``tariffs``) y un sexto
+    (``gestor_operadores``) lo tenía escrito en línea: seis copias del
+    mismo código, de modo que arreglar una no arreglaba las otras cinco.
+
+    OJO (T-68): una cuenta de servicio (``User.no_rate_limit``) **no** se
+    bloquea: se consulta al actor y, si tiene el flag, el límite se salta.
+    Antes el flag no lo leía nadie, así que un cronjob de carga inicial de
+    datos se comía un 429 igual que un humano.
+
+    Fail-OPEN si Redis no está (igual que el rate-limit de login): no
+    bloquear al usuario legítimo es preferible a dejar la app sin
+    servicio, y queda el aviso en el log.
+    """
+    if actor_id is None:
+        return
+    if not skip:
+        actor = db.get(User, actor_id)
+        skip = bool(actor is not None and actor.no_rate_limit)
+    try:
+        allowed, bucket, count = endpoint_rate_limiter.check(
+            scope=scope, identifiers={"actor": str(actor_id)}, skip=skip,
+        )
+    except RedisError as exc:
+        log.warning(
+            "rate_limit: Redis no disponible en el scope %s (%s)", scope, exc
+        )
+        return
+    if allowed:
+        return
+    record_audit_from_request(
+        request, db,
+        action="rate_limited_endpoint",
+        payload={"scope": scope, "bucket": bucket, "count": count},
+        result="failure",
+    )
+    db.commit()
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail="Demasiadas operaciones. Intenta más tarde.",
+    )
+
+
+log = logging.getLogger(__name__)
 
 
 class EndpointRateLimiter:

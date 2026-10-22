@@ -13,8 +13,7 @@ from app.models.enums import UserRole
 from app.models.parking import Parking
 from app.models.user import ParkingMembership, User
 from app.schemas.parking import ParkingCreate, ParkingRead, ParkingUpdate
-from app.services.audit import record_audit_from_request
-from app.services.endpoint_rate_limit import endpoint_rate_limiter
+from app.services.endpoint_rate_limit import enforce_endpoint_rate_limit
 
 router = APIRouter(prefix="/parkings", tags=["sucursales"])
 
@@ -22,23 +21,15 @@ router = APIRouter(prefix="/parkings", tags=["sucursales"])
 def _enforce_endpoint_rate_limit(
     request: Request, db: Session, *, scope: str, actor_id: int,
 ) -> None:
-    """Sprint R5 (2026-07-06): misma lógica que ``users``/``cameras``.
-    POST/PATCH /parkings protegidos contra ráfagas de scripts."""
-    allowed, bucket, count = endpoint_rate_limiter.check(
-        scope=scope, identifiers={"actor": str(actor_id)},
+
+    """Delega en la implementación única (T-69).
+
+    Antes este helper estaba copiado en cinco routers: arreglar uno
+    no arreglaba los otros cuatro.
+    """
+    enforce_endpoint_rate_limit(
+        request, db, scope=scope, actor_id=actor_id,
     )
-    if not allowed:
-        record_audit_from_request(
-            request, db,
-            action="rate_limited_endpoint",
-            payload={"scope": scope, "bucket": bucket, "count": count},
-            result="failure",
-        )
-        db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Demasiadas operaciones. Intenta más tarde.",
-        )
 
 
 @router.get("", response_model=list[ParkingRead])

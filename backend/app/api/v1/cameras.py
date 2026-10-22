@@ -31,8 +31,7 @@ from app.schemas.vehicle_detection import (
     DetectVehiclesRequest,
     DetectVehiclesResponse,
 )
-from app.services.audit import record_audit_from_request
-from app.services.endpoint_rate_limit import endpoint_rate_limiter
+from app.services.endpoint_rate_limit import enforce_endpoint_rate_limit
 from app.services.vehicle_detector.client import get_vehicle_detector_client
 
 log = logging.getLogger(__name__)
@@ -41,28 +40,15 @@ log = logging.getLogger(__name__)
 def _enforce_endpoint_rate_limit(
     request: Request, db: Session, *, scope: str, actor_id: int,
 ) -> None:
-    """Aplica ``endpoint_rate_limiter.check`` y emite audit + 429 si bloquea.
 
-    Sprint R5 (2026-07-06): misma lógica que ``users.py`` y
-    ``vehicles.py`` para que ``POST/PATCH /cameras`` no sean abusables
-    por un script autenticado. Bucket por actor (la acción es local al
-    parking, no al admin global).
+    """Delega en la implementación única (T-69).
+
+    Antes este helper estaba copiado en cinco routers: arreglar uno
+    no arreglaba los otros cuatro.
     """
-    allowed, bucket, count = endpoint_rate_limiter.check(
-        scope=scope, identifiers={"actor": str(actor_id)},
+    enforce_endpoint_rate_limit(
+        request, db, scope=scope, actor_id=actor_id,
     )
-    if not allowed:
-        record_audit_from_request(
-            request, db,
-            action="rate_limited_endpoint",
-            payload={"scope": scope, "bucket": bucket, "count": count},
-            result="failure",
-        )
-        db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Demasiadas operaciones. Intenta más tarde.",
-        )
 
 
 router = APIRouter(

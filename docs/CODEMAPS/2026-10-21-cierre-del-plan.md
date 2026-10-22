@@ -1875,6 +1875,34 @@ a la API. Hoy no afecta a ningún endpoint, pero es una trampa.
 
 **El arreglo**: `location ^~ /api/`.
 
+### 3-trigésimotrigésimotercera. El flag `no_rate_limit` no hacía nada, y el rate-limit estaba en seis copias (2026-10-22)
+
+- El campo `User.no_rate_limit` prometía que las cuentas de servicio se
+  saltan el rate-limit, y el mecanismo (`check(skip=True)`) existía con su
+  test... pero **nadie lo pedía**: una cuenta de servicio se comía un 429
+  igual que un humano.
+- Y el helper del rate-limit por endpoint estaba **copiado** en cinco
+  routers, con un sexto escrito en línea: seis copias del mismo código.
+
+**El arreglo**: una única función `enforce_endpoint_rate_limit` en
+`app/services/endpoint_rate_limit.py` (fail-open si Redis cae, audit
+`rate_limited_endpoint`) que además consulta al actor y respeta su flag;
+los seis routers delegan. La puerta `tools/verificar_rate_limit_unico.py`
+vigila que no vuelva a haber copias y que el flag se lea.
+
+### 3-trigésimotrigésimocuarta. La puerta del repo se caía en Windows (2026-10-22)
+
+`tools/verificar_repo.py` decodificaba a ciegas la salida de los
+subprocesos como UTF-8. Si el hijo escribía en cp1252 (la consola de
+Windows), las tildes salían como `U+FFFD` y el `print` reventaba con
+`UnicodeEncodeError`: **la puerta del repo se caía entera** en cuanto una
+comprobación devolvía un resumen con acentos.
+
+**El arreglo**: los subprocesos escriben en UTF-8, la salida se captura en
+bytes y se decodifica con fallback (UTF-8 y, si no, cp1252), el `print`
+pasa por `_consola()` (que ya existía y no se usaba) y el script fuerza
+UTF-8 en su salida.
+
 
 | Modelo | Tabla | Notas |
 |---|---|---|

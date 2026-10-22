@@ -42,7 +42,7 @@ from app.core.security import hash_password
 from app.models.enums import UserRole
 from app.models.user import ParkingMembership, User
 from app.schemas.user import OperadorCreate, UserRead
-from app.services.endpoint_rate_limit import endpoint_rate_limiter
+from app.services.endpoint_rate_limit import enforce_endpoint_rate_limit
 
 router = APIRouter(prefix="/parkings/{parking_id}", tags=["gestor-operadores"])
 
@@ -104,17 +104,13 @@ def crear_operador(
     _exigir_gestor(current)
 
     # Mismo rate-limit por actor que el alta de usuarios del admin (R5).
+    # T-69: usa la implementación única (antes esta lógica estaba escrita
+    # aquí a mano: era la sexta copia del mismo código).
     audit = getattr(request.state, "audit", None) or {}
     actor_id = audit.get("user_id")
-    if actor_id is not None:
-        allowed, bucket, count = endpoint_rate_limiter.check(
-            scope="users_create", identifiers={"actor": str(actor_id)},
-        )
-        if not allowed:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Demasiadas operaciones. Intenta más tarde.",
-            )
+    enforce_endpoint_rate_limit(
+        request, db, scope="users_create", actor_id=actor_id,
+    )
 
     email = payload.email.lower()
     existente = db.query(User).filter(User.email == email).one_or_none()

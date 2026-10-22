@@ -24,6 +24,11 @@ import argparse
 import re
 import subprocess
 import sys
+
+# La consola de Windows es cp1252: sin esto, imprimir un resumen con
+# acentos rompe la puerta (UnicodeEncodeError) o lo degrada. Receta del
+# AGENTS.md.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import time
 from pathlib import Path
 
@@ -145,6 +150,11 @@ def _comprobaciones() -> list[Comprobacion]:
             patron=r"(OK: el contexto de build.*)",
         ),
         Comprobacion(
+            "El rate-limit por endpoint tiene una sola implementacion",
+            [py, "tools/verificar_rate_limit_unico.py"],
+            patron=r"(OK: el rate-limit por endpoint.*)",
+        ),
+        Comprobacion(
             "Las puertas se prueban a si mismas",
             [py, "tools/autopruebas.py", "--estricto"],
             patron=r"(\d+ autopruebas? pasan.*)",
@@ -183,6 +193,23 @@ def _consola(texto: str) -> str:
     return texto.encode(codificacion, "replace").decode(codificacion, "replace")
 
 
+def _decodificar(bruto: bytes) -> str:
+    """Decodifica la salida de un subproceso sin perder acentos.
+
+    UTF-8 primero (es lo que escriben los subprocesos de este repo, con
+    ``PYTHONIOENCODING=utf-8``) y, si los bytes no son UTF-8 válido, se
+    recurre a cp1252 (la codificación de la consola de Windows). Sin el
+    fallback, un subproceso que escribiera en cp1252 devolvía las tildes
+    como U+FFFD.
+    """
+    if not bruto:
+        return ""
+    try:
+        return bruto.decode("utf-8")
+    except UnicodeDecodeError:
+        return bruto.decode("cp1252", "replace")
+
+
 def _resumir(salida: str, patron: str | None) -> str:
     """Una línea con el resultado de la comprobación."""
     if not patron:
@@ -202,11 +229,21 @@ def _ejecutar(c: Comprobacion) -> tuple[bool, str, float]:
     inicio = time.time()
     import os
 
-    entorno = {**os.environ, **c.env_extra}
+    # OJO (T-70): sin esto, el subproceso escribe su salida en la
+    # codificacion de la consola de Windows (cp1252) y al decodificarla
+    # como UTF-8 los bytes de los acentos salian como U+FFFD: el print
+    # reventaba con UnicodeEncodeError y la puerta del repo se caia en
+    # Windows en cuanto una comprobacion devolvia un resumen con tildes.
+    entorno = {
+        **os.environ,
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1",
+        **c.env_extra,
+    }
     try:
         proceso = subprocess.run(
             c.comando, cwd=str(c.cwd), env=entorno, check=False,
-            capture_output=True, encoding="utf-8", errors="replace",
+            capture_output=True,
             timeout=c.timeout,
         )
     except subprocess.TimeoutExpired:
@@ -214,7 +251,7 @@ def _ejecutar(c: Comprobacion) -> tuple[bool, str, float]:
     except FileNotFoundError as exc:
         return False, f"no se encontro {exc.filename}", time.time() - inicio
 
-    salida = (proceso.stdout or "") + (proceso.stderr or "")
+    salida = _decodificar((proceso.stdout or b"") + (proceso.stderr or b""))
     resumen = _resumir(salida, c.patron)
     return proceso.returncode == 0, resumen, time.time() - inicio
 
@@ -233,7 +270,9 @@ def _stack_arriba() -> tuple[bool, str]:
     try:
         proceso = subprocess.run(
             ["docker", "compose", "ps", "--format", "{{.Name}} {{.State}}"],
-            cwd=str(RAIZ), env={**os.environ}, check=False,
+            cwd=str(RAIZ),
+            env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
+            check=False,
             capture_output=True, encoding="utf-8", errors="replace", timeout=60,
         )
     except Exception as exc:  # noqa: BLE001
@@ -271,6 +310,28 @@ def _autoprueba() -> int:
         [sys.executable, "-c", "raise SystemExit(3)"],
         patron=r"(.*)",
     )
+    # T-70: un resumen con tildes (o con un caracter que cp1252 no
+    # tiene) no puede tumbar la puerta al imprimirlo.
+    comprobacion_con_acentos = Comprobacion(
+        "comprobacion con acentos (debe pasar)",
+        [
+            sys.executable,
+            "-c",
+            "print('OK: revisi\u00f3n con acentos: implementaci\u00f3n y c\u00f3digo')",
+        ],
+        patron=r"(OK: revisi.*)",
+    )
+    ok_acentos, resumen_acentos, _s = _ejecutar(comprobacion_con_acentos)
+    if not ok_acentos:
+        print(f"  FALLO: una comprobacion con acentes no se ha leido bien ({resumen_acentos[:60]})")
+        return 1
+    try:
+        _consola(f"[OK  ] con acentos: {resumen_acentos}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  FALLO: imprimir un resumen con acentes revienta: {exc}")
+        return 1
+    print("  OK: un resumen con acentes se lee y se imprime sin romperse")
+
     ok, resumen, _segundos = _ejecutar(comprobacion_rota)
     if ok:
         print("  FALLO: una comprobacion que falla no se ha detectado")
@@ -322,7 +383,13 @@ def main() -> int:
         marca = "OK  " if ok else "FALLO"
         if not ok:
             fallos += 1
-        print(f"[{marca}] {c.nombre:<44} {segundos:6.1f} s  {resumen}", flush=True)
+        # T-70: ``_consola`` quita lo que la consola de Windows no puede
+        # imprimir. Sin él, un resumen con un caracter fuera de cp1252
+        # tumbaba la puerta entera.
+        print(
+            _consola(f"[{marca}] {c.nombre:<44} {segundos:6.1f} s  {resumen}"),
+            flush=True,
+        )
 
     # El CI remoto no se puede ejecutar: se informa, no cuenta como fallo.
     codigo, _salida = 0, ""
@@ -331,7 +398,9 @@ def main() -> int:
     try:
         proceso = subprocess.run(
             [sys.executable, "tools/estado_ci.py"],
-            cwd=str(RAIZ), env={**os.environ}, check=False,
+            cwd=str(RAIZ),
+            env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
+            check=False,
             capture_output=True, encoding="utf-8", errors="replace", timeout=300,
         )
         codigo = proceso.returncode

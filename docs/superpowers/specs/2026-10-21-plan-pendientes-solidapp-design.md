@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **378 de 379 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **395 de 396 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1372,6 +1372,52 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Medido: el login a través del proxy `/api` de la imagen de producción devuelve **200 con token**, y una ruta inexistente de la API devuelve **404** (del backend, no el shell de la SPA): el prefijo sigue yendo al proxy.
   - [x] La puerta del servidor de producción sigue en **5/5** con la plantilla nueva.
   - [x] La imagen se reconstruye y el contenedor arranca con la plantilla nueva.
+
+### T-68 · P1 — el flag `User.no_rate_limit` no hacía nada (las cuentas de servicio se comían un 429)
+
+- **Estado**: **completado** — el flag se lee y la capacidad existe de verdad
+- **Contexto**: el modelo `User` tiene el campo `no_rate_limit` con este comentario: *"service accounts (p.ej. cronjobs de carga inicial de datos) pueden saltarse el rate-limit de CRUDs sin tener que cambiar settings globales"*. Y el **mecanismo existía**: `EndpointRateLimiter.check(..., skip=True)` devuelve `(True, "skipped", 0)` sin tocar Redis, con su propio test (`tests/test_endpoint_rate_limit_skip.py`).
+- **El problema**: **nadie leía el flag**. Ningún router pasaba `skip=True`, así que una cuenta de servicio se comía un 429 igual que un humano: el cronjob de carga inicial de datos fallaba a partir del sexto usuario.
+- **Por qué no lo cazó nadie**: el test existente probaba el **mecanismo** (`skip=True` funciona), no el **comportamiento** (una cuenta con el flag no se bloquea). Verde sobre una capacidad inexistente.
+- **El arreglo**: la función que aplica el rate-limit por endpoint consulta al actor y respeta su flag. Y se añade un test **por API** (no del mecanismo): un admin con `no_rate_limit=True` hace 5 altas seguidas sin un 429, y un admin normal sí recibe el 429.
+- **Criterios de aceptación**:
+  - [x] Medido: el test nuevo **fallaba** antes del arreglo (la cuenta de servicio recibía un 429).
+  - [x] Con el arreglo, la cuenta de servicio hace 5 altas sin un 429.
+  - [x] El caso contrario sigue igual: un usuario normal **sí** recibe el 429.
+  - [x] La puerta `tools/verificar_rate_limit_unico.py` exige que el flag se lea en la aplicación (y no solo esté declarado en el modelo).
+  - [x] `ruff` y `mypy` en verde.
+
+### T-69 · P1 — el rate-limit por endpoint estaba copiado en seis sitios
+
+- **Estado**: **completado** — una sola implementación
+- **Contexto**: el helper `_enforce_endpoint_rate_limit` (check + audit + 429) estaba **copiado** en cinco routers —`users`, `vehicles`, `cameras`, `parkings`, `tariffs`— y un sexto (`gestor_operadores`) lo tenía escrito en línea, con una forma distinta (sin audit). Seis copias del mismo código: arreglar una no arreglaba las otras cinco, y el `skip` del T-68 había que propagarlo a las seis.
+- **El arreglo**: una única función `enforce_endpoint_rate_limit(request, db, scope=..., actor_id=..., skip=...)` en `app/services/endpoint_rate_limit.py`, con **fail-open** si Redis no está (como el rate-limit de login) y el audit `rate_limited_endpoint`. Los seis routers delegan.
+- **La puerta**: `tools/verificar_rate_limit_unico.py` exige que (a) no haya llamadas directas a `endpoint_rate_limiter.check(` en los routers, (b) la función única exista y lea el flag, y (c) la **excepción** siga siendo cierta (`password_reset.py`, cuyos endpoints son públicos y no tienen actor). Con `--autoprueba` (7 casos de mentira) y paso en el CI.
+- **Criterios de aceptación**:
+  - [x] Medido: seis copias del mismo código (cinco helpers + uno en línea).
+  - [x] Una sola implementación; los seis sitios delegan.
+  - [x] La puerta detecta una copia reintroducida (probado con su autoprueba y con un caso escrito a mano).
+  - [x] La excepción de `password_reset.py` está justificada y la puerta avisa si deja de aplicar.
+  - [x] Los 32 tests de rate-limit pasan.
+  - [x] `ruff` y `mypy` en verde.
+
+### T-70 · P2 — la puerta del repo se caía en Windows al imprimir un resumen con acentos
+
+- **Estado**: **completado** — salida en UTF-8 de punta a punta
+- **Contexto**: `tools/verificar_repo.py` capturaba la salida de los subprocesos con `encoding="utf-8", errors="replace"`, es decir, **decodificaba a ciegas**. Si el subproceso escribía en **cp1252** (la consola de Windows), los bytes de los acentos (`0xF3`) no son UTF-8 válido: salían como `U+FFFD` y el `print` reventaba con `UnicodeEncodeError`. Es decir: **la puerta del repo se caía entera** en Windows en cuanto una comprobación devolvía un resumen con tildes.
+- **Cómo se encontró**: al añadir la puerta del rate-limit (T-69), cuyo resumen dice "…tiene una sola **implementación**…": la puerta nueva tiró abajo `verificar_repo.py` entero.
+- **El arreglo (4 cosas)**:
+  1. los subprocesos escriben en UTF-8 (`PYTHONIOENCODING=utf-8` y `PYTHONUTF8=1` en su entorno);
+  2. la salida se captura en **bytes** y se decodifica con UTF-8 y, si no es válido, con cp1252 (fallback): los dos casos salen bien;
+  3. el `print` del resumen pasa por `_consola()`, que ya existía en el fichero pero **no se usaba** en esa línea;
+  4. el propio script fuerza UTF-8 en su `stdout` (la receta del `AGENTS.md`).
+- **Criterios de aceptación**:
+  - [x] Medido: `verificar_repo.py` reventaba con `UnicodeEncodeError` al imprimir el resumen con "implementación".
+  - [x] Los subprocesos escriben en UTF-8 (comprobado byte a byte: `C3 B3` en vez de `F3`).
+  - [x] La salida se decodifica con fallback (UTF-8 y, si no, cp1252).
+  - [x] El `print` pasa por `_consola()` y el script fuerza UTF-8 en su salida.
+  - [x] La autoprueba de la puerta del repo gana un caso: "un resumen con acentes se lee y se imprime sin romperse".
+  - [x] `verificar_repo.py` pasa entero (**21 comprobaciones**) en Windows.
 
 ### T-14 · I3 — OCR con GPU
 
