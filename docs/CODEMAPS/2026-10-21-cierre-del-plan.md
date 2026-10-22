@@ -754,6 +754,27 @@ Verificado: los 9 endpoints de `/plans` documentan su RBAC real, y los
 reset-password y los dos de salud) siguen marcándose como públicos,
 comprobado contra el código.
 
+### 3-vigésimooctava. Las puertas, a prueba de sí mismas (2026-10-22)
+
+El patrón de los últimos hallazgos: los bugs más caros **no estaban en
+la aplicación**, sino en las **herramientas que la describen o la
+miden** (extractor de RBAC, script de lint, healthcheck, recuento de
+endpoints). A todas les faltaba lo mismo: **ninguna tenía forma de
+demostrar que detectaba** lo que dice detectar.
+
+| Herramienta | Autoprueba |
+|---|---|
+| `tools/verificar_api_doc.py` | Detecta las **tres** caras de la deriva: quitar ruta, añadir ruta inexistente y **cambiar el RBAC** de una fila (esta última es la que se coló en T-35) |
+| `tools/escanear_texto.py` | Detecta CJK, cirílico, coreano, moneda rara y fichero no-UTF-8; y **no dispara con el español normal con acentos** |
+| `tools/escanear_secretos.py` | Detecta los 5 tipos de secreto; y **no dispara** con valores de ejemplo, ficheros exentos (`.env.example`, `tests/`, `docs/`) ni comentarios |
+| `tools/autopruebas.py` (nuevo) | La **meta-puerta**: ejecuta todas las autopruebas y falla si alguna ha dejado de detectar. Está en el CI y en `tools/verificar_repo.py` |
+
+Un detalle que salió al escribir la autoprueba del escáner de secretos:
+los tokens de mentira **se construyen en tiempo de ejecución**, no se
+escriben literales en el source. Si estuvieran literales, el propio
+escaner los encontraría — y con razón: el repositorio es público y un
+token real en un literal es una credencial filtrada.
+
 Y con el IPv4 arreglado, la réplica local pasó a poder ejecutar **el CI
 completo**, incluidos los dos pasos de test que antes se saltaban
 porque el host no resolvía los nombres de servicio de Docker:

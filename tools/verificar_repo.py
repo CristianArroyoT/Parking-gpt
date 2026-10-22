@@ -100,6 +100,12 @@ def _comprobaciones() -> list[Comprobacion]:
             timeout=600,
         ),
         Comprobacion(
+            "Las puertas se prueban a si mismas",
+            [py, "tools/autopruebas.py"],
+            patron=r"(Las \d+ autopruebas pasan.*)",
+            timeout=600,
+        ),
+        Comprobacion(
             "Simulacro de restauracion de backups",
             [py, "tools/verificar_backup.py"],
             patron=r"(SIMULACRO CORRECTO.*)",

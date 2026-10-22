@@ -116,6 +116,51 @@ def ficheros_versionados() -> list[Path]:
     return ficheros
 
 
+def _autoprueba() -> int:
+    """Comprueba que el escaner DETECTA lo que tiene que detectar.
+
+    Una puerta que no se puede ver fallar no es una puerta. Aquí se le
+    pasan ficheros de mentira con cada clase de corrupción (y ficheros
+    limpios) y se comprueba que acierta en las dos direcciones.
+
+    Importa especialmente el caso limpio: el escaner no debe disparar
+    con el español normal con acentos, que es el 99 % del repositorio.
+    """
+    import tempfile
+
+    casos: list[tuple[str, bytes, bool]] = [
+        ("caracteres CJK", "valor = 'al que\u8be2 enlazarse'\n".encode("utf-8"), True),
+        ("cirilico", "clave = '\u043f\u0430\u0440\u043e\u043b\u043e\u043b\u043e'\n".encode("utf-8"), True),
+        ("coreano", "nombre = '\ud14c\uc2a4\ud2b8'\n".encode("utf-8"), True),
+        ("moneda rara", "importe = '\u00a35'\n".encode("utf-8"), True),
+        ("no es UTF-8", b"texto = '\xff\xfe' invalido\n", True),
+        ("espanol con acentos", "devuelve = 'El veh\u00edculo sali\u00f3 a las 7'\n".encode("utf-8"), False),
+        ("espanol normal", b"def ejecutar() -> None:\n    return None\n", False),
+    ]
+    fallos = 0
+    with tempfile.TemporaryDirectory(prefix="solidapp-autoprueba-") as temporal:
+        for nombre, contenido, debe_detectar in casos:
+            ruta = Path(temporal) / f"{nombre.replace(' ', '_')}.py"
+            ruta.write_bytes(contenido)
+            problemas = escanear_fichero(ruta)
+            detectado = bool(problemas)
+            if detectado != debe_detectar:
+                fallos += 1
+                print(
+                    f"  FALLO: {nombre} -> detectado={detectado} "
+                    f"(se esperaba {debe_detectar})"
+                )
+            else:
+                print(f"  OK: {nombre} -> {'detectado' if detectado else 'limpio'}")
+
+    if fallos:
+        print(f"Autoprueba FALLIDA: {fallos} caso(s).")
+        return 1
+    print("Autoprueba correcta: el escaner detecta cada clase de corrupcion "
+          "y no dispara con el espanol normal.")
+    return 0
+
+
 def main() -> int:
     args = sys.argv[1:]
     salida = Path("tools/_informe_texto.txt")
@@ -123,6 +168,9 @@ def main() -> int:
         i = args.index("--salida")
         salida = Path(args[i + 1])
         del args[i:i + 2]
+
+    if "--autoprueba" in args:
+        return _autoprueba()
 
     if "--tracked" in args:
         # Modo "lo que se va a publicar": todo lo versionado, y nada más.

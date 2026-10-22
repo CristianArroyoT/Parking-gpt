@@ -67,6 +67,21 @@ jobs:
         # exactamente lo versionado: ni ``node_modules``, ni ``dist``.
         run: python ../tools/escanear_texto.py --tracked --salida ../tools/_informe_texto.txt
 
+      - name: Las puertas se prueban a sí mismas
+        # POR QUÉ (2026-10-22): los bugs más caros de este repositorio no
+        # estaban en la aplicación, sino en las herramientas que la
+        # describen o la miden: el extractor de RBAC que decía "Público"
+        # en 9 endpoints de admin, el script de lint del frontend que
+        # nunca funcionó, los healthcheck que no existían y el recuento
+        # de endpoints que se quedó en 100 cuando ya eran 101. A todos les
+        # faltaba lo mismo: **la puerta no tenía forma de demostrar que
+        # detectaba lo que dice detectar**.
+        #
+        # Esta autoprueba comprueba que cada detector sigue detectando
+        # su propia clase de defecto (y que NO dispara con los casos
+        # legítimos). Si un detector deja de ver, el CI se pone rojo.
+        run: python ../tools/autopruebas.py
+
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip

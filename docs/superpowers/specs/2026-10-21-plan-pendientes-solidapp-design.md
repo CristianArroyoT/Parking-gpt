@@ -753,6 +753,22 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] La autoprueba detecta las **tres** caras de la deriva (quitar ruta, añadir ruta inexistente y cambiar el RBAC).
   - [x] El documento regenerado y el verificador en verde.
 
+### T-36 · P1 — las puertas no tenían forma de demostrar que detectan
+
+- **Estado**: **completado** — `python tools/autopruebas.py` → las 3 autopruebas pasan
+- **Contexto**: los bugs más caros de este repositorio **no estaban en la aplicación**, sino en las **herramientas que la describen o la miden**: el extractor de RBAC que decía "Público" en 9 endpoints de admin (T-35), el script de lint del frontend que nunca funcionó (T-30), los healthcheck que no existían (T-33) y el recuento de endpoints que se quedó en 100 cuando ya eran 101 (T-34). A todos les faltaba **lo mismo**: ninguna tenía forma de **demostrar que detectaba** lo que dice detectar. Una puerta que no se puede ver fallar no es una puerta.
+- **Qué se ha añadido**:
+  - `tools/escanear_texto.py --autoprueba`: detecta cada clase de corrupción (CJK, cirílico, coreano, moneda rara, fichero que no es UTF-8) y **no dispara con el español normal con acentos** (que es el 99 % del repo).
+  - `tools/escanear_secretos.py --autoprueba`: detecta los 5 tipos de secreto y **no dispara** con los valores de ejemplo, los ficheros exentos (`.env.example`, `tests/`, `docs/`) ni los comentarios.
+  - `tools/verificar_api_doc.py --autoprueba`: ya cubría quitar y añadir rutas; se le añadió la **tercera** cara (cambiar el RBAC de una fila), que es la deriva que se coló en T-35.
+  - `tools/autopruebas.py`: la **meta-puerta**, que ejecuta todas las autopruebas y falla si alguna ha dejado de detectar. Añadir una puerta nueva es añadirla a su lista.
+  - Paso nuevo en el CI: *"Las puertas se prueban a sí mismas"*.
+- **Criterios de aceptación**:
+  - [x] `python tools/autopruebas.py` → **las 3 autopruebas pasan**.
+  - [x] El escáner de secretos **no detecta sus propios fixtures**: los tokens de mentira se construyen en tiempo de ejecución, no literales en el source (el repo es público: un token literal en el código es una credencial filtrada).
+  - [x] `ruff check ../tools` en verde con los cambios.
+  - [x] La meta-puerta está en el CI y en `tools/verificar_repo.py`.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.

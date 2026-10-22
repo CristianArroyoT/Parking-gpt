@@ -53,9 +53,12 @@ MARCADORES = re.compile(
 )
 
 #: Ficheros donde un "secreto" es legitimo (plantillas, pruebas, seed).
+#: OJO: los directorios se buscan con ``(^|/)`` para que ALSO estén
+#: exentos en la raíz del repo ("tests/test_app.py"), no sólo anidados
+#: ("backend/tests/test_app.py").
 EXENTOS = re.compile(
-    r"(\.env\.example|/tests?/|/seed|conftest\.py|\.example|\.sample|"
-    r"docs/|/locust/|\.md$|__init__\.py)",
+    r"(\.env\.example|(^|/)tests?/|(^|/)seed|conftest\.py|\.example|\.sample|"
+    r"(^|/)docs/|/locust/|\.md$|__init__\.py)",
     re.IGNORECASE,
 )
 
@@ -73,18 +76,32 @@ def _git_grep(patron: str) -> list[str]:
     return [linea for linea in salida.stdout.splitlines() if linea.strip()]
 
 
+def _secreto_en_linea(linea: str, ruta: str = "") -> str | None:
+    """El nombre del patrón que casa en esta línea, o ``None`` si no es un secreto.
+
+    Extraído como función pura para poder **probarlo** (ver
+    ``--autoprueba``): una puerta que no se puede ver fallar no es una
+    puerta.
+    """
+    if ruta and EXENTOS.search(ruta):
+        return None
+    if MARCADORES.search(linea):
+        return None
+    # Una linea que sólo habla de como NO hacer las cosas no es un secreto.
+    if linea.lstrip().startswith(("#", "//")):
+        return None
+    for nombre, patron in PATRONES:
+        if re.search(patron, linea):
+            return nombre
+    return None
+
+
 def _escanear_arbol() -> int:
     hallazgos: list[str] = []
     for nombre, patron in PATRONES:
         for linea in _git_grep(patron):
             ruta = linea.split(":", 1)[0] if ":" in linea else ""
-            if EXENTOS.search(ruta):
-                continue
-            if MARCADORES.search(linea):
-                continue
-            # Una linea que sólo habla de como NO hacer las cosas no es
-            # un secreto.
-            if linea.lstrip().startswith(("#", "//")):
+            if _secreto_en_linea(linea, ruta) != nombre:
                 continue
             hallazgos.append(f"  [{nombre}] {linea.strip()[:160]}")
 
@@ -115,9 +132,7 @@ def _escanear_historial() -> int:
         for linea in lineas:
             if not regex.search(linea):
                 continue
-            if MARCADORES.search(linea):
-                continue
-            if linea.lstrip().startswith(("#", "//")):
+            if _secreto_en_linea(linea) != nombre:
                 continue
             hallazgos.append(f"  [{nombre}] {linea.strip()[:150]}")
             if len(hallazgos) > 40:
@@ -134,7 +149,62 @@ def _escanear_historial() -> int:
     return 0
 
 
+def _autoprueba() -> int:
+    """Comprueba que el escaner DETECTA los secretos y NO dispara con los de mentira.
+
+    Una puerta que no se puede ver fallar no es una puerta. Aquí se le
+    pasan líneas de mentira y se comprueba que acierta en las dos
+    direcciones. Importan especialmente los casos "no es un secreto": un
+    escaner que marcara todo dejaría de servir para nada.
+    """
+    # OJO: los secretos de mentira se **construyen** en tiempo de
+    # ejecución, no se escriben literales. Si estaban literales en este
+    # fichero, el propio escaner los encontraría (y con razón: el
+    # repositorio es público y un token real en un literal es una
+    # credencial filtrada).
+    token_github = "ghp_" + "a1b2c3d4e5" * 3 + "fghij"
+    # AKIA + 16 caracteres (los que exige el patrón).
+    clave_aws = "AKIA" + "ABCDEFGHIJKLMNOP"
+    pem = "-----BEGIN RSA PRIVATE KEY" + "-----"
+    jwt = "JWT" + "_SECRET = " + '"' + "s3cr3t" + "-de-verdad-1234567890" + '"'
+    dsn = "postgresql://" + "usuario:claveReal123" + "@db:5432/app"
+
+    casos: list[tuple[str, str, str, bool]] = [
+        ("token de GitHub", "app/api.py", f'TOKEN = "{token_github}"', True),
+        ("clave de AWS", "app/api.py", f'AWS = "{clave_aws}"', True),
+        ("clave privada PEM", "app/keys.py", pem, True),
+        ("JWT con valor real", "app/config.py", jwt, True),
+        ("cadena de conexion", "app/db.py", f'DSN = "{dsn}"', True),
+        ("valor de ejemplo", "app/config.py", 'JWT_SECRET = "change-me-in-production"', False),
+        ("fichero de ejemplo", ".env.example", 'SECRET_KEY = "clave-de-ejemplo-larguísima"', False),
+        ("fichero de pruebas", "backend/tests/test_app.py", f'TOKEN = "{token_github}"', False),
+        ("documentacion", "docs/secreto.md", f'TOKEN = "{token_github}"', False),
+        ("comentario", "app/api.py", f'# TOKEN = "{token_github}"', False),
+        ("linea limpia", "app/api.py", "def ejecutar() -> None:\n    return None", False),
+    ]
+    fallos = 0
+    for nombre, ruta, linea, debe_detectar in casos:
+        detectado = _secreto_en_linea(linea, ruta) is not None
+        if detectado != debe_detectar:
+            fallos += 1
+            print(
+                f"  FALLO: {nombre} (en {ruta}) -> detectado={detectado} "
+                f"(se esperaba {debe_detectar})"
+            )
+        else:
+            print(f"  OK: {nombre} (en {ruta}) -> {'detectado' if detectado else 'limpio'}")
+
+    if fallos:
+        print(f"Autoprueba FALLIDA: {fallos} caso(s).")
+        return 1
+    print("Autoprueba correcta: el escaner detecta los secretos y no dispara "
+          "con los valores de ejemplo ni con los ficheros exentos.")
+    return 0
+
+
 def main() -> int:
+    if "--autoprueba" in sys.argv:
+        return _autoprueba()
     if "--historial" in sys.argv:
         return _escanear_historial()
     return _escanear_arbol()
