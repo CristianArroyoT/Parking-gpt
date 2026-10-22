@@ -80,6 +80,11 @@ def _simulacro(red: str, base: str, destino: Path, secrets: Path) -> tuple[bool,
         "-v", f"{BACKUP_DIR}:/backup:ro",
         "-v", f"{destino}:/backups",
         "-v", f"{secrets}:/secrets:ro",
+        # T-78: los adjuntos de los incidentes (el volumen del backend).
+        # Con --volumes-from se montan en la misma ruta que en el backend.
+        "--volumes-from", CONTENEDOR_BACKEND,
+        "-e", "ATTACHMENTS_DIR=/var/lib/solidapp/incident-attachments",
+        "-e", "ATTACHMENTS_RESTORE_DIR=/adjuntos-restaurados",
         "-e", "PGHOST=db",
         "-e", "PGPORT=5432",
         "-e", "PGUSER=parking",

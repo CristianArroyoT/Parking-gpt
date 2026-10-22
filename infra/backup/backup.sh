@@ -27,6 +27,9 @@
 #   BACKUP_REMOTE                        → destino S3-compatible (opcional)
 #   BACKUP_REMOTE_CMD                   → comando de subida (opcional)
 #   BACKUP_MAX_AGE_HOURS                → umbral de la alerta (por defecto 26)
+#   ATTACHMENTS_DIR                      → directorio de los adjuntos de los
+#                                          incidentes (T-78). Vacío = el
+#                                          backup NO los incluye (y avisa).
 # ─────────────────────────────────────────────────────────────────────────────
 set -Eeuo pipefail
 
@@ -44,6 +47,10 @@ BACKUP_REMOTE="${BACKUP_REMOTE:-}"
 BACKUP_REMOTE_CMD="${BACKUP_REMOTE_CMD:-}"
 BACKUP_MAX_AGE_HOURS="${BACKUP_MAX_AGE_HOURS:-26}"
 BACKUP_PASSPHRASE_FILE="${BACKUP_PASSPHRASE_FILE:-}"
+#: Directorio de los adjuntos de los incidentes (T-78). Las fotos NO viven
+#: en la base de datos (viven en un volumen), asi que sin esto el backup
+#: las deja fuera.
+ATTACHMENTS_DIR="${ATTACHMENTS_DIR:-}"
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 DAY_OF_WEEK="$(date -u +%u)"   # 1=lunes … 7=domingo
@@ -111,8 +118,57 @@ apply_retention() {
         if ! grep -qxF "$name" <<<"$keep"; then
             log "retirando $name"
             rm -f "$BACKUP_DIR/$name"
+            # T-78: los adjuntos van con su volcado (mismo STAMP), asi que
+            # se van con el. Si no, el directorio de backups acumularia
+            # tarballs de fotos que ya no corresponden a ningun backup.
+            rm -f "$BACKUP_DIR/${name%.dump.enc}.adjuntos.tar.enc"
         fi
     done < <(find "$BACKUP_DIR" -maxdepth 1 -name 'solidapp-*.dump.enc' -printf '%f\n')
+}
+
+# ── adjuntos de los incidentes (T-78) ─────────────────────────────────────
+# Las fotos de los incidentes no estan en la base de datos: estan en un
+# volumen (INCIDENT_ATTACHMENTS_DIR). Un pg_dump a secas las deja fuera: al
+# restaurar en otra maquina, la base dice que las fotos existen y los
+# ficheros no estan (las descargas dan 404).
+#
+# Devuelve la ruta del .enc por stdout (los ``log`` van a stderr).
+backup_adjuntos() {
+    local stamp="$1"
+    if [[ -z "$ATTACHMENTS_DIR" ]]; then
+        log "AVISO: sin ATTACHMENTS_DIR este backup NO incluye los adjuntos de los incidentes"
+        return 0
+    fi
+    if [[ ! -d "$ATTACHMENTS_DIR" ]]; then
+        log "AVISO: ATTACHMENTS_DIR ($ATTACHMENTS_DIR) no existe: este backup NO incluye los adjuntos"
+        return 0
+    fi
+    local tar_raw="$BACKUP_DIR/solidapp-$stamp.adjuntos.tar"
+    local enc_adj="$tar_raw.enc"
+    log "empaquetando los adjuntos de $ATTACHMENTS_DIR"
+    if ! tar -czf "$tar_raw" -C "$ATTACHMENTS_DIR" .; then
+        rm -f "$tar_raw"
+        die "no se pudo empaquetar el directorio de adjuntos"
+    fi
+    if ! openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 \
+        -in "$tar_raw" -out "$enc_adj" -pass env:PASS_PHRASE; then
+        rm -f "$tar_raw"
+        die "falló el cifrado de los adjuntos"
+    fi
+    # El tar en claro se borra siempre: no debe quedar una copia sin cifrar.
+    rm -f "$tar_raw"
+    # Verificacion: unos adjuntos que no se pueden descifrar no son un backup.
+    local verify_dir
+    verify_dir="$(mktemp -d "${TMPDIR:-/tmp}/solidapp-verify-adj.XXXXXX")"
+    if ! openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+        -in "$enc_adj" -pass env:PASS_PHRASE -out "$verify_dir/adjuntos.tar" \
+        || ! tar -tzf "$verify_dir/adjuntos.tar" >/dev/null 2>&1; then
+        rm -rf "$verify_dir"
+        die "el tar de adjuntos cifrado no se puede descifrar (se aborta)"
+    fi
+    rm -rf "$verify_dir"
+    log "adjuntos listos: $enc_adj ($(du -h "$enc_adj" | cut -f1))"
+    printf '%s' "$enc_adj"
 }
 
 # ── copia fuera del host ────────────────────────────────────────────────────
@@ -190,8 +246,15 @@ main() {
 
     log "backup listo: $enc ($(du -h "$enc" | cut -f1))"
 
+    # T-78: los adjuntos de los incidentes (si los hay).
+    local enc_adjuntos
+    enc_adjuntos="$(backup_adjuntos "$STAMP")"
+
     apply_retention
     upload_remote "$enc"
+    if [[ -n "$enc_adjuntos" ]]; then
+        upload_remote "$enc_adjuntos"
+    fi
 
     # El estado del último backup se escribe para que el monitor lo consulte.
     date -u +%Y-%m-%dT%H:%M:%SZ > "$BACKUP_DIR/.last-success"

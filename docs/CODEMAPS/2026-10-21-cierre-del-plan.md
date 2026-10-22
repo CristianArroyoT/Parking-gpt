@@ -1995,3 +1995,38 @@ ninguna base de Redis libre (8-15)").
 **El arreglo**: el proceso libera su base al salir (`atexit`), un lock de
 un proceso muerto se puede robar (comprobando el PID) y la caducidad baja
 a 15 minutos.
+
+### 3-sexagésimosegunda. Los informes CSV no neutralizaban las fórmulas (2026-10-22)
+
+Los exportes CSV meten datos que pone un usuario (la matrícula —que el
+alta manual no valida— y el nombre de la sucursal) y se escribían con
+`csv.writer` tal cual: una celda que empieza por `=` se ejecutaba al
+abrir el CSV en Excel o LibreOffice (`=cmd|'/c calc'!A0` ejecuta un
+comando en Windows).
+
+**El arreglo**: `escapar_celda_csv` (apóstrofo delante, patrón OWASP)
+aplicado a todas las celdas en el punto de salida. Los **números no se
+escapan**: un importe negativo no es una fórmula.
+
+### 3-sexagésimotercera. El backup no incluía los adjuntos de los incidentes (2026-10-22)
+
+`backup.sh` solo hacía `pg_dump`, pero **las fotos de los incidentes no
+viven en la base de datos**: viven en un volumen. Un backup restaurado en
+otra máquina perdía todas las fotos, y el simulacro trimestral **daba
+verde** (solo comparaba el recuento de filas).
+
+**El arreglo**: el backup empaqueta y cifra los adjuntos, la restauración
+los recupera, y el simulacro mete un fichero de prueba y comprueba que
+vuelve con su contenido.
+
+### 3-sexagésimocuarta. Los informes CSV no neutralizaban las fórmulas (2026-10-22)
+
+Los exportes CSV meten datos que pone un usuario (la matrícula —que el
+alta manual no valida— y el nombre de la sucursal) y se escribían con
+`csv.writer` tal cual: una celda que empieza por `=` se ejecutaba al
+abrir el CSV en Excel o LibreOffice (`=cmd|'/c calc'!A0` ejecuta un
+comando en Windows).
+
+**El arreglo**: `escapar_celda_csv` (apóstrofo delante, patrón OWASP)
+aplicado a todas las celdas en el punto de salida. Los **números no se
+escapan**: un importe negativo no es una fórmula.

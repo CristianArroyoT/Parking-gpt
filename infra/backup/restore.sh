@@ -84,6 +84,26 @@ pg_restore --host="$PGHOST" --port="$PGPORT" --username="$PGUSER" \
     --dbname="$TARGET_DB" --no-owner --exit-on-error "$PLAIN" \
     || die "pg_restore falló"
 
+# ── Adjuntos de los incidentes (T-78) ──────────────────────────────────────
+# Las fotos NO estan en el dump: viven en un volumen aparte. Si el backup
+# trae su tar, se restaura aqui; si no, se avisa (para que nadie crea que
+# se han restaurado).
+if [[ -n "${ATTACHMENTS_RESTORE_DIR:-}" ]]; then
+    ENC_ADJ="${FILE%.dump.enc}.adjuntos.tar.enc"
+    if [[ -f "$ENC_ADJ" ]]; then
+        log "restaurando los adjuntos en $ATTACHMENTS_RESTORE_DIR"
+        mkdir -p "$ATTACHMENTS_RESTORE_DIR"
+        openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -in "$ENC_ADJ" -pass env:PASS_PHRASE -out "$TMPDIR_LOCAL/adjuntos.tar" \
+            || die "no se pudo descifrar el tar de adjuntos"
+        tar -xzf "$TMPDIR_LOCAL/adjuntos.tar" -C "$ATTACHMENTS_RESTORE_DIR" \
+            || die "no se pudo desempaquetar el tar de adjuntos"
+        log "adjuntos restaurados: $(find "$ATTACHMENTS_RESTORE_DIR" -type f | wc -l) ficheros"
+    else
+        log "AVISO: este backup NO incluye los adjuntos de los incidentes"
+    fi
+fi
+
 # ── Verificación ────────────────────────────────────────────────────────────
 log "verificando la base restaurada"
 TABLAS="$(psql --host="$PGHOST" --port="$PGPORT" --username="$PGUSER" --dbname="$TARGET_DB" \

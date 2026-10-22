@@ -38,6 +38,11 @@ BACKUP_PASSPHRASE_FILE="${BACKUP_PASSPHRASE_FILE:-/secrets/backup.pass}"
 BACKUP_SCRIPT="${BACKUP_SCRIPT:-/backup/backup.sh}"
 RESTORE_SCRIPT="${RESTORE_SCRIPT:-/backup/restore.sh}"
 TARGET_DB="${TARGET_DB:-parking_simulacro}"
+#: Directorio de los adjuntos de los incidentes (T-78). Si está vacío, el
+#: simulacro no comprueba los adjuntos (y avisa).
+ATTACHMENTS_DIR="${ATTACHMENTS_DIR:-}"
+#: Dónde se restauran los adjuntos en el simulacro.
+ATTACHMENTS_RESTORE_DIR="${ATTACHMENTS_RESTORE_DIR:-/adjuntos-restaurados}"
 
 # Tablas cuyo recuento se compara entre el origen y la restauración.
 # Las que no existan en el origen se omiten; las que existan en una y no
@@ -56,9 +61,24 @@ contar() {
 
 # ── 1. Volcado ───────────────────────────────────────────────────────────────
 log "1/4. volcando '$PGDATABASE' (cifrado, retención GFS)"
+
+# T-78: los adjuntos de los incidentes (las fotos) NO viven en la base de
+# datos, asi que sin esto el simulacro daba verde con las fotos perdidas.
+# Se mete un fichero de prueba para poder comprobar que vuelve.
+FICHERO_PRUEBA=""
+if [[ -n "$ATTACHMENTS_DIR" && -d "$ATTACHMENTS_DIR" ]]; then
+    FICHERO_PRUEBA="simulacro-prueba-$$.txt"
+    printf 'contenido de prueba %s\n' "$FICHERO_PRUEBA" \
+        > "$ATTACHMENTS_DIR/$FICHERO_PRUEBA"
+    log "    fichero de prueba en los adjuntos: $FICHERO_PRUEBA"
+else
+    log "    AVISO: sin ATTACHMENTS_DIR este simulacro NO comprueba los adjuntos"
+fi
+
 BACKUP_DIR="$BACKUP_DIR" \
 PGHOST="$PGHOST" PGPORT="$PGPORT" PGUSER="$PGUSER" PGDATABASE="$PGDATABASE" \
 BACKUP_PASSPHRASE_FILE="$BACKUP_PASSPHRASE_FILE" \
+ATTACHMENTS_DIR="$ATTACHMENTS_DIR" \
     bash "$BACKUP_SCRIPT" >/dev/null
 
 DUMP="$(find "$BACKUP_DIR" -maxdepth 1 -name 'solidapp-*.dump.enc' -printf '%T@ %p\n' \
@@ -78,6 +98,7 @@ log "3/4. restaurando en '$TARGET_DB'"
 RESTORE_SCRIPT="$RESTORE_SCRIPT" \
 PGHOST="$PGHOST" PGPORT="$PGPORT" PGUSER="$PGUSER" \
 BACKUP_PASSPHRASE_FILE="$BACKUP_PASSPHRASE_FILE" \
+ATTACHMENTS_RESTORE_DIR="$ATTACHMENTS_RESTORE_DIR" \
     bash "$RESTORE_SCRIPT" --file "$DUMP" --target-db "$TARGET_DB" --yes
 
 # ── 4. Los mismos datos ──────────────────────────────────────────────────────
@@ -95,6 +116,26 @@ for tabla in $TABLAS_A_COMPARAR; do
         || die "la tabla '$tabla' no coincide: origen=$origen restaurada=$restaurada"
     log "    $tabla: $origen filas (coincide)"
 done
+
+# ── 5. Los adjuntos vuelven con su contenido (T-78) ──────────────────────────
+if [[ -n "$FICHERO_PRUEBA" ]]; then
+    log "5/5. comprobando que los adjuntos se han restaurado"
+    if [[ ! -f "$ATTACHMENTS_RESTORE_DIR/$FICHERO_PRUEBA" ]]; then
+        die "el fichero de prueba de los adjuntos NO ha vuelto: el backup no los incluye"
+    fi
+    if ! grep -q "contenido de prueba" "$ATTACHMENTS_RESTORE_DIR/$FICHERO_PRUEBA"; then
+        die "el fichero de prueba de los adjuntos volvió con otro contenido"
+    fi
+    N_ORIGEN="$(find "$ATTACHMENTS_DIR" -type f | wc -l)"
+    N_RESTAURADOS="$(find "$ATTACHMENTS_RESTORE_DIR" -type f | wc -l)"
+    log "    adjuntos originales: $N_ORIGEN | restaurados: $N_RESTAURADOS"
+    if [[ "$N_ORIGEN" != "$N_RESTAURADOS" ]]; then
+        die "el numero de adjuntos no coincide (origen $N_ORIGEN, restaurados $N_RESTAURADOS)"
+    fi
+    log "    adjuntos OK: el fichero de prueba ha vuelto con su contenido"
+    # Se limpia el fichero de prueba del volumen.
+    rm -f "$ATTACHMENTS_DIR/$FICHERO_PRUEBA"
+fi
 
 cat <<RESUMEN
 

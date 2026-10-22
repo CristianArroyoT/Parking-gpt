@@ -39,6 +39,10 @@ export PGHOST=db PGPORT=5432 PGUSER=parking PGDATABASE=parking
 export BACKUP_DIR=/var/backups/solidapp          # en un volumen cifrado
 export BACKUP_PASSPHRASE_FILE=/etc/solidapp/backup.pass
 export BACKUP_RETENTION_DAYS=7
+# Directorio de los adjuntos de los incidentes (T-78). Las fotos NO viven
+# en la base de datos (viven en un volumen): sin esta variable el backup NO
+# las incluye, y al restaurar en otra maquina se pierden.
+export ATTACHMENTS_DIR=/var/lib/solidapp/incident-attachments
 export BACKUP_RETENTION_WEEKS=4
 export BACKUP_RETENTION_MONTHS=6
 export BACKUP_MAX_AGE_HOURS=26
