@@ -243,8 +243,102 @@ def _sin_respuesta(red: list[str], req) -> None:
 CANCELADAS: list[str] = []
 
 
+def _inyectar_sesion(pagina, almacen, base: str) -> None:
+    """Pasa un ``sessionStorage`` a una pagina nueva.
+
+    Los tokens viven en ``sessionStorage`` (son por pestana: ver
+    ``frontend/src/api/client.ts``), asi que una pestana nueva empieza sin
+    sesion. Se copia **todo** el almacen (sin escribir ninguna clave a
+    mano: si el nombre de la clave cambia, esta comprobacion lo sigue
+    detectando).
+
+    La copia se hace sobre una pagina ya cargada **del origen de la app**:
+    en ``about:blank`` el navegador deniega el acceso al almacenamiento
+    ("Access is denied for this document"). Y el ``sessionStorage``
+    sobrevive a las navegaciones siguientes (es por pestana y origen), asi
+    que los tokens siguen ahi al ir a la ruta que se comprueba.
+    """
+    pagina.goto(f"{base}/login", wait_until="domcontentloaded", timeout=20000)
+    pagina.evaluate(
+        "(d) => { for (const [k, v] of Object.entries(d)) "
+        "sessionStorage.setItem(k, v) }",
+        almacen,
+    )
+
+
+def _comprobar_modo_pwa(contexto, pagina, base: str) -> list[str]:
+    """El modo PWA no puede quedarse "pegado" en el navegador (T-66).
+
+    Antes, el flag ``?pwa=1`` se guardaba en ``localStorage`` para
+    siempre: un admin que abria la app con el flag (o que instalaba la
+    PWA de cliente) quedaba **encerrado** en las rutas de cliente para
+    siempre en ese navegador, y la senal "recordada" tenia prioridad
+    sobre la real (``display-mode: standalone``): no habia forma de
+    volver al panel de admin.
+
+    Se comprueba con el admin (que es quien queda encerrado):
+      1. con ``?pwa=1``, una ruta de admin redirige a "Mis tickets";
+      2. en OTRA pestana del mismo navegador (el ``localStorage`` se
+         comparte entre pestanas) y sin el flag, la ruta de admin se
+         respeta: el modo no se ha quedado pegado.
+
+    Las dos comprobaciones van en paginas PROPIAS, con sus propios
+    escuchadores: si contaminaran las listas de la QA, la puerta se
+    pondria en rojo por ruido que no es de las pantallas.
+    """
+    fallos: list[str] = []
+    almacen = pagina.evaluate(
+        "() => Object.fromEntries(Object.entries(sessionStorage))"
+    )
+
+    # 1. Con el flag de la URL, el modo PWA esta activo.
+    con_flag = contexto.new_page()
+    try:
+        _inyectar_sesion(con_flag, almacen, base)
+        con_flag.goto(f"{base}/?pwa=1", wait_until="domcontentloaded", timeout=20000)
+        con_flag.wait_for_timeout(1200)
+        con_flag.goto(f"{base}/admin/users", wait_until="domcontentloaded", timeout=20000)
+        con_flag.wait_for_timeout(1200)
+        if "/mis-tickets" not in con_flag.url:
+            fallos.append(
+                "con ?pwa=1 la app deberia redirigir a 'Mis tickets' "
+                f"(se quedo en {con_flag.url})"
+            )
+    except Exception as exc:  # noqa: BLE001
+        fallos.append(f"no se pudo comprobar el modo PWA: {type(exc).__name__}: {exc}")
+    finally:
+        con_flag.close()
+
+    # 2. En otra pestana, el flag no puede seguir frenando al admin.
+    otra = contexto.new_page()
+    try:
+        _inyectar_sesion(otra, almacen, base)
+        otra.goto(f"{base}/admin/users", wait_until="domcontentloaded", timeout=20000)
+        otra.wait_for_timeout(1200)
+        if "/login" in otra.url:
+            fallos.append(
+                "la comprobacion del modo PWA no tiene sesion: la pagina "
+                f"redirigió a {otra.url}"
+            )
+        elif "/mis-tickets" in otra.url:
+            fallos.append(
+                "el modo PWA se ha quedado pegado en el navegador: en otra "
+                f"pestana la ruta de admin redirige a {otra.url}"
+            )
+        else:
+            print("  modo PWA: el flag no se queda pegado en el navegador")
+    except Exception as exc:  # noqa: BLE001
+        fallos.append(f"no se pudo comprobar el modo PWA: {type(exc).__name__}: {exc}")
+    finally:
+        otra.close()
+
+    return fallos
+
+
 def _evaluar(
-    resultados: "list[Resultado]", errores_login: "list[str]"
+    resultados: "list[Resultado]",
+    errores_login: "list[str]",
+    fallos_extra: "list[str] | None" = None,
 ) -> tuple[int, list[str]]:
     """El veredicto de la QA: ``(código de salida, motivos)``.
 
@@ -274,6 +368,8 @@ def _evaluar(
         motivos.append(f"{consola} error(es) de consola")
     if errores_login:
         motivos.append(f"{len(errores_login)} inicio(s) de sesión fallido(s)")
+    for motivo in fallos_extra or []:
+        motivos.append(motivo)
     return (1 if motivos else 0), motivos
 
 
@@ -578,6 +674,9 @@ def main() -> int:
 
     resultados: list[Resultado] = []
     errores_login: list[str] = []
+    # T-66: fallos de la comprobacion del modo PWA (que no debe quedar
+    # pegado en el navegador).
+    fallos_modo_pwa: list[str] = []
     avisos: list[str] = []
     inicios_de_sesion = 0
 
@@ -660,6 +759,9 @@ def main() -> int:
                     pagina, destino, ancho, rol, consola, red, resultados, avisos,
                     base,
                 )
+            if rol == "admin":
+                # T-66: el modo PWA no puede quedar pegado en el navegador.
+                fallos_modo_pwa += _comprobar_modo_pwa(contexto, pagina, base)
             contexto.close()
         navegador.close()
 
@@ -716,7 +818,7 @@ def main() -> int:
     # un 500 (o con un error de JavaScript) dejaba la puerta en verde. La
     # puerta recogía la evidencia y no actuaba sobre ella, que es
     # justamente lo que hace que una puerta deje de ser una puerta.
-    codigo, motivos = _evaluar(resultados, errores_login)
+    codigo, motivos = _evaluar(resultados, errores_login, fallos_modo_pwa)
     for motivo in motivos:
         print(f"  FALLO: {motivo}")
     return codigo

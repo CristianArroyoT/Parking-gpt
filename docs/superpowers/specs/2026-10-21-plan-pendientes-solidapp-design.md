@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **365 de 366 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **378 de 379 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1338,6 +1338,40 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Con el lock, **las dos suites en paralelo pasan las dos**.
   - [x] `ruff` en verde.
   - [x] La afirmación del `AGENTS.md` ("la suite aguanta dos ejecuciones en paralelo") es ahora cierta, no sólo para el resto de la suite sino también para los tests de rate-limit.
+
+### T-66 · P1 — el modo PWA se quedaba "pegado" en el navegador: un admin quedaba encerrado en la vista de cliente
+
+- **Estado**: **completado** — el flag es por pestaña, y la QA lo vigila
+- **Contexto**: `frontend/src/pwa/mode.ts` guardaba el flag del modo PWA en **`localStorage`** y lo leía de ahí, **con prioridad sobre la señal real** (`display-mode: standalone`):
+  1. un admin (o un gestor) que abría la app con `?pwa=1` (el flag que pone el `start_url` del manifiesto, y el de depuración) quedaba **encerrado** en las rutas de cliente **para siempre** en ese navegador, sin ninguna forma de volver al panel de administración salvo borrar el almacenamiento a mano;
+  2. la señal "recordada" ganaba a la real, así que tampoco servía abrir la app en otra pestaña normal.
+- **El arreglo**:
+  1. el flag se recuerda en **`sessionStorage`** (la pestaña), no en `localStorage` (el navegador entero);
+  2. el flag viejo se **borra** al arrancar: quien quedó encerrado sale solo al abrir la app;
+  3. la señal fuerte (`display-mode: standalone` / `navigator.standalone`) se consulta **antes** que el flag.
+- **La comprobación (en la QA visual, que sí tiene login y proxy)**:
+  1. con `?pwa=1`, una ruta de admin redirige a "Mis tickets" (el modo está activo);
+  2. en **otra pestaña** del mismo navegador (el `localStorage` se comparte entre pestañas, el `sessionStorage` no) y sin el flag, la ruta de admin se respeta: el modo no se ha quedado pegado.
+  - Detalle que costó tres intentos: los tokens viven en `sessionStorage` (son por pestaña), así que la segunda pestaña **no tiene sesión** y acaba en `/login`: hay que copiarle el almacenamiento a mano (sin escribir ninguna clave de memoria) o la comprobación daría un falso verde.
+  - Las dos comprobaciones van en **páginas propias**, sin los escuchadores de la QA: si contaminaran las listas de errores, la puerta se pondría en rojo por ruido ajeno.
+- **Criterios de aceptación**:
+  - [x] Medido: el flag se guardaba y se leía de `localStorage`, y la señal "recordada" tenía prioridad sobre la real.
+  - [x] El flag pasa a `sessionStorage` y el flag viejo se borra (quien quedó encerrado sale solo).
+  - [x] La QA visual comprueba que el modo PWA no se queda pegado (con el admin, en otra pestaña).
+  - [x] **Probado que la QA se pone en rojo** reintroduciendo el defecto: *"el modo PWA se ha quedado pegado en el navegador: en otra pestaña la ruta de admin redirige a .../mis-tickets"*.
+  - [x] La comprobación no mete ruido en el veredicto (0 peticiones fallidas y 0 errores de consola en la QA).
+  - [x] `npm run lint` y `vue-tsc --noEmit` en verde.
+
+### T-67 · P2 — en nginx, las regex de los ficheros estáticos ganaban al prefijo `/api/`
+
+- **Estado**: **completado** — `location ^~ /api/`
+- **Contexto**: en nginx, las locations de tipo **regex** (`location ~* \.(png|jpg|…)$`) se comprueban **antes** que las de prefijo. Sin el `^~`, una petición a `/api/v1/algo.png` la servía nginx **desde el disco** en vez de ir a la API.
+- **Por qué importa aunque hoy no rompa**: los adjuntos van por `/attachments/{id}` (sin extensión) y los CSV/PDF no están en la lista de estáticos, así que hoy no hay ningún endpoint afectado. Pero es una trampa para el día que un endpoint devuelva una imagen (un QR de un ticket, un avatar): en producción serviría el fichero del disco (o un 404) en vez de la respuesta de la API.
+- **El arreglo**: `location ^~ /api/` (el `^~` dice "si la URI empieza por este prefijo, usa este bloque y **no** compruebes las regex").
+- **Criterios de aceptación**:
+  - [x] Medido: el login a través del proxy `/api` de la imagen de producción devuelve **200 con token**, y una ruta inexistente de la API devuelve **404** (del backend, no el shell de la SPA): el prefijo sigue yendo al proxy.
+  - [x] La puerta del servidor de producción sigue en **5/5** con la plantilla nueva.
+  - [x] La imagen se reconstruye y el contenedor arranca con la plantilla nueva.
 
 ### T-14 · I3 — OCR con GPU
 

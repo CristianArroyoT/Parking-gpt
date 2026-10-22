@@ -85,7 +85,15 @@ server {
     }
 
     # ── La API: siempre a la red, nunca al caché del SW ────────────────
-    location /api/ {
+    #
+    # OJO (T-67): el ``^~`` no es decorativo. En nginx, las locations de
+    # tipo REGEX (``location ~* \.(png|jpg|...)$``) se comprueban ANTES
+    # que las de prefijo: sin el ``^~``, una peticion a
+    # ``/api/v1/algo.png`` la servia nginx desde el disco en vez de ir a
+    # la API. Hoy no rompe nada (los adjuntos van por
+    # ``/attachments/{id}``, sin extension), pero es una trampa para el
+    # dia que un endpoint devuelva una imagen.
+    location ^~ /api/ {
         # OJO (T-60): SIN esta directiva nginx acepta **1 MB** por
         # peticion (su default), y el backend acepta 3 ficheros de 10 MB
         # (``incident_attachment_max_bytes`` x

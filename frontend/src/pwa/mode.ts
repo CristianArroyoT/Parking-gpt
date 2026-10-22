@@ -1,5 +1,5 @@
 /**
- * Detección del modo PWA (T-24).
+ * Detección del modo PWA (T-24; corregido en T-66).
  *
  * La PWA instalable es **sólo para el rol `cliente`**: el menú de
  * gestor, de operador y de admin no debe aparecer en la app instalada.
@@ -16,10 +16,14 @@
  *     funciona también en navegadores sin `display-mode` y sirve para
  *     depurar ("abre la PWA en modo navegador con `?pwa=1`").
  *
- * El resultado se recuerda en `localStorage` porque, dentro de una SPA,
- * la query de la URL se pierde al navegar (Vue Router sustituye la
- * URL); la señal de `display-mode`, en cambio, sigue siendo cierta
- * durante toda la sesión de la app instalada.
+ * OJO (2026-10-22, T-66): la tercera señal se recuerda en
+ * `sessionStorage` (la PESTAÑA), **no** en `localStorage` (el navegador
+ * entero). Antes se guardaba en `localStorage` y nunca se limpiaba: un
+ * admin que abría la app con `?pwa=1` (o que instalaba la PWA de
+ * cliente) quedaba **encerrado** en las rutas de cliente para siempre,
+ * sin forma de volver al panel de administración salvo borrar el
+ * almacenamiento a mano. Y la señal "recordada" tenía prioridad sobre
+ * la real, así que tampoco servía abrir la app en otra pestaña.
  *
  * Uso previsto (el layout y el router son de otro subagente):
  *
@@ -43,33 +47,44 @@ const CLAVE = 'solidapp.modo-pwa'
 export function isPwaMode(): boolean {
   if (typeof window === 'undefined') return false
 
-  // 1. Recordado de una detección anterior en esta misma instalación.
+  // 0. Limpieza del flag antiguo (T-66): estaba en `localStorage` y
+  //    encerraba a quien lo activaba. Se borra, no se lee: así, quien
+  //    quedó encerrado sale solo al abrir la app.
   try {
-    if (window.localStorage.getItem(CLAVE) === '1') return true
+    window.localStorage.removeItem(CLAVE)
   } catch {
     /* localStorage puede estar bloqueado: no es motivo para fallar */
   }
 
-  // 2. Instalada como app (Chromium / Edge / Android).
+  // 1. Instalada como app (Chromium / Edge / Android).
   const standalone =
     typeof window.matchMedia === 'function' &&
     window.matchMedia('(display-mode: standalone)').matches
 
-  // 3. Instalada como app (iOS Safari).
+  // 2. Instalada como app (iOS Safari).
   const iosStandalone =
     (window.navigator as Navigator & { standalone?: boolean }).standalone === true
 
-  // 4. Forzado por la URL (`start_url` del manifest o depuración).
+  if (standalone || iosStandalone) return true
+
+  // 3. Forzado por la URL (`start_url` del manifest o depuración).
   const porUrl =
     new URLSearchParams(window.location.search).get('pwa') === '1'
-
-  if (standalone || iosStandalone || porUrl) {
+  if (porUrl) {
+    // Se recuerda en la PESTAÑA, no para siempre (T-66).
     try {
-      window.localStorage.setItem(CLAVE, '1')
+      window.sessionStorage.setItem(CLAVE, '1')
     } catch {
-      /* idem: sin localStorage seguimos funcionando */
+      /* sin sessionStorage seguimos funcionando */
     }
     return true
+  }
+
+  // 4. Forzado antes en ESTA pestaña.
+  try {
+    if (window.sessionStorage.getItem(CLAVE) === '1') return true
+  } catch {
+    /* idem: sin sessionStorage seguimos funcionando */
   }
   return false
 }

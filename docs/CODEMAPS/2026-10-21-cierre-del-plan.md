@@ -1854,6 +1854,27 @@ Medido: las dos suites del host en paralelo (SQLite y PostgreSQL) →
 **El arreglo**: cada ejecución reclama su base con un lock `SET NX` (con
 caducidad de una hora) y, si está ocupada, prueba la siguiente.
 
+### 3-trigésimotrigésimoprimera. El modo PWA se quedaba pegado en el navegador (2026-10-22)
+
+`frontend/src/pwa/mode.ts` guardaba el flag del modo PWA en `localStorage`
+y lo leía **antes** que la señal real (`display-mode: standalone`): un
+admin que abría la app con `?pwa=1` quedaba encerrado en las rutas de
+cliente para siempre, sin forma de volver al panel de administración.
+
+**El arreglo**: el flag se recuerda en `sessionStorage` (la pestaña) y el
+flag viejo se borra. La QA visual lo vigila: con `?pwa=1` una ruta de
+admin redirige a "Mis tickets", y en **otra pestaña** (donde el
+`localStorage` se comparte pero el `sessionStorage` no) la ruta de admin
+se respeta.
+
+### 3-trigésimotrigésimosegunda. Las regex de nginx ganaban al prefijo `/api/` (2026-10-22)
+
+En nginx las locations de regex se comprueban antes que las de prefijo:
+una petición a `/api/v1/algo.png` se servía desde el disco en vez de ir
+a la API. Hoy no afecta a ningún endpoint, pero es una trampa.
+
+**El arreglo**: `location ^~ /api/`.
+
 
 | Modelo | Tabla | Notas |
 |---|---|---|
