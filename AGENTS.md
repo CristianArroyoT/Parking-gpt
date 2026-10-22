@@ -179,6 +179,7 @@ Para ver el estado del CI remoto: `python tools/estado_ci.py`.
 | 1 | rojo de verdad (un job ejecutó pasos y falló): es el código |
 | 2 | rechazado por la cuenta (jobs en `failure` **sin** un solo paso) |
 | 3 | el run sigue en curso: no se puede afirmar nada |
+| 4 | al run le falta algún job del workflow: el criterio exige todos |
 
 Mira **siempre** la rama `main` (es lo que pide el criterio del plan);
 la herramienta tiene `--rama` para mirar otra.

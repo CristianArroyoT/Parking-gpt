@@ -1218,12 +1218,42 @@ jobs: ya no hay nada que autorizar.
 |---|---|---|
 | Job `frontend` | contenedor `node:20`, `npm ci` desde cero | lint, type-check y build **en verde** (36 assets en el precache) |
 | Job `backend` | contenedor `python:3.11-slim`, `pip install -e ".[dev]"` desde cero | **565 passed, 10 skipped** |
+| Job `integration` | `postgis/postgis:16-3.4` recién creado + `python:3.11-slim` limpio | **574 passed, 1 skipped** + 13 del test SQLite + los 5 pasos de herramientas en verde |
 | Fin de línea | `git ls-files --eol` | todos los ejecutables guardados con **LF** ✓ |
 | Dependencias | `package-lock.json` | **existe y está versionado** (el comentario decía lo contrario) |
 
 Nota: el host usa **Node 24** y el CI usa **Node 20**, y el host usa
 Python 3.13 y el CI 3.11. Las dos simulaciones de arriba son las que
 verifican de verdad esos jobs.
+
+
+### 3-trigésimoctava. La puerta del CI daba por bueno un run al que le faltara un job (2026-10-22)
+
+El último criterio del plan dice, literalmente, "los **4 checks** del CI
+sobre `main` en SUCCESS (Backend, Integration, Build de imágenes Docker y
+Frontend)".
+
+Pero `tools/estado_ci.py` miraba **los jobs que tuviera el run**: si
+alguien quitaba un job del workflow (o el run era de un commit anterior
+del workflow), la herramienta decía **"EN VERDE"** con los que quedaran.
+Un verde que no cumple el criterio.
+
+**El arreglo**: la herramienta lee **los jobs que define el workflow de
+este repo** (`.github/workflows/ci.yml`) y los compara con los del run.
+Si falta alguno, no es verde: nuevo estado **INCOMPLETO (código 4)**, con
+el mensaje de qué job falta.
+
+Se parsea el workflow con una **expresión regular**, no con PyYAML:
+PyYAML llega sólo como dependencia transitiva de `uvicorn[standard]`, y
+este repo ya ha sufrido bastante con depender de cosas que nadie
+declaró (T-44).
+
+**La autoprueba distingue ahora 8 casos**: verde · job que falta (**no**
+verde) · todos los esperados · rojo con pasos · rechazado por la cuenta ·
+en curso · sin jobs · y que el workflow real define 4 jobs.
+
+Comprobado contra el CI real: el último run de `main` sigue
+clasificándose como **rechazado por la cuenta** (código 2).
 
 
 | Modelo | Tabla | Notas |

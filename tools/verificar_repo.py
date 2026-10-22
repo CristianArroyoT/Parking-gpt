@@ -308,6 +308,8 @@ def main() -> int:
         print("[AVISO] CI remoto en main                              rechazado por la cuenta (facturacion)", flush=True)
     elif codigo == 3:
         print("[AVISO] CI remoto en main                              todavia en curso (no se puede afirmar)", flush=True)
+    elif codigo == 4:
+        print("[AVISO] CI remoto en main                              el run no cubre todos los jobs del workflow", flush=True)
     else:
         print("[AVISO] CI remoto en main                              en rojo o sin comprobar", flush=True)
 

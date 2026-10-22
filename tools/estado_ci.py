@@ -28,19 +28,26 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 from pathlib import Path
 
+#: Raíz del repositorio (dos niveles arriba de este fichero).
+RAIZ = Path(__file__).resolve().parent.parent
+
 #: Fichero del informe (UTF-8). Va al .gitignore: es un artefacto.
-INFORME = Path("tools/_informe_ci.txt")
+INFORME = RAIZ / "tools" / "_informe_ci.txt"
 
 #: Codigos de salida.
 VERDE = 0
 ROJO_DE_CODIGO = 1
 RECHAZADO_POR_LA_CUENTA = 2
-#: El run todavia no ha terminado: no se puede afirmar nada (y desde luego
+#: Un run que todavia no ha terminado: no se puede afirmar nada (y desde luego
 #: no es "verde"). Antes este caso caia en el "verde" y era un falso verde.
 EN_CURSO = 3
+#: El run no cubre todos los jobs que define el workflow: el criterio exige
+#: que esten TODOS en SUCCESS, asi que no se puede dar por cumplido.
+INCOMPLETO = 4
 
 
 def _gh(*args: str) -> str:
@@ -82,7 +89,37 @@ def _informe(lineas: list[str]) -> None:
         print(ascii_)
 
 
-def _clasificar(run: dict, jobs: list[dict]) -> tuple[int, list[str]]:
+def _jobs_esperados() -> dict[str, str]:
+    """{clave: nombre visible} de los jobs que define el workflow local.
+
+    POR QUÉ (2026-10-22): el último criterio del plan dice "los **4
+    checks** del CI sobre ``main`` en SUCCESS". Si alguien quitara un
+    job del workflow, la herramienta seguiría diciendo "EN VERDE" con los
+    que quedaran: un verde que no cumple el criterio. Aquí se leen los
+    jobs **del workflow de este repo**, y si el run no los cubre todos,
+    no es verde.
+
+    Se parsea con una expresión regular y no con PyYAML a propósito:
+    PyYAML llega sólo como dependencia transitiva de ``uvicorn[standard]``,
+    y este repositorio ya ha sufrido bastante con depender de cosas
+    que nadie declaró (T-44).
+    """
+    workflow = RAIZ / ".github" / "workflows" / "ci.yml"
+    if not workflow.exists():
+        return {}
+    texto = workflow.read_text(encoding="utf-8")
+    if "jobs:" not in texto:
+        return {}
+    bloque = texto.split("jobs:", 1)[1]
+    patron = re.compile(r"^  ([A-Za-z0-9_-]+):\n    name: (.+)$", re.MULTILINE)
+    return {m.group(1): m.group(2).strip() for m in patron.finditer(bloque)}
+
+
+def _clasificar(
+    run: dict,
+    jobs: list[dict],
+    esperados: dict[str, str] | None = None,
+) -> tuple[int, list[str]]:
     """(codigo de salida, lineas del informe) a partir del run y sus jobs.
 
     OJO: la lógica está **separada** de la API para que se pueda probar
@@ -150,6 +187,27 @@ def _clasificar(run: dict, jobs: list[dict]) -> tuple[int, list[str]]:
         ]
         return EN_CURSO, lineas
 
+    # El criterio del plan nombra 4 jobs concretos ("los 4 checks del CI
+    # sobre main"). Si el workflow de este repo los define y el run no
+    # los tiene todos, NO es verde: el run es de otro commit del
+    # workflow, o alguien quito un job.
+    if esperados:
+        nombres = {job.get("name") for job in jobs}
+        faltan = [nombre for nombre in esperados.values() if nombre not in nombres]
+        if faltan:
+            lineas += [
+                "",
+                f"DIAGNOSTICO: al run le faltan {len(faltan)} de los "
+                f"{len(esperados)} jobs que define el workflow:",
+            ]
+            for nombre in faltan:
+                lineas.append(f"  falta: {nombre}")
+            lineas += [
+                "El run no cubre el workflow actual (o el workflow cambio).",
+                "El criterio del plan exige que TODOS los jobs esten en SUCCESS.",
+            ]
+            return INCOMPLETO, lineas
+
     lineas += ["", "El CI de main esta EN VERDE."]
     return VERDE, lineas
 
@@ -183,6 +241,36 @@ def _autoprueba() -> int:
         fallos += 1
     else:
         print("  OK: 4 jobs en verde -> VERDE")
+
+    # 1-bis. Con jobs esperados, si falta alguno, NO es verde: el criterio
+    #       del plan exige que los 4 esten en SUCCESS.
+    esperados = {"backend": "Backend", "frontend": "Frontend"}
+    codigo, _ = _clasificar(
+        run_ok, [_job("Backend", "success", 3)], esperados
+    )
+    if codigo != INCOMPLETO:
+        print(f"  FALLO: un run al que le falta un job no se ha marcado ({codigo})")
+        fallos += 1
+    else:
+        print("  OK: al run le falta un job -> INCOMPLETO (no verde)")
+    codigo, _ = _clasificar(
+        run_ok,
+        [_job("Backend", "success", 3), _job("Frontend", "success", 2)],
+        esperados,
+    )
+    if codigo != VERDE:
+        print(f"  FALLO: con todos los jobs esperados no se ha marcado VERDE ({codigo})")
+        fallos += 1
+    else:
+        print("  OK: con todos los jobs esperados -> VERDE")
+
+    # 1-ter. Y los jobs que define el workflow real se leen bien.
+    leidos = _jobs_esperados()
+    if len(leidos) < 4:
+        print(f"  FALLO: el workflow define {len(leidos)} jobs (se esperaban 4): {leidos}")
+        fallos += 1
+    else:
+        print(f"  OK: el workflow define {len(leidos)} jobs: {sorted(leidos)}")
 
     # 2. Un job en rojo ejecutando pasos -> ROJO_DE_CODIGO.
     jobs = [_job("Backend", "success", 3) for _ in range(3)]
@@ -250,8 +338,15 @@ def main() -> int:
     ultimo = runs[0]
     jobs = _api(f"repos/{repo}/actions/runs/{ultimo['id']}/jobs")["jobs"]
 
-    codigo, lineas = _clasificar(ultimo, jobs)
-    _informe([f"Repositorio: {repo}", f"Rama: {args.rama}", ""] + lineas)
+    # Los jobs que el workflow de este repo define: si el run no los
+    # cubre todos, el criterio del plan ("los 4 checks en SUCCESS") no se
+    # puede dar por cumplido, aunque los que haya esten en verde.
+    esperados = _jobs_esperados()
+    codigo, lineas = _clasificar(ultimo, jobs, esperados)
+    _informe(
+        [f"Repositorio: {repo}", f"Rama: {args.rama}"] + lineas
+        + [f"Jobs que define el workflow: {len(esperados)} ({', '.join(sorted(esperados))})"]
+    )
     return codigo
 
 

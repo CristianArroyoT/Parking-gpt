@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **268 de 269 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **272 de 273 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -959,6 +959,19 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Los cambios incompatibles de las tres versiones revisados en sus notas de versión: ninguno afecta a este workflow.
   - [x] `actionlint` exit 0 con el workflow actualizado.
   - [x] El job `frontend` pasa entero en `node:20` con instalación limpia, y el job `backend` en `python:3.11-slim` con instalación limpia.
+  - [x] El job `integration` pasa entero en su entorno real: un `postgis/postgis:16-3.4` **recién creado** (como el service container del CI) y un `python:3.11-slim` limpio → **574 passed, 1 skipped** contra PostgreSQL, el test de funciones sólo-de-SQLite **13 passed**, y los 5 pasos de herramientas (inventario, contrato, roles, migraciones y despliegue limpio) **en verde**.
+
+### T-46 · P1 — la puerta del CI daba por bueno un run al que le faltara un job
+
+- **Estado**: **completado** — estado nuevo `INCOMPLETO` (código 4) y comprobación contra el workflow local
+- **Contexto**: el último criterio del plan dice, literalmente, "los **4 checks** del CI sobre `main` en SUCCESS (Backend, Integration, Build de imágenes Docker y Frontend)". Pero `tools/estado_ci.py` miraba **los jobs que tuviera el run**: si alguien quitaba un job del workflow (o el run era de un commit anterior del workflow), la herramienta decía **"EN VERDE"** con los que quedaran. Un verde que no cumple el criterio.
+- **El arreglo**:
+  - La herramienta lee **los jobs que define el workflow de este repo** (`.github/workflows/ci.yml`) y los compara con los del run. Si falta alguno, no es verde: nuevo estado **INCOMPLETO (código 4)**, con el mensaje de qué job falta.
+  - Se parsea el workflow con una **expresión regular**, no con PyYAML: PyYAML llega sólo como dependencia transitiva de `uvicorn[standard]`, y este repo ya ha sufrido bastante con depender de cosas que nadie declaró (T-44).
+- **Criterios de aceptación**:
+  - [x] La autoprueba distingue los 8 casos: verde, job que falta (**no** verde), todos los esperados, rojo con pasos, rechazado por la cuenta, en curso, sin jobs, y que el workflow real define 4 jobs.
+  - [x] Comprobado contra el CI real: el último run de `main` sigue clasificándose como **rechazado por la cuenta** (código 2), que es lo que es.
+  - [x] `verificar_repo.py` distingue el estado "incompleto" del "en rojo".
 
 ### T-14 · I3 — OCR con GPU
 
