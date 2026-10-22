@@ -1,14 +1,22 @@
 """Seed inicial: admin, 5 sucursales demo, 60 plazas por sucursal, planes demo.
 
 Uso: docker compose exec backend python -m app.scripts.seed
+
+OJO (T-83, 2026-10-22): este seed crea usuarios **demo con contrasenas
+publicas** (``admin@solidapp.es`` / ``admin12345``), escritas en el README
+y en este repositorio publico. En ``staging``/``production`` el seed **se
+niega a arrancar**: quien quiera sembrar datos de prueba alla tiene que
+decirlo explicitamente con ``--allow-demo-users``.
 """
 
 from __future__ import annotations
 
+import argparse
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.db import SessionLocal
 from app.core.security import hash_password
 from app.models.enums import UserRole
@@ -139,7 +147,29 @@ def _seed_plans(db: Session) -> None:
         )
 
 
-def run() -> None:
+def motivo_rechazo(environment: str, permitir_demo: bool) -> str | None:
+    """Por que no se puede sembrar en este entorno (``None`` = se puede).
+
+    Funcion **pura** (para poder probarla sin tocar la base de datos): una
+    puerta que no se puede ver fallar no es una puerta.
+    """
+    if environment not in ("staging", "production"):
+        return None
+    if permitir_demo:
+        return None
+    return (
+        f"El seed crea usuarios DEMO con contrasenas publicas "
+        f"(admin@solidapp.es / admin12345), escritas en el README y en este "
+        f"repositorio: con ENVIRONMENT={environment} eso seria un "
+        f"administrador accesible. Si es lo que quieres, pasalo con "
+        f"--allow-demo-users."
+    )
+
+
+def run(permitir_demo: bool = False) -> None:
+    motivo = motivo_rechazo(get_settings().environment, permitir_demo)
+    if motivo:
+        raise SystemExit(f"[seed] ERROR: {motivo}")
     db = SessionLocal()
     try:
         for code, name, addr, city in DEMO_PARKINGS:
@@ -159,5 +189,20 @@ def run() -> None:
         db.close()
 
 
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Siembra los datos demo.")
+    parser.add_argument(
+        "--allow-demo-users",
+        action="store_true",
+        help=(
+            "Permite sembrar los usuarios demo (con contrasenas publicas) "
+            "tambien en staging/produccion."
+        ),
+    )
+    args = parser.parse_args(argv)
+    run(permitir_demo=args.allow_demo_users)
+    return 0
+
+
 if __name__ == "__main__":
-    run()
+    raise SystemExit(main())

@@ -56,6 +56,11 @@ docker compose up -d --build
 # 3) Aplicar migraciones y cargar datos demo
 docker compose exec backend alembic upgrade head
 docker compose exec backend python -m app.scripts.seed
+#
+# OJO: el seed crea usuarios DEMO con contrasenas publicas
+# (admin@solidapp.es / admin12345, escritas mas abajo). En staging y
+# produccion el seed **se niega a arrancar**: ahi los usuarios reales se
+# dan de alta desde la aplicacion.
 
 # 4) Abrir
 #    http://localhost:5173   → frontend

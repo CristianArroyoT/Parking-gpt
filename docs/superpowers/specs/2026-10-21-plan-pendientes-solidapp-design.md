@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **461 de 462 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **465 de 466 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1607,6 +1607,22 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Tres casos nuevos en la autoprueba del escáner (sustitución, acentos graves, otro nombre).
   - [x] El escáner del historial vuelve a dar **"no hay secretos"**.
   - [x] `verificar_repo.py` vuelve a estar entero en verde.
+
+### T-83 · P1 (seguridad) — el seed de demo se podía ejecutar en producción y creaba un administrador con contraseña pública
+
+- **Estado**: **completado** — el seed se niega a arrancar en `staging`/`production`
+- **Contexto**: `app/scripts/seed.py` **no miraba el entorno**, y el README de la raíz dice, sin distinguir desarrollo de producción:
+  ```bash
+  docker compose exec backend python -m app.scripts.seed
+  ```
+  Ese seed crea `admin@solidapp.es` con la contraseña `admin12345` (y un gestor, un operador y un cliente), **escritas en el README y en este repositorio público**. O sea: ejecutarlo en una sucursal dejaba un **administrador accesible**, y el README es exactamente lo que lleva a hacerlo.
+- **El arreglo** (mismo patrón que el secreto JWT y el compose de producción): el seed **se niega a arrancar** en `staging`/`production` y dice por qué, salvo que se pase `--allow-demo-users` explícitamente (para quien quiera datos de prueba en un staging a propósito). El README avisa de que el seed es solo de desarrollo.
+- **Criterios de aceptación**:
+  - [x] Medido: el seed no comprobaba el entorno (cualquiera podía crear el admin de demo en una sucursal).
+  - [x] **Probado en el contenedor real**: con `ENVIRONMENT=production`, el seed sale con código 1 y el mensaje que dice qué exportar, **sin tocar la base de datos** (el guard va antes de abrir la sesión).
+  - [x] En `development`/`test` el seed funciona igual que antes.
+  - [x] Con `--allow-demo-users` se permite explícitamente (y el motivo lo dice).
+  - [x] Tests de la función pura (5 casos), `ruff` y `mypy` en verde.
 
 ### T-14 · I3 — OCR con GPU
 

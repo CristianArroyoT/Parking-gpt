@@ -2065,3 +2065,13 @@ del historial se ponía en rojo por una línea de documentación correcta.
 acento grave es una orden, no un literal. Tres casos nuevos en su
 autoprueba.
 
+### 3-sexagésimoquinta. El seed de demo se podía ejecutar en producción (2026-10-22)
+
+`app/scripts/seed.py` no miraba el entorno y el README dice, sin
+distinguir entornos, `python -m app.scripts.seed`: eso creaba
+`admin@solidapp.es` con la contraseña `admin12345` (escrita en el README y
+en este repositorio público) **en una sucursal**.
+
+**El arreglo**: el seed se niega a arrancar en `staging`/`production` y
+dice por qué, salvo `--allow-demo-users`.
+
