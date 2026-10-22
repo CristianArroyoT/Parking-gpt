@@ -2075,3 +2075,14 @@ en este repositorio público) **en una sucursal**.
 **El arreglo**: el seed se niega a arrancar en `staging`/`production` y
 dice por qué, salvo `--allow-demo-users`.
 
+### 3-sexagésimosexta. La API de tarifas aceptaba importes que rompían el cálculo (2026-10-22)
+
+`TariffCreate` no validaba `price_per_hour`, `price_per_fraction`,
+`fraction_minutes` ni `max_daily`. Medido: con `fraction_minutes=0` cerrar
+un ticket peta con `ZeroDivisionError` (500 y ticket abierto) y con un
+precio negativo el importe sale **-12,00 EUR**. Y la tarifa queda en la
+base de datos, así que rompía todos los tickets de la sucursal.
+
+**El arreglo**: el esquema valida (precios >= 0, fracción > 0, tope > 0) y
+el cálculo se protege (sin división por cero, importe nunca negativo).
+

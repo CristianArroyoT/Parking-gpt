@@ -84,13 +84,19 @@ def _compute_amount(tariff: Tariff, entry_at: datetime, exit_at: datetime) -> fl
         return 0.0
     full_hours = int(elapsed_min // 60)
     remainder_min = elapsed_min - full_hours * 60
-    fractions = math.ceil(remainder_min / tariff.fraction_minutes) if remainder_min > 0 else 0
+    # T-84: una fraccion de 0 (que el esquema ya no admite, pero que
+    # podria quedar de antes en la base de datos) petaba con
+    # ZeroDivisionError al cerrar un ticket. Aqui se usa 1 minuto.
+    fraction_minutes = tariff.fraction_minutes if tariff.fraction_minutes > 0 else 1
+    fractions = math.ceil(remainder_min / fraction_minutes) if remainder_min > 0 else 0
     amount = full_hours * tariff.price_per_hour + fractions * tariff.price_per_fraction
-    if tariff.max_daily is not None:
+    if tariff.max_daily is not None and tariff.max_daily > 0:
         # Cap diario MVP: tope por estancia. Multi-día natural se desglosa
         # en Fase 3 cuando llegue la auditoría de tickets.
         amount = min(amount, tariff.max_daily)
-    return amount
+    # T-84: un precio negativo (tarifa vieja o manipulada) no puede
+    # dejar el ticket con un importe negativo: no se cobra de menos.
+    return max(0.0, amount)
 
 
 def _compute_discount(

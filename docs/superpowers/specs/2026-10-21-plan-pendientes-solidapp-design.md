@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **465 de 466 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **470 de 471 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1623,6 +1623,25 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] En `development`/`test` el seed funciona igual que antes.
   - [x] Con `--allow-demo-users` se permite explícitamente (y el motivo lo dice).
   - [x] Tests de la función pura (5 casos), `ruff` y `mypy` en verde.
+
+### T-84 · P1 (integridad del dinero) — la API de tarifas aceptaba valores que rompían el cálculo del importe
+
+- **Estado**: **completado** — el esquema valida y el cálculo se protege
+- **Contexto**: `TariffCreate`/`TariffUpdate` **no validaban ninguno** de los cuatro campos del importe: `price_per_hour`, `price_per_fraction`, `fraction_minutes` y `max_daily`.
+- **Medido** (2026-10-22, contra la API real):
+  - `fraction_minutes=0` → cerrar un ticket peta con **`ZeroDivisionError`** (un 500 y el ticket se queda abierto, con la plaza bloqueada);
+  - `price_per_hour=-5` → el importe del ticket sale **-12,00 €** (se cobra de menos);
+  - `max_daily=-1` → el tope diario deja el importe en negativo.
+- **Y lo que lo hace serio**: la tarifa **queda en la base de datos** y `_find_tariff` toma la más reciente, así que afecta a **todos** los tickets de esa sucursal desde que entra en vigor. No era un fallo de un ticket: era un fallo permanente y silencioso.
+- **El arreglo (dos cosas)**:
+  1. el esquema valida: precios `>= 0`, `fraction_minutes > 0` y `max_daily > 0` (si se da);
+  2. **defensa en profundidad** en el cálculo, para las tarifas que ya estuvieran en la base de datos: una fracción de 0 no divide por cero y **el importe nunca es negativo** (`max(0.0, amount)`).
+- **Criterios de aceptación**:
+  - [x] Medido: el esquema aceptaba los cuatro valores inválidos; `ZeroDivisionError` con `fraction_minutes=0`; importe **-12,00 €** con precio negativo.
+  - [x] **Probado contra la API real**: los cuatro valores inválidos devuelven **422** con el mensaje de pydantic, y una tarifa válida pasa la validación.
+  - [x] El cálculo no divide por cero y nunca devuelve un importe negativo (tests con tarifas rotas en memoria).
+  - [x] El patch (`TariffUpdate`) también valida.
+  - [x] 12 tests nuevos, `ruff` y `mypy` en verde.
 
 ### T-14 · I3 — OCR con GPU
 

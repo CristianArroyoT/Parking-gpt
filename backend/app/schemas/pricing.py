@@ -11,12 +11,21 @@ from app.schemas import ORMModel, TimestampMixinSchema
 
 
 class TariffCreate(ORMModel):
+    """Alta de tarifa.
+
+    OJO (T-84, 2026-10-22): los importes se validan a proposito. Antes el
+    esquema no ponia ni un limite: se aceptaba ``price_per_hour=-5`` (el
+    ticket salia con un importe NEGATIVO), ``fraction_minutes=0`` (cerrar
+    un ticket petaba con ``ZeroDivisionError`` -> un 500 y el ticket se
+    quedaba abierto) y ``max_daily=-1``.
+    """
+
     parking_id: int
     name: str = Field(min_length=2, max_length=64)
-    price_per_hour: float
-    price_per_fraction: float
-    fraction_minutes: int = 15
-    max_daily: Optional[float] = None
+    price_per_hour: float = Field(ge=0)
+    price_per_fraction: float = Field(ge=0)
+    fraction_minutes: int = Field(default=15, gt=0)
+    max_daily: Optional[float] = Field(default=None, gt=0)
     valid_from: datetime
     valid_to: Optional[datetime] = None
 
@@ -24,10 +33,10 @@ class TariffCreate(ORMModel):
 class TariffUpdate(ORMModel):
     """Patch parcial de una tarifa (todos los campos opcionales)."""
     name: Optional[str] = Field(default=None, min_length=2, max_length=64)
-    price_per_hour: Optional[float] = None
-    price_per_fraction: Optional[float] = None
-    fraction_minutes: Optional[int] = None
-    max_daily: Optional[float] = None
+    price_per_hour: Optional[float] = Field(default=None, ge=0)
+    price_per_fraction: Optional[float] = Field(default=None, ge=0)
+    fraction_minutes: Optional[int] = Field(default=None, gt=0)
+    max_daily: Optional[float] = Field(default=None, gt=0)
     valid_from: Optional[datetime] = None
     valid_to: Optional[datetime] = None
 
