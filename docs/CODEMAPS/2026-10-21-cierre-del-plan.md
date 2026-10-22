@@ -1693,7 +1693,7 @@ PWA servía el build con un `http.server` de usar y tirar.
 2. **`frontend/Dockerfile.prod`**: imagen multi-etapa (node:20-alpine
    construye → nginx:1.27-alpine sirve), con `ENV API_UPSTREAM` para el
    proxy y `HEALTHCHECK`.
-3. **`frontend/scripts/verificar_servidor_produccion.sh`** + un paso en el
+3. **`frontend/scripts/verificar_servidor_produccion.py`** + un paso en el
    job `docker-build` del CI: levanta la imagen y **comprueba de verdad**
    los requisitos contra el contenedor (no "debería funcionar": se mide).
 
@@ -1715,6 +1715,60 @@ tres requisitos se cumplen **medidos**, el bundle se sirve como
 `application/javascript` con `immutable`, el fallback de la SPA devuelve
 el shell en `/mis-tickets`, y el proxy de `/api` responde (login a través
 del proxy → 200 con token).
+
+### 3-trigésimotrigésima. La puerta del servidor de producción no podía fallar, y el paso del CI tapaba su fallo (2026-10-22)
+
+Dos defectos en lo que se había añadido el día antes (T-56):
+
+1. **La puerta era una puerta de mentira.**
+   `frontend/scripts/verificar_servidor_produccion.sh` corría **dentro**
+   del contenedor con el `wget` de busybox: sin `wget` en el host y sin
+   forma de inyectar un servidor de mentira, nadie podía comprobar que
+   detectara lo que dice detectar.
+2. **El paso del CI tapaba el fallo.** El `docker rm` de limpieza era el
+   último comando del bloque `run:` y su `0` enmascaraba el fallo de la
+   verificación: un servidor de producción roto pasaba el CI en verde.
+
+**El arreglo**:
+
+- La puerta se reescribe en **Python con la biblioteca estándar**
+  (`frontend/scripts/verificar_servidor_produccion.py`): habla con el
+  servidor por HTTP y trae `--autoprueba`, que levanta un **servidor de
+  mentira escrito a mano** (no derivado de la config real de nginx).
+- El paso del CI **propaga el código de salida**:
+  `codigo=0; … || codigo=$?; docker rm … || true; exit $codigo`.
+- La réplica local fija `MSYS_NO_PATHCONV=1` y `MSYS2_ARG_CONV_EXCL=*`
+  para que Git Bash no convierta las rutas POSIX al pasarlas a programas
+  Windows.
+
+**Verificado**: 5/5 requisitos contra el contenedor real; 5/5 fallos
+detectados contra el **mismo contenedor con la config de nginx mutada**;
+5 mutaciones de la puerta detectadas por su autoprueba; y el job
+`docker-build` en **rojo** cuando la puerta falla.
+
+### 3-trigésimocuarta. La QA del PWA verificaba la PWA sobre un servidor que no cumplía los requisitos (2026-10-22)
+
+Con la puerta de T-57 (que mide los requisitos del servidor **por HTTP**)
+se pudieron medir los servidores que el repo usa de verdad:
+
+| Servidor | Requisitos |
+|---|---|
+| Imagen de producción (nginx) | **5/5** |
+| `npm run preview` (Vite) | **5/5** |
+| El servidor de la QA del PWA | **2/5** → ahora **5/5** |
+
+Al de la QA le faltaban el `no-store` del service worker, el `no-cache` del
+`index.html` y el fallback de la SPA (una ruta profunda daba 404). Es decir:
+la PWA se verificaba sobre un servidor que el usuario real no tiene, y la
+QA lo daba por bueno.
+
+**El arreglo**: `qa_pwa.py` sirve el build con las mismas cabeceras que el
+servidor de producción (y declara el tipo del manifiesto sin depender de la
+versión de Python), y **mide los cinco requisitos con la misma puerta del
+CI** en vez de reimplementarlos.
+
+**Verificado**: la QA sigue en verde con 5/5, y se pone en **rojo** (código 1,
+3 requisitos señalados) contra un servidor que incumple.
 
 
 | Modelo | Tabla | Notas |

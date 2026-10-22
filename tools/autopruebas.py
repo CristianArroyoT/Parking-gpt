@@ -99,6 +99,10 @@ AUTOPRUEBAS: list[tuple[str, list[str]]] = [
         [sys.executable, "frontend/scripts/qa_visual.py", "--autoprueba"],
     ),
     (
+        "La puerta del servidor de produccion sigue viendo",
+        [sys.executable, "frontend/scripts/verificar_servidor_produccion.py", "--autoprueba"],
+    ),
+    (
         "La puerta del repo detecta los fallos",
         [sys.executable, "tools/verificar_repo.py", "--autoprueba"],
     ),

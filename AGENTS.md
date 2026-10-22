@@ -71,6 +71,7 @@ python tools/verificar_cobertura_frontend.py --autoprueba
 python tools/verificar_enums_frontend.py --autoprueba
 python tools/verificar_tareas_celery.py --autoprueba
 python tools/verificar_ajustes_muertos.py --autoprueba
+python frontend/scripts/verificar_servidor_produccion.py --autoprueba
 python tools/extraer_api.py --autoprueba
 python tools/revisar_esquemas.py --autoprueba
 python tools/cobertura_api.py --autoprueba

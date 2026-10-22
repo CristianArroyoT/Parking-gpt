@@ -243,6 +243,7 @@ app es **sólo para el rol `cliente`**.
 | `public/sw.js` | Service worker: precachea el *shell* y **no** cachea `/api/`. La política está documentada en la cabecera del fichero. |
 | `public/icons/` | Iconos PNG (192, 512, maskable, apple-touch) y `icon.svg`, que es la fuente de verdad del diseño. |
 | `scripts/generar-iconos-pwa.py` | Regenera los PNG a partir de la geometría del SVG (`python scripts/generar-iconos-pwa.py`). |
+| `scripts/verificar_servidor_produccion.py` | Puerta: comprueba que el servidor cumple los cinco requisitos del PWA (los mide por HTTP, con `--autoprueba` para demostrar que puede fallar). |
 | `src/pwa/registerServiceWorker.ts` | Registra el service worker **sólo en producción** (`import.meta.env.PROD`). |
 | `src/pwa/mode.ts` | `isPwaMode()`: detecta si la app está corriendo como PWA instalada. |
 | `vite.config.ts` | Sirve `sw.js` y el manifest sin caché, e inyecta en `dist/sw.js` la lista de assets del build para que el SW los precachee. |
@@ -301,7 +302,8 @@ app es **sólo para el rol `cliente`**.
 
 ### Requisitos del servidor (producción)
 
-El servidor estático que sirva `dist/` tiene que cumplir tres cosas:
+El servidor estático que sirva `dist/` tiene que cumplir **cinco** cosas
+(las tres de siempre más dos que importan igual):
 
 1. `Content-Type: application/manifest+json` para `*.webmanifest`
    (nginx: `types { application/manifest+json webmanifest; }`).
@@ -309,8 +311,33 @@ El servidor estático que sirva `dist/` tiene que cumplir tres cosas:
    navegador cachea el service worker, sigue ejecutando la versión vieja.
 3. `index.html` **sin** cache (o con revalidación), para que un despliegue
    nuevo se vea al abrir la app.
+4. El bundle se sirve como `application/javascript`, **no** como
+   `application/octet-stream`: con el content-type equivocado el navegador
+   no lo ejecuta y la app no arranca.
+5. Una ruta profunda (`/mis-tickets`) devuelve el shell (fallback de la SPA).
 
-El servicio de `dist/` en `npm run preview` ya cumple las tres.
+**Medido** el 2026-10-22 con la puerta `scripts/verificar_servidor_produccion.py`:
+
+| Servidor | Requisitos que cumple |
+|---|---|
+| Imagen de producción (`Dockerfile.prod`, nginx) | **5/5** |
+| `npm run preview` (Vite) | **5/5** |
+| El servidor de la QA del PWA | **5/5** — antes **2/5** |
+
+> Lo último se corrigió el 2026-10-22 (T-58): la QA del PWA servía el build
+> con el `SimpleHTTPRequestHandler` de la biblioteca estándar, que **no**
+> pone el `no-store` del service worker, ni el `no-cache` del `index.html`,
+> ni el fallback de la SPA. O sea: la PWA se verificaba sobre un servidor
+> que el usuario real no tiene, y la QA lo daba por bueno.
+
+```bash
+# la puerta: los cinco requisitos contra un servidor en marcha
+python scripts/verificar_servidor_produccion.py --url http://127.0.0.1:8091
+
+# su autoprueba: un servidor de mentira escrito a mano, para comprobar que
+# la puerta puede fallar
+python scripts/verificar_servidor_produccion.py --autoprueba
+```
 
 ### Modo "sólo cliente" (pendiente en layout y router)
 

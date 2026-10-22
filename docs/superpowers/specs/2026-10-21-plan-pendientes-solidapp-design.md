@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **320 de 321 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **330 de 331 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1180,7 +1180,7 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
 - **El arreglo (3 cosas)**:
   1. **`frontend/nginx/templates/default.conf.template`**: la configuración de nginx que cumple los tres requisitos, más el proxy de `/api` (el bundle usa rutas relativas a propósito), el fallback de la SPA (`try_files … /index.html`), el cacheo inmutable de los assets con hash y la sonda `/healthz`.
   2. **`frontend/Dockerfile.prod`**: imagen multi-etapa (node:20-alpine construye → nginx:1.27-alpine sirve), con `ENV API_UPSTREAM` para el proxy y `HEALTHCHECK`.
-  3. **`frontend/scripts/verificar_servidor_produccion.sh`** + un paso en el job `docker-build` del CI: levanta la imagen y **comprueba de verdad** los requisitos contra el contenedor (no "debería funcionar": se mide).
+  3. **`frontend/scripts/verificar_servidor_produccion.py`** + un paso en el job `docker-build` del CI: levanta la imagen y **comprueba de verdad** los requisitos contra el contenedor (no "debería funcionar": se mide).
 - **Dos fallos que sólo aparecieron al verificar** (y que habrían roto la app en producción):
   - **`${API_UPSTREAM:-http://backend:8000}`**: el `envsubst` de la imagen de nginx sólo sustituye las variables que existen **tal cual** (no entiende la sintaxis `:-`), así que nginx se comía el texto y **no arrancaba**. El valor por defecto va ahora en el `ENV` de la imagen.
   - **El bloque `types` de nginx sustituye el mapa MIME heredado** (no lo amplía). Con el tipo del manifiesto declarado a nivel de `server`, el JS y el HTML se servían como `application/octet-stream` y **el navegador no ejecutaba el bundle**. El tipo del manifiesto se declara ahora **sólo** en su ubicación, y el resto conserva el mapa heredado.
@@ -1190,6 +1190,41 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] El bundle se sirve como **`application/javascript`** (no `octet-stream`) y con `immutable`; el fallback de la SPA devuelve el shell en `/mis-tickets`; el proxy de `/api` responde (login a través del proxy → 200 con token).
   - [x] La QA del PWA sigue en verde y el build del frontend pasa.
   - [x] Paso nuevo en el job `docker-build` del CI que levanta la imagen y ejecuta el verificador (`actionlint` exit 0).
+
+### T-57 · P1 — la puerta del servidor de producción no podía fallar, y el paso del CI tapaba su fallo
+
+- **Estado**: **completado** — puerta en Python con autoprueba, y el paso del CI propaga su código de salida
+- **Contexto (dos defectos, los dos en lo que se añadió en T-56)**:
+  1. **La puerta no podía demostrar que detectaba lo que dice detectar.** Era un script `sh` que corría **dentro** del contenedor con el `wget` de busybox: no había `wget` en el host ni forma de inyectar un servidor de mentira, así que nadie podía comprobar que fallara. Contra la convención del repo ("toda puerta necesita una autoprueba"), era una puerta de mentira.
+  2. **El paso del CI tapaba el fallo.** El `docker rm -f solidapp-fe-prod` de limpieza era el **último** comando del bloque `run:` → su código de salida (0) **enmascaraba** el fallo de la verificación: un servidor de producción roto habría pasado el CI en verde. Y en la réplica local el paso fallaba por otra causa (Git Bash convertía `/tmp/verificar.sh` en `C:/Users/…/Temp/verificar.sh`), o sea que la réplica local ejecutaba una orden **distinta** de la del CI.
+- **El arreglo (4 cosas)**:
+  1. **La puerta se reescribe en Python con la biblioteca estándar** (`frontend/scripts/verificar_servidor_produccion.py`): habla con el servidor por HTTP (no depende del `wget` de busybox ni de rutas del sistema de ficheros del contenedor) y añade `--autoprueba`. Comprueba los **cinco** requisitos: los tres del README, el bundle servido como JavaScript y el fallback de la SPA.
+  2. **La autoprueba levanta un servidor de mentira escrito a mano** (no derivado de la configuración real de nginx: si saliera del mismo código, la puerta y el servidor podrían mentir a la vez y la autoprueba no demostraría nada). Devuelve exactamente lo contrario de lo exigido y comprueba que la puerta lo detecta.
+  3. **El paso del CI propaga el código de salida**: `codigo=0; … || codigo=$?; docker rm … || true; exit $codigo`. El `rm` va **antes** y tolera su propio fallo.
+  4. **`tools/ejecutar_ci_local.py` fija `MSYS_NO_PATHCONV=1` y `MSYS2_ARG_CONV_EXCL=*`**, para que Git Bash no convierta las rutas POSIX al pasarlas a programas Windows (si no, la réplica local ejecuta una orden distinta de la del CI y da falsos verdes).
+- **Criterios de aceptación**:
+  - [x] La autoprueba pasa: con un servidor correcto la puerta pasa 5/5 y con un servidor roto detecta 5/5.
+  - [x] **Probado que la autoprueba falla** reintroduciendo el defecto: 5 mutaciones (cada requisito forzado a "aceptado", y uno forzado a "rechazado") → las 5 se detectan.
+  - [x] **Probado contra un servidor real roto** (el mismo contenedor de producción con la plantilla de nginx mutada): la puerta falla en los 5 requisitos y sale con código 1.
+  - [x] Contra el contenedor real (configuración buena) la puerta pasa 5/5.
+  - [x] **El paso del CI sale en rojo cuando la puerta falla**: apuntando la puerta a un puerto sin servidor, la réplica local devuelve código 1 y dice *"el job 'docker-build' FALLARÍA en local"*.
+  - [x] El job `docker-build` pasa entero en la réplica local, `actionlint` exit 0 y la autoprueba está en `tools/autopruebas.py`.
+
+### T-58 · P1 — la QA del PWA verificaba la PWA sobre un servidor que no cumplía los requisitos del servidor
+
+- **Estado**: **completado** — el servidor de la QA cumple los cinco requisitos, y la QA los mide
+- **Contexto**: con la puerta de T-57 (que mide los requisitos del servidor de producción **por HTTP**) se pudo, por fin, **medir** los servidores que el repo usa de verdad. El resultado:
+  - `npm run preview` (Vite): **5/5**.
+  - El servidor de la QA del PWA (`frontend/scripts/qa_pwa.py`, que servía el build con el `SimpleHTTPRequestHandler` de la biblioteca estándar): **2/5**. Le faltaban el `no-store` del service worker, el `no-cache` del `index.html` y el fallback de la SPA (una ruta profunda devolvía 404 en vez del shell).
+- **Por qué importa**: la QA del PWA comprueba que la app es instalable y que arranca sin red. Lo comprobaba **sobre un servidor que el usuario real no tiene**: sin `no-store`, el navegador del usuario se queda con el service worker viejo para siempre (el bundle obsoleto, el icono viejo, el despliegue nuevo que no se ve), y sin fallback de la SPA, cualquier ruta profunda (recargar en `/mis-tickets`) daba un 404 en vez de la app. La QA daba **verde** sobre un servidor roto.
+- **El arreglo (2 cosas)**:
+  1. `qa_pwa.py` sirve el build con un manejador propio que pone **las mismas cabeceras que el servidor de producción** (`no-store` en `/sw.js`, `no-cache` en `/index.html`, `immutable` en los assets con hash), declara el tipo del manifiesto de forma explícita (sin depender de la versión de Python) y tiene el **fallback de la SPA**.
+  2. La QA **mide los cinco requisitos con la misma puerta del CI** (importa `verificar_servidor_produccion`, no reimplementa las comprobaciones: dos mediciones distintas darían un falso verde) y falla si el servidor no los cumple.
+- **Criterios de aceptación**:
+  - [x] Medido: `npm run preview` 5/5 y el servidor de la QA 2/5 antes del arreglo.
+  - [x] La QA del PWA sigue en verde **y** ahora cumple 5/5 (los cinco requisitos, comprobados por la puerta).
+  - [x] **Probado que la QA se pone en rojo** con un servidor que no cumple: contra el servidor viejo, la QA sale con código 1 y señala los 3 requisitos incumplidos.
+  - [x] El README del frontend dice la verdad (qué servidores cumplen y cuántos), y ya no afirma que "el preview cumple las tres" sin medirlo.
 
 ### T-14 · I3 — OCR con GPU
 

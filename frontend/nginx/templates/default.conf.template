@@ -25,6 +25,14 @@
 # `envsubst` de la imagen de nginx sólo sustituye las variables que
 # existen tal cual (no entiende la sintaxis `:-`), y nginx reventaba al
 # parsear el resto. El valor por defecto va en el `ENV` de la imagen.
+#
+# Y otra cosa que se aprendió al probarlo: **nginx resuelve el upstream
+# AL ARRANCAR**, así que el contenedor NO LEVANTA si el nombre del
+# backend no resuelve todavia. En el compose esto lo cubre
+# `restart: unless-stopped` (el frontend reintenta hasta que el
+# contenedor del backend existe); en un despliegue sin esa politica
+# habria que poner el upstream en una variable con `resolver` para que
+# se resolviera en cada peticion.
 
 server {
     listen 80;

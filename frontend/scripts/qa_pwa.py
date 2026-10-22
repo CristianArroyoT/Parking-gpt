@@ -14,6 +14,10 @@ Qué comprueba:
      válidos.
   3. El *service worker* se registra, activa y toma el control.
   4. La app **arranca sin red** (se sirve desde la caché del SW).
+  5. El servidor que usa la QA **cumple los mismos requisitos que el de
+     producción** (T-58): hasta el 2026-10-22 lo incumplía (3 de 5) y la
+     QA lo daba por bueno, de modo que la PWA se verificaba sobre un
+     servidor que el usuario real no tiene.
 
 Uso:
     python scripts/qa_pwa.py                 # sirve dist/ y lo comprueba
@@ -34,6 +38,11 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
+# La puerta del servidor de producción (mismo fichero, mismo criterio que
+# el CI). Se añade su carpeta al path para poder importarla desde donde sea.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from verificar_servidor_produccion import comprobar_requisitos  # noqa: E402
+
 DIST = Path(__file__).resolve().parent.parent / "dist"
 
 #: Lo que Chrome exige para que una app sea instalable.
@@ -51,10 +60,52 @@ class _ServidorEstatico(socketserver.ThreadingTCPServer):
     daemon_threads = True
 
 
+class _ManejadorEstatico(http.server.SimpleHTTPRequestHandler):
+    """El build servido como lo sirve el servidor de producción (T-58).
+
+    El ``SimpleHTTPRequestHandler`` de la biblioteca estándar NO pone las
+    cabeceras que exige el PWA: sin ``no-store`` en el service worker el
+    navegador se queda con la versión vieja, y sin el fallback de la SPA una
+    ruta profunda devuelve 404 en vez del shell. Medido: 3 de 5 requisitos
+    incumplidos.
+    """
+
+    # El tipo del manifiesto, explícito: no depende de la versión de
+    # Python (en unas versiones el ``mimetypes`` lo desconoce y se
+    # serviría como ``application/octet-stream``, que Chrome no instala).
+    extensions_map = {
+        **http.server.SimpleHTTPRequestHandler.extensions_map,
+        ".webmanifest": "application/manifest+json",
+    }
+
+    def end_headers(self) -> None:
+        ruta = self.path.split("?")[0]
+        if ruta == "/sw.js":
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+        elif ruta in ("/", "/index.html"):
+            self.send_header("Cache-Control", "no-cache, must-revalidate")
+        elif ruta.startswith("/assets/"):
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        super().end_headers()
+
+    def send_head(self):
+        """El fallback de la SPA: una ruta desconocida devuelve el shell."""
+        ruta = self.path.split("?")[0]
+        if ruta not in ("/", "/index.html") and not ruta.startswith("/assets/"):
+            posible = (Path(self.directory) / ruta.lstrip("/")).resolve()
+            raiz = Path(self.directory).resolve()
+            if posible.is_file() and raiz in posible.parents:
+                pass
+            else:
+                self.path = "/index.html"
+        return super().send_head()
+
+
 def _servir(directorio: Path) -> tuple[_ServidorEstatico, str]:
     """Sirve el build en un hilo aparte y devuelve (servidor, url)."""
     manejador = functools.partial(
-        http.server.SimpleHTTPRequestHandler, directory=str(directorio),
+        _ManejadorEstatico, directory=str(directorio),
     )
     servidor = _ServidorEstatico(("127.0.0.1", _puerto_libre()), manejador)
     hilo = threading.Thread(target=servidor.serve_forever, daemon=True)
@@ -185,6 +236,25 @@ def _comprobar_sin_red(pagina, url_base: str) -> list[str]:
     return fallos
 
 
+def _comprobar_requisitos_servidor(url_base: str) -> list[str]:
+    """Comprueba con la MISMA puerta del CI que el servidor cumple los
+    requisitos del PWA (T-58).
+
+    Se importa la puerta en vez de reimplementar sus comprobaciones: si las
+    dos midieran cosas distintas, esta comprobación daría un falso verde
+    (la trampa de "dos comprobaciones que comparten la fuente de verdad").
+    """
+    fallos: list[str] = []
+    for nombre, ok, detalle in comprobar_requisitos(url_base):
+        if ok:
+            print(f"  servidor OK: {nombre}")
+        else:
+            fallos.append(
+                f"el servidor no cumple un requisito del PWA: {nombre} ({detalle})"
+            )
+    return fallos
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default=None, help="URL ya en marcha (por defecto se sirve dist/)")
@@ -221,6 +291,7 @@ def main() -> int:
         fallos += _comprobar_manifiesto(url_base)
         fallos += _comprobar_service_worker(pagina)
         fallos += _comprobar_sin_red(pagina, url_base)
+        fallos += _comprobar_requisitos_servidor(url_base)
 
         if errores:
             fallos += [f"error de consola: {e[:120]}" for e in errores[:5]]

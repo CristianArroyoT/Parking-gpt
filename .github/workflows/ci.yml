@@ -357,6 +357,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # La puerta del servidor de produccion (T-57) es un script de Python
+      # con la biblioteca estandar: sin esto, el job usaria el Python que
+      # venga en la imagen del runner (sin version fijada).
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
       - name: Build de la imagen del backend
         run: |
           set -o pipefail
@@ -409,16 +416,36 @@ jobs:
         run: |
           set -o pipefail
           docker build --file frontend/Dockerfile.prod --tag solidapp-frontend:prod frontend/
-          docker run -d --name solidapp-fe-prod solidapp-frontend:prod
+          # Por si quedo un contenedor de una corrida anterior (la replica
+          # local reutiliza la maquina).
+          docker rm -f solidapp-fe-prod >/dev/null 2>&1 || true
+          # OJO: nginx resuelve el upstream AL ARRANCAR, asi que el
+          # contenedor no levanta si el nombre no resuelve. En este job no
+          # hay ningun backend, asi que se apunta al loopback (lo que se
+          # comprueba aqui son las cabeceras, no el proxy).
+          docker run -d --name solidapp-fe-prod -p 8091:80 \
+            -e API_UPSTREAM=http://127.0.0.1:8000 solidapp-frontend:prod
           for _ in $(seq 1 30); do
+            if ! docker inspect --format '{{.State.Running}}' solidapp-fe-prod 2>/dev/null | grep -q true; then
+              echo "::error::El contenedor de produccion se detuvo al arrancar (config de nginx rota?):"
+              docker logs solidapp-fe-prod 2>&1 | tail -20
+              exit 1
+            fi
             if docker exec solidapp-fe-prod wget -q -O /dev/null http://127.0.0.1/healthz; then
               break
             fi
             sleep 1
           done
-          docker cp frontend/scripts/verificar_servidor_produccion.sh solidapp-fe-prod:/tmp/verificar.sh
-          docker exec solidapp-fe-prod sh /tmp/verificar.sh
-          docker rm -f solidapp-fe-prod
+          # OJO (2026-10-22): el codigo de salida de la puerta ES el codigo
+          # de salida del paso. Antes el `docker rm` de limpieza era el
+          # ULTIMO comando y su 0 tapaba el fallo de la verificacion: un
+          # servidor de produccion roto pasaba el CI en verde. Por eso el
+          # `rm` va ANTES (y con `|| true`) y el codigo se propaga al final.
+          codigo=0
+          python frontend/scripts/verificar_servidor_produccion.py \
+            --url http://127.0.0.1:8091 || codigo=$?
+          docker rm -f solidapp-fe-prod >/dev/null 2>&1 || true
+          exit $codigo
 
   # ── Frontend: type-check + build ──────────────────────────────────────
   # OJO (2026-10-22): aquí ya no hace falta el workaround de Node 20. Las

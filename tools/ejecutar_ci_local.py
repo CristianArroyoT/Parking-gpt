@@ -98,6 +98,15 @@ def _ejecutar_job(nombre_job: str, job: dict, bash: str, saltar: list[str]) -> t
     # pendiente, la salida se queda en el búfer del hijo y se pierde al
     # terminar. Con esto, lo que el paso ha escrito se ve ya.
     entorno["PYTHONUNBUFFERED"] = "1"
+    # Git Bash (MSYS2) convierte las rutas POSIX que se pasan a un
+    # programa Windows: ``/tmp/x.sh`` se convierte en
+    # ``C:/Users/<usuario>/AppData/Local/Temp/x.sh``. En el CI (Linux)
+    # eso NO pasa, así que sin esto la réplica local ejecutaría una
+    # orden distinta que la del CI y daría falsos verdes (pasó con un
+    # ``docker exec ... sh /tmp/verificar.sh`` que en realidad buscaba
+    # el fichero en el temporal de Windows).
+    entorno["MSYS_NO_PATHCONV"] = "1"
+    entorno["MSYS2_ARG_CONV_EXCL"] = "*"
 
     print(f"\n{'=' * 70}\nJob '{nombre_job}' en {cwd}", flush=True)
     fallos = 0
