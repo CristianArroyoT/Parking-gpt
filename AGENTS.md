@@ -41,11 +41,11 @@ Hace falta una **tercera** fuente: el caso de mentira escrito a mano.
 ## Comandos que funcionan (verificados)
 
 ```bash
-# La salud del repo en un comando: 21 comprobaciones (~2 min)
+# La salud del repo en un comando: 22 comprobaciones (~2 min)
 python tools/verificar_repo.py
 python tools/verificar_repo.py --completo      # + CI local y QA en 5 anchos (~40 min)
 
-# Las 20 autopruebas de las puertas
+# Las 21 autopruebas de las puertas
 python tools/autopruebas.py
 python tools/autopruebas.py --estricto          # lo "no comprobado" tambien falla
 
@@ -75,6 +75,7 @@ python frontend/scripts/verificar_servidor_produccion.py --autoprueba
 python tools/verificar_nginx_body_size.py --autoprueba
 python tools/verificar_contexto_build.py --autoprueba
 python tools/verificar_rate_limit_unico.py --autoprueba
+python tools/verificar_lockfile.py --autoprueba
 python tools/extraer_api.py --autoprueba
 python tools/revisar_esquemas.py --autoprueba
 python tools/cobertura_api.py --autoprueba
@@ -163,8 +164,14 @@ docker run --rm -v "D:\Parking:/repo" -w /repo rhysd/actionlint:latest .github/w
 - **El host tampoco es la versión de Node ni de Python del CI** (Node
   24 vs 20, Python 3.13 vs 3.11). Para probar de verdad el job
   `frontend` o el `backend`, míralos en un contenedor limpio:
-  `docker run --rm -v "D:\Parking\frontend:/app" -w /app node:20 sh -c
-  "npm ci && npm run lint && npx vue-tsc --noEmit && npm run build"`.
+  `docker run --rm -v "D:\Parking\frontend:/app" -v /app/node_modules
+  -w /app node:20 sh -c "npm ci && npm run lint && npx vue-tsc --noEmit
+  && npm run build"`.
+  OJO (2026-10-22, T-72): el `-v /app/node_modules` (volumen anónimo)
+  **no es opcional en Windows**: sin él se monta el `node_modules` del
+  host (que es de Windows) y `npm ci` falla al borrarlo con `EIO: i/o
+  error, unlink '/app/node_modules/...'`. El comando sin ese volumen
+  estaba documentado y **no funcionaba**.
 - **Las acciones del workflow se fijan en la versión que corre en
   node24** (`checkout@v5`, `setup-python@v6`, `setup-node@v5`). Las
   versiones `@v4`/`@v5` corren en **node20**, que la plataforma ya

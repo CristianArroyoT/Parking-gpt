@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **395 de 396 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **408 de 409 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1418,6 +1418,46 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] El `print` pasa por `_consola()` y el script fuerza UTF-8 en su salida.
   - [x] La autoprueba de la puerta del repo gana un caso: "un resumen con acentes se lee y se imprime sin romperse".
   - [x] `verificar_repo.py` pasa entero (**21 comprobaciones**) en Windows.
+
+### T-71 · P1 — el build de producción no era reproducible (`npm ci || npm install`)
+
+- **Estado**: **completado** — `npm ci` a secas + puerta del lockfile
+- **Contexto**: tanto el `frontend/Dockerfile.prod` como el job `frontend` del CI hacían **`npm ci || npm install`**. Ese "fallback" es una trampa:
+  - si `npm ci` falla (lockfile desincronizado con el `package.json`), la imagen (o el artefacto del CI) se construye con las **últimas versiones del registro**, **sin lockfile**: el build deja de ser reproducible y **el fallo queda escondido**;
+  - el comentario del workflow lo justificaba como "red de seguridad por si el lock file dejara de estar versionado algún día", o sea: una red que sacrifices la reproducibilidad a cambio de que nadie se entere.
+- **Por qué era peor de lo que parece**: sin el `frontend/.dockerignore` (T-63), el `node_modules` del host entraba en la imagen y `npm ci` fallaba → **el fallback era el que se estaba usando** → la imagen de producción se llevaba tiempo construyendo **sin lockfile**.
+- **El arreglo**:
+  1. `npm ci` a secas en los dos sitios (que falle de forma ruidosa si el lockfile no cuadra);
+  2. **`tools/verificar_lockfile.py`**: una puerta que compara las dependencias del `package.json` con las del `package-lock.json` (en `packages[""]`, que es lo que npm mantiene sincronizado) y avisa **antes** de instalar. Con `--autoprueba` (6 casos de mentira) y paso en el CI.
+- **Criterios de aceptación**:
+  - [x] Medido: `npm ci --dry-run` con el lockfile actual pasa (el lockfile está sincronizado).
+  - [x] Sin el `.dockerignore` de T-63, el `npm ci` de la imagen fallaba y el fallback construía sin lockfile (verificado: la imagen con `npm ci` a secas se construye bien **con** el `.dockerignore`).
+  - [x] La puerta detecta una dependencia nueva, una versión cambiada, una quitada y una devDependency nueva.
+  - [x] La puerta está en `tools/autopruebas.py`, en el job `frontend` del CI y en `verificar_repo.py`.
+  - [x] `actionlint` exit 0.
+
+### T-72 · P2 — el comando del AGENTS.md para probar el frontend en un contenedor limpio no funcionaba en Windows
+
+- **Estado**: **completado** — el comando lleva un volumen anónimo
+- **Contexto**: el `AGENTS.md` documentaba `docker run --rm -v "D:\Parking\frontend:/app" -w /app node:20 sh -c "npm ci && npm run lint && npx vue-tsc --noEmit && npm run build"` para probar de verdad el job `frontend` en su entorno real (Node 20, el del CI).
+- **Medido**: **no funcionaba**. Al montar `frontend/` se monta también el `node_modules` del host (que es de Windows) y `npm ci` intenta **borrarlo** antes de instalar: en Windows esos ficheros están bloqueados y el borrado falla con `npm error EIO: i/o error, unlink '/app/node_modules/@rollup/...'`. O sea: el comando documentado como forma de verificar el job del frontend **se caía siempre** en la máquina de QA.
+- **El arreglo**: montar un **volumen anónimo** en `/app/node_modules` (`-v /app/node_modules`): npm trabaja en un `node_modules` limpio del contenedor y el del host no se toca. Verificado con el comando completo (`npm ci && lint && vue-tsc && build` → todo en verde).
+- **Criterios de aceptación**:
+  - [x] Medido: sin el volumen anónimo, `npm ci` falla con `EIO` al borrar el `node_modules` del host.
+  - [x] Con el volumen anónimo, el comando completo pasa (`npm ci`, lint, type-check y build).
+  - [x] El `AGENTS.md` dice por qué el volumen **no es opcional** en Windows.
+
+### T-73 · P1 — el job `frontend` de la réplica local se caía siempre en Windows
+
+- **Estado**: **completado** — la réplica local lo ejecuta en un contenedor `node:20`
+- **Contexto**: la réplica local (`tools/ejecutar_ci_local.py`) ejecuta los pasos `run:` del workflow en el **host**. Para el job `frontend` eso significa `npm ci` en Windows, y `npm ci` **borra** `node_modules` antes de instalar: en Windows esos ficheros están bloqueados y el borrado falla con *"the file was already in use (by a text editor or antivirus)"*. O sea: **la réplica local del job `frontend` se caía siempre**, y como el CI remoto no puede correr (facturación), el job `frontend` no se había podido verificar de principio a fin en ningún sitio.
+- **El arreglo**: en la réplica local, los comandos `npm`/`npx` del job `frontend` se ejecutan **dentro de un contenedor `node:20`** (la versión del CI), con el frontend montado y el `node_modules` en un volumen con nombre, compartido entre los pasos del job (para que el `npm ci` del primero sirva al build del último). El volumen se limpia al empezar el job, para no arrastrar el de una corrida anterior. Los pasos que no son de npm (la puerta del lockfile) siguen corriendo en el host, que es lo que corresponde.
+- **Criterios de aceptación**:
+  - [x] Medido: `npm ci` en el host falla con "the file was already in use" al borrar `node_modules`.
+  - [x] Con el contenedor, el job `frontend` de la réplica local **pasa entero**: `npm ci` (a secas, sin el fallback), lint, type-check y build.
+  - [x] El build sale en Node 20 (la versión del CI), no en el Node 24 del host: la réplica local pasa a ser más fiel al CI, no menos.
+  - [x] La puerta del lockfile se ejecuta en el host (no es un comando de npm) y pasa.
+  - [x] `actionlint` exit 0.
 
 ### T-14 · I3 — OCR con GPU
 

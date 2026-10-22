@@ -35,7 +35,14 @@ WORKDIR /app
 # Primero los manifiestos (capa cacheada): si no cambian los
 # dependencias, no se reinstala nada.
 COPY package.json package-lock.json* ./
-RUN npm ci || npm install
+# OJO (T-71): esto es ``npm ci`` a secas, SIN el ``|| npm install`` que
+# habia antes. Con el fallback, si el lockfile estaba desincronizado la
+# imagen se construia con las ULTIMAS versiones del registro (sin
+# lockfile): el build dejaba de ser reproducible y el fallo quedaba
+# escondido. La puerta ``tools/verificar_lockfile.py`` avisa antes de
+# construir si el ``package-lock.json`` no cuadra con el
+# ``package.json``.
+RUN npm ci
 
 COPY . .
 

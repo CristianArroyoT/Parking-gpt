@@ -1903,6 +1903,35 @@ bytes y se decodifica con fallback (UTF-8 y, si no, cp1252), el `print`
 pasa por `_consola()` (que ya existía y no se usaba) y el script fuerza
 UTF-8 en su salida.
 
+### 3-trigésimotrigésimoquinta. El build de producción no era reproducible (2026-10-22)
+
+`npm ci || npm install` (en el `Dockerfile.prod` y en el job `frontend` del
+CI): si el lockfile estaba desincronizado, la imagen se construía con las
+**últimas versiones del registro**, sin lockfile, y el fallo quedaba
+escondido. Peor: sin el `.dockerignore` de T-63, el `npm ci` de la imagen
+fallaba y **el fallback era el que se usaba**.
+
+**El arreglo**: `npm ci` a secas en los dos sitios, más
+`tools/verificar_lockfile.py` (compara el `package.json` con el
+`package-lock.json` y avisa antes de instalar).
+
+### 3-trigésimotrigésimosexto. El comando del AGENTS.md para probar el frontend no funcionaba (2026-10-22)
+
+Montar `frontend/` en un contenedor también montaba el `node_modules`
+**del host** (de Windows), y `npm ci` falla al borrarlo con `EIO`. El
+volumen anónimo `-v /app/node_modules` lo arregla.
+
+### 3-trigésimotrigésimosexto. La réplica local del job `frontend` se caía en Windows (2026-10-22)
+
+`npm ci` en el host (Windows) no puede borrar `node_modules` ("the file
+was already in use"), así que la réplica local del job `frontend` se caía
+siempre y ese job no se había podido verificar de principio a fin.
+
+**El arreglo**: en la réplica local, los comandos `npm`/`npx` de ese job
+corren dentro de un contenedor `node:20` (la versión del CI), con el
+`node_modules` en un volumen con nombre compartido entre los pasos del
+job.
+
 
 | Modelo | Tabla | Notas |
 |---|---|---|

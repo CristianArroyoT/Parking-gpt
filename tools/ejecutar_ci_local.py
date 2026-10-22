@@ -88,6 +88,41 @@ def _a_ipv4(valor: str) -> str:
     return re.sub(r"localhost(?=:\d)", "127.0.0.1", valor)
 
 
+#: Volumen con el ``node_modules`` del job "frontend" en la replica
+#: local (compartido entre sus pasos: el ``npm ci`` del primero tiene que
+#: servir al build del ultimo).
+VOLUMEN_NODE_MODULES = "solidapp-fe-node-modules"
+
+#: Como se ejecuta un comando "npm"/"npx" del job "frontend" en la
+#: replica local: dentro de un contenedor node:20 (la version del CI),
+#: con el frontend montado y el node_modules en un volumen con nombre.
+#:
+#: POR QUE (T-73, 2026-10-22): en el host (Windows) ``npm ci`` no puede
+#: borrar el ``node_modules`` ("the file was already in use (by a text
+#: editor or antivirus)"), o sea que el job "frontend" de la replica local
+#: se caia siempre. En el CI real (Linux, checkout limpio) no pasa: por
+#: eso la replica local lo ejecuta en el mismo entorno que el CI.
+ORDEN_EN_CONTENEDOR = (
+    'docker run --rm -v "{frontend}:/app" -v {volumen}:/app/node_modules '
+    '-w /app node:20 sh -c "{orden}"'
+)
+
+
+def _en_contenedor_node(orden: str) -> str:
+    """Envuelve un comando npm/npx en el contenedor node:20."""
+    return ORDEN_EN_CONTENEDOR.format(
+        frontend=str(RAIZ / "frontend").replace("\\", "/"),
+        volumen=VOLUMEN_NODE_MODULES,
+        orden=orden,
+    )
+
+
+def _es_comando_node(orden: str) -> bool:
+    """¿El paso es un comando de npm/npx?"""
+    limpio = orden.strip()
+    return limpio.startswith("npm ") or limpio.startswith("npx ")
+
+
 def _ejecutar_job(nombre_job: str, job: dict, bash: str, saltar: list[str]) -> tuple[int, int]:
     """Ejecuta un job. Devuelve (fallos, pasos tolerados)."""
     # El directorio de trabajo y las variables del job.
@@ -111,6 +146,15 @@ def _ejecutar_job(nombre_job: str, job: dict, bash: str, saltar: list[str]) -> t
     print(f"\n{'=' * 70}\nJob '{nombre_job}' en {cwd}", flush=True)
     fallos = 0
     tolerados = 0
+
+    # T-73: el job "frontend" se ejecuta en un contenedor node:20 (el
+    # entorno real del CI). El volumen del node_modules se limpia al
+    # empezar el job, para no arrastrar el de una corrida anterior.
+    if nombre_job == "frontend":
+        subprocess.run(
+            ["docker", "volume", "rm", "-f", VOLUMEN_NODE_MODULES],
+            check=False, capture_output=True,
+        )
     for nombre, orden, env_paso, continue_on_error in _pasos(job):
         if any(m in nombre for m in saltar):
             print(f"\n=== {nombre}  (SALTADO)", flush=True)
@@ -121,9 +165,14 @@ def _ejecutar_job(nombre_job: str, job: dict, bash: str, saltar: list[str]) -> t
         # también hay que pasarlo por IPv4 (aquí es donde vive el
         # DATABASE_URL del job "integration").
         entorno_paso = {clave: _a_ipv4(valor) for clave, valor in entorno_paso.items()}
+        comando = [bash, "-c", orden]
+        cwd_paso = str(cwd)
+        if nombre_job == "frontend" and _es_comando_node(orden):
+            comando = [bash, "-c", _en_contenedor_node(orden)]
+            cwd_paso = str(RAIZ)
         resultado = subprocess.run(
-            [bash, "-c", orden],
-            cwd=str(cwd), env=entorno_paso, check=False,
+            comando,
+            cwd=cwd_paso, env=entorno_paso, check=False,
         )
         if resultado.returncode != 0:
             if continue_on_error:

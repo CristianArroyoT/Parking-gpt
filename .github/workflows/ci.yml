@@ -502,13 +502,25 @@ jobs:
           # antes no existía), así que se desactiva explícitamente.
           package-manager-cache: false
 
+      - name: El lockfile está sincronizado con el package.json
+        # POR QUÉ (2026-10-22, T-71): antes el paso de instalar era
+        # ``npm ci || npm install``. Con ese fallback, si el lockfile
+        # estaba desincronizado, el CI construía el bundle con las
+        # ÚLTIMAS versiones del registro, sin lockfile: el build dejaba de
+        # ser reproducible y el fallo quedaba escondido. Ahora el
+        # install es ``npm ci`` a secas (que falla de forma ruidosa) y
+        # esta puerta avisa ANTES, con un mensaje claro, de un lockfile
+        # desincronizado.
+        run: python ../tools/verificar_lockfile.py
+
       - name: Instalar dependencias
         # OJO (2026-10-22): el comentario de setup-node de arriba decía que
         # NO había package-lock.json, pero sí lo hay (y está versionado).
         # ``npm ci`` es lo correcto: instala exactamente las versiones
-        # fijadas. El ``|| npm install`` queda como red de seguridad por si
-        # el lock file dejara de estar versionado algún día.
-        run: npm ci || npm install
+        # fijadas. SIN el ``|| npm install``: esa "red de seguridad"
+        # convertía un build reproducible en uno que dependía de lo que
+        # hubiera en el registro ese día (T-71).
+        run: npm ci
 
       - name: Linter (eslint)
         # POR QUÉ (2026-10-22): el ``package.json`` tenía un script

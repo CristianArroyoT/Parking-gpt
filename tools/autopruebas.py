@@ -115,6 +115,10 @@ AUTOPRUEBAS: list[tuple[str, list[str]]] = [
         [sys.executable, "tools/verificar_rate_limit_unico.py", "--autoprueba"],
     ),
     (
+        "La puerta del lockfile sigue viendo",
+        [sys.executable, "tools/verificar_lockfile.py", "--autoprueba"],
+    ),
+    (
         "La puerta del repo detecta los fallos",
         [sys.executable, "tools/verificar_repo.py", "--autoprueba"],
     ),
