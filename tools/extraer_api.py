@@ -25,6 +25,16 @@ RAIZ = Path(__file__).resolve().parent.parent
 V1 = RAIZ / "backend" / "app" / "api" / "v1"
 PREFIX_GLOBAL = "/api/v1"
 
+#: Rutas que NO viven en un router de ``api/v1`` sino en ``create_app``
+#: (``app/main.py``), y que por tanto el extractor de módulos no ve.
+#: Están aquí, y no en cada herramienta, porque duplicarlas era justo lo
+#: que hacía que el recuento del documento se quedara obsoleto al añadir
+#: ``/health/ready`` (la prosa decía 100 y eran 101).
+RUTAS_FUERA_DE_ROUTER: list[tuple[str, str]] = [
+    ("GET", "/health"),
+    ("GET", "/health/ready"),
+]
+
 #: Como se describe cada dependencia en la columna "Quién" del inventario.
 DESCRIPCION_DEP = {
     "get_current_user": "Autenticado",

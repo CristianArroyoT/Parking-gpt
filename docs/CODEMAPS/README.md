@@ -16,4 +16,4 @@ sesión pueda situarse sin leerse el repo entero.
 
 | Codemap | Qué cubre |
 |---|---|
-| [2026-10-21-cierre-del-plan.md](2026-10-21-cierre-del-plan.md) | Cierre del plan de pendientes 2026-10-21: 100 endpoints, 22 routers, los modelos y variables nuevos, y **los cambios de contrato** (ámbitos, RBAC y comportamientos que un consumidor nota). |
+| [2026-10-21-cierre-del-plan.md](2026-10-21-cierre-del-plan.md) | Cierre del plan de pendientes 2026-10-21: 101 endpoints, 24 routers, los modelos y variables nuevos, y **los cambios de contrato** (ámbitos, RBAC y comportamientos que un consumidor nota). |

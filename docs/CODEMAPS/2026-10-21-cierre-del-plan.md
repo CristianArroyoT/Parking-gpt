@@ -11,7 +11,7 @@
 
 ```
 backend/app/
-├── api/v1/                    100 endpoints en 24 routers
+├── api/v1/                    101 endpoints en 24 routers
 │   ├── __init__.py            el concentrador (registra todos los routers)
 │   ├── auth.py                login, oauth, refresh, logout
 │   ├── password_reset.py      recuperación de contraseña (T-22)
@@ -205,7 +205,7 @@ El barrido responsive queda cerrado en cuatro anchos (768, 1024, 1232 y
 ### 3-seis. El contrato de la API, revisado por el código (2026-10-21)
 
 El inventario de `docs/API-INTERNAL.md` se había quedado en **61 de los
-100 endpoints** que expone la aplicación (no se tocaba desde T-25, antes
+100 endpoints** que exponía la aplicación (no se tocaba desde T-25, antes
 del Bloque 3). Como el propio documento avisa de que "se actualiza el
 documento, no al revés", se construyó la forma de comprobarlo:
 
@@ -762,7 +762,7 @@ Migraciones: `0012_reset_and_face_templates` (T-22 + T-23) y `0013_incident_atta
 
 - `docs/adr/0001-orquestacion-produccion.md` — Compose en el edge, K8s en el central.
 - `docs/adr/0002-ocr-cpu-vs-gpu.md` — la GPU no aporta con la carga real.
-- `docs/API-INTERNAL.md` — los 100 endpoints con su RBAC y la política de deprecación.
+- `docs/API-INTERNAL.md` — los 101 endpoints con su RBAC y la política de deprecación.
 - `infra/backup/README.md` — procedimiento de backup, restauración y simulacro trimestral.
 - `backend/locust/README.md` — escenarios de carga y SLO.
 - `docker/vehicle-detector/README.md` — el modelo real y el bug de canales BGR/RGB.

@@ -42,7 +42,7 @@ Dependencias de autorización (en `backend/app/core/deps.py`):
 
 ## 3. Mapa de recursos y RBAC
 
-100 endpoints en 25 grupos. La columna «Quién» tiene dos partes, las dos leídas del código con `tools/extraer_api.py`:
+101 endpoints en 25 grupos. La columna «Quién» tiene dos partes, las dos leídas del código con `tools/extraer_api.py`:
 
 1. **El RBAC de dependencia**: quién puede llamar al endpoint (`parking_context`, `require_role(...)`, el token por `?token=`, el middleware de auditoría…).
 2. **El ámbito de datos** que el endpoint aplica *en el cuerpo* (`ámbito: membresías de sucursal`, `ámbito: sus vehículos`): varios endpoints filtran por rol y por membresía a mano, para no duplicar el JOIN con `parking_context`.

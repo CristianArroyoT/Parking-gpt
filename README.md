@@ -80,7 +80,7 @@ docker compose exec backend python -m app.scripts.seed
 D:\Parking\
 ├── backend/                 # FastAPI + SQLAlchemy 2.0
 │   ├── app/
-│   │   ├── api/v1/          # routers REST (100 endpoints en 24 routers)
+│   │   ├── api/v1/          # routers REST (101 endpoints en 24 routers)
 │   │   ├── core/            # config, db, security, deps
 │   │   ├── models/          # 19 modelos SQLAlchemy
 │   │   ├── schemas/         # Pydantic v2
@@ -88,7 +88,7 @@ D:\Parking\
 │   │   ├── workers/         # instancia Celery
 │   │   └── scripts/seed.py  # datos demo
 │   ├── alembic/             # migraciones iniciales
-│   ├── tests/               # pytest (530 tests)
+│   ├── tests/               # pytest (562 tests)
 │   └── Dockerfile
 ├── frontend/                # Vue 3 + Vite
 │   ├── public/              # logo + favicon

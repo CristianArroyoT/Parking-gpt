@@ -70,7 +70,13 @@ def _rutas_por_modulo() -> dict[str, list[tuple[str, str, str]]]:
 def seccion() -> str:
     por_modulo = _rutas_por_modulo()
     lineas: list[str] = []
-    total = sum(len(v) for v in por_modulo.values()) + 1  # + /health
+    # Las rutas de salud (y de readiness) no están en un router de
+    # ``api/v1``: las define ``create_app``. La lista vive en
+    # ``extraer_api`` para que el recuento no se quede obsoleto al
+    # añadir otra.
+    from extraer_api import RUTAS_FUERA_DE_ROUTER  # noqa: PLC0415
+
+    total = sum(len(v) for v in por_modulo.values()) + len(RUTAS_FUERA_DE_ROUTER)
     grupos = len([m for m in por_modulo if m not in SUBNO_MODULOS])
     lineas.append("## 3. Mapa de recursos y RBAC")
     lineas.append("")

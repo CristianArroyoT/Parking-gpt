@@ -1,6 +1,6 @@
 """Mide la cobertura de tests sobre los endpoints de la API.
 
-Responde a: ¿de los 100 endpoints, cuántos tienen al menos un test
+Responde a: ¿de los 101 endpoints, cuántos tienen al menos un test
 que los ejercite? Un endpoint sin test de RBAC es un endpoint cuyo
 permiso nadie ha comprobado nunca.
 

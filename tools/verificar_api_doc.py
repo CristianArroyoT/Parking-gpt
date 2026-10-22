@@ -60,9 +60,12 @@ def rutas_del_codigo() -> set[tuple[str, str]]:
         for metodo, ruta, _quien, _modulo in extraer_de_modulo(fichero):
             reales.add((metodo, ruta))
     # Los endpoints de salud no viven en un router de la API: los define
-    # ``create_app`` en ``app/main.py`` y van fuera del prefijo.
-    reales.add(("GET", "/health"))
-    reales.add(("GET", "/health/ready"))
+    # ``create_app`` en ``app/main.py`` y van fuera del prefijo. La lista
+    # vive en ``extraer_api`` para que no se duplique (duplicarla fue lo
+    # que dejó el recuento del documento en 100 cuando ya eran 101).
+    from extraer_api import RUTAS_FUERA_DE_ROUTER  # noqa: PLC0415
+
+    reales.update(RUTAS_FUERA_DE_ROUTER)
     return reales
 
 

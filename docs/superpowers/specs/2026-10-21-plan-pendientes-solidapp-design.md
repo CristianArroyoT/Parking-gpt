@@ -1032,7 +1032,7 @@ T-22 (recuperación de contraseña) ──> T-24 (PWA, que necesita self-service
 
 - [x] `cd backend && ruff check app tests` → sin errores.
 - [x] `cd backend && mypy app` → **sin errores** (modo `strict`). Antes daba 77 y su paso iba con `continue-on-error: true`; ver T-28.
-- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **548 passed en SQLite y 557 en PostgreSQL**.
+- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **562 passed en SQLite y 571 en PostgreSQL**.
 - [x] `docker compose up -d` → todos los servicios *healthy* y `/health` responde 200.
 - [x] QA visual en el navegador de las pantallas tocadas (con la app real, no sólo tests).
       → **HECHA** con Chromium headless (Playwright) sobre la app real
@@ -1048,7 +1048,8 @@ T-22 (recuperación de contraseña) ──> T-24 (PWA, que necesita self-service
       (414, 768, 1024, 1232 y 1440 px) y **detecta el contenido que no cabe**
       (recortado o desbordado), lo que destapó 6 defectos de maquetación
       (T-13+7 y T-13+8) y, al añadir el ancho de móvil, otros 26
-      desbordes en 10 pantallas (T-13+9). También hay `frontend/scripts/qa_pwa.py`, que
+      desbordes repartidos en **6 pantallas** —3 de ellas con la página
+      entera desplazable— (T-13+9). También hay `frontend/scripts/qa_pwa.py`, que
       verifica que el PWA es instalable y arranca sin red.
 - [x] Sin 4xx/5xx inesperados en `docker logs backend` durante la QA.
       → Con el árbol estable el log está limpio. Durante el trabajo en
