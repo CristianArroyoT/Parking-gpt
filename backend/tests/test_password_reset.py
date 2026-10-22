@@ -520,8 +520,19 @@ def test_existen_las_plantillas_en_el_disco() -> None:
 def test_fallo_del_correo_devuelve_503_sin_traceback(
     client: TestClient, db_session: Session, monkeypatch,
 ) -> None:
-    """Si el envío falla, el endpoint responde 503 y no deja tokens vivos."""
+    """Si no se puede encolar NI enviar en linea: 503 y ningún token vivo.
+
+    T-94 (2026-10-23): el envío normal va en una tarea de Celery, así que
+    el endpoint **ya no puede saber** si el correo llegó (y no debe
+    decirlo: un 503 para una cuenta existente y un 200 para una
+    inexistente serían un oráculo de enumeración). El 503 queda para el
+    camino de emergencia: que el broker esté caído **y** que el envío
+    en línea también falle.
+    """
     _seed_cliente(db_session, email="smtp@test.es")
+    monkeypatch.setattr(
+        email_module, "encolar_envio_reset", lambda **kwargs: False,
+    )
     monkeypatch.setattr(
         email_module, "send_password_reset_email", lambda **kwargs: False,
     )
@@ -532,6 +543,32 @@ def test_fallo_del_correo_devuelve_503_sin_traceback(
     # No se ha quedado ningún token pendiente de usar.
     db_session.expire_all()
     assert db_session.query(PasswordResetToken).count() == 0
+
+
+def test_con_el_correo_encolado_la_respuesta_es_siempre_200(
+    client: TestClient, db_session: Session, monkeypatch,
+) -> None:
+    """Si el envío va encolado, el endpoint responde 200 y no comenta nada.
+
+    El envío ocurre después (en la tarea), así que el endpoint no puede
+    decir si llegó. Y no debe: la respuesta tiene que ser **igual** para
+    una cuenta existente y para una inexistente, o el tiempo y el
+    código de respuesta filtran qué correos están registrados.
+    """
+    _seed_cliente(db_session, email="encolado@test.es")
+    monkeypatch.setattr(
+        email_module, "encolar_envio_reset", lambda **kwargs: True,
+    )
+    # El envío "real" falla: el endpoint no se entera (la tarea es la
+    # que borra el token si el envío falla).
+    monkeypatch.setattr(
+        email_module, "send_password_reset_email", lambda **kwargs: False,
+    )
+
+    r = client.post("/api/v1/auth/forgot-password", json={"email": "encolado@test.es"})
+
+    assert r.status_code == 200, r.text
+    assert "correo" in r.text.lower()
 
 
 def test_correo_sin_configurar_devuelve_503(
