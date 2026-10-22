@@ -29,6 +29,13 @@
 
 services:
   backend:
+    # T-94 (2026-10-23): el backend **no** se publica en la red de la
+    # sucursal. Con "8000:8000" (0.0.0.0) la API contestaba a
+    # cualquiera que llegara por la LAN, sin TLS y saltandose nginx (y
+    # con el, su limite de cuerpo de 32 MB). Dentro de la red de Docker
+    # se sigue hablando por el nombre del servicio ("backend:8000").
+    ports: !override
+      - "127.0.0.1:8000:8000"
     environment:
       ENVIRONMENT: production
       # Sin valor por defecto a proposito: si no se definen, `docker
@@ -75,7 +82,11 @@ services:
     # El nginx de la imagen escucha en el 80. Mismo puerto publicado que
     # en desarrollo, para no cambiar la superficie de red de la sucursal.
     ports: !override
-      - "5173:80"
+      # T-94 (2026-10-23): el nginx de la sucursal tambien solo en el
+      # bucle local: el trafico entra por el terminador de TLS, que esta
+      # en la misma maquina (ver "Requisitos del despliegue" en
+      # frontend/README.md).
+      - "127.0.0.1:5173:80"
     healthcheck: !override
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
       interval: 30s

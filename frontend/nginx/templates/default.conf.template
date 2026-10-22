@@ -34,12 +34,39 @@
 # habria que poner el upstream en una variable con `resolver` para que
 # se resolviera en cada peticion.
 
+# El access log NO guarda la query string (T-93).
+#
+# POR QUE: el frontend mete el JWT en la query string de las miniaturas y
+# del stream MJPEG (un ``<img>`` no puede mandar cabeceras), asi que con
+# el log por defecto de nginx (``$request``, que es la linea completa) el
+# token acababa **en texto claro** en el access log, y de ahi en Loki,
+# que este repo scrapea. Medido el 2026-10-23 contra la imagen de
+# produccion:
+#
+#   "GET /api/v1/incidents/attachments/1/thumbnail?token=SEGRETO... HTTP/1.1" 401
+#
+# Un access token son 15 minutos de vida y permisos de administrador: en
+# un log es una credencial caducada, pero da acceso a lo que quede de ella
+# y enseña la estructura de la API a quien lea el log.
+#
+# Con ``$uri`` (la ruta SIN la query string) se sigue viendo que se pidio,
+# sin la credencial. El resto de campos se conservan.
+#
+# OJO: ``envsubst`` (el entrypoint de la imagen de nginx) sustituye
+# SOLO las variables de entorno que existen, asi que estas ``$`` de nginx
+# se quedan como estan.
+log_format app_sin_query '$remote_addr - $remote_user [$time_local] '
+                         '"$request_method $uri $server_protocol" $status '
+                         '$body_bytes_sent "$http_referer" "$http_user_agent"';
+
 server {
     listen 80;
     server_name _;
 
     root /usr/share/nginx/html;
     index index.html;
+
+    access_log /var/log/nginx/access.log app_sin_query;
 
     # Sonda de vida del propio nginx (la usa el HEALTHCHECK de la imagen).
     location = /healthz {

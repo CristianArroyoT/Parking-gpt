@@ -174,7 +174,13 @@ services:
       vehicle-detector:
         condition: service_started
     ports:
-      - "8000:8000"
+      # T-94 (2026-10-23): solo en el bucle local. Antes era
+      # "8000:8000" (0.0.0.0): la API quedaba **alcanzable desde la
+      # red de la sucursal**, saltandose nginx y con el unico limite de
+      # cuerpo que hay (el de nginx: 32 MB). Dentro de la red de Docker
+      # se sigue hablando por el nombre del servicio ("backend:8000"),
+      # que es como lo hace el proxy de nginx y el worker de Celery.
+      - "127.0.0.1:8000:8000"
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     volumes:
       - ./backend:/app
@@ -196,7 +202,8 @@ services:
     depends_on:
       - backend
     ports:
-      - "5173:5173"
+      # T-94 (2026-10-23): igual que el backend, solo en el bucle local.
+      - "127.0.0.1:5173:5173"
     volumes:
       - ./frontend:/app
       - /app/node_modules

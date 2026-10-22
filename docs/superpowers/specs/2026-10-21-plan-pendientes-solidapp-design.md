@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **470 de 471 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **509 de 510 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1642,6 +1642,155 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] El cálculo no divide por cero y nunca devuelve un importe negativo (tests con tarifas rotas en memoria).
   - [x] El patch (`TariffUpdate`) también valida.
   - [x] 12 tests nuevos, `ruff` y `mypy` en verde.
+
+
+### T-85 · P1 (seguridad) — la vía OAuth2 del login no comprobaba `is_active`
+
+- **Estado**: **completado** — las dos vías de login usan la misma autenticación
+- **Contexto**: `POST /auth/login` (JSON) y `POST /auth/login/oauth` (formulario OAuth2) **repetían cada una su propio bloque de código**, y se desincronizaron. La vía JSON comprobaba `user.is_active` y devolvía **403 «Usuario inactivo»**; la vía OAuth2 **no lo comprobaba**: una cuenta desactivada se logueaba por OAuth2, recibía **200 con tokens** y dejaba un `login_success` en la auditoría.
+- **Por qué no era sólo cosmético**: el token no servía para nada (todo endpoint protegido vuelve a comprobar `is_active` en `core/deps.py`), pero la **auditoría mentía**: decía que un usuario desactivado había entrado. En una revisión forense, esa fila es la que dice quién entró.
+- **El arreglo**: **una sola implementación** (`_autenticar` en `backend/app/api/v1/auth.py`), que las dos vías llaman. Es el mismo patrón que el rate-limit (T-59): lo que se repite, se unifica y una puerta vigila que no se duplique.
+- **Criterios de aceptación**:
+  - [x] Medido: la vía OAuth2 devolvía 200 con tokens para una cuenta desactivada y auditaba `login_success`; la vía JSON devolvía 403.
+  - [x] Las dos vías rechazan ahora la cuenta desactivada con 403 y auditan `login_failure` con `reason=user_inactive`.
+  - [x] La vía OAuth2 de una cuenta **activa** sigue funcionando (no se ha roto el botón «Authorize» de `/docs`).
+  - [x] 13 tests nuevos en `backend/tests/test_login_hardening.py`; `ruff` y `mypy` en verde.
+
+### T-86 · P2 (seguridad) — el tiempo de respuesta del login filtraba qué cuentas existen
+
+- **Estado**: **completado** — el login verifica siempre (con un hash señuelo si no hay cuenta)
+- **Contexto**: el login hacía `if not user or not verify_password(...)`: si el **email no existía**, el bcrypt **no se ejecutaba** y la respuesta era inmediata. El mensaje era el mismo en los dos casos (401 «Credenciales inválidas»), así que el único oráculo era el **tiempo**.
+- **Medido** (2026-10-23, contra la API real en marcha, mediana de 6 peticiones):
+  | caso | latencia |
+  |---|---|
+  | email inexistente | **13,9 ms** |
+  | email real + contraseña incorrecta | **207,6 ms** |
+  | diferencia | **×15** |
+  Con eso se enumeran los correos registrados de una sucursal (administradores, gestores) sin fallar ni un solo intento.
+- **El arreglo**: `verify_password_or_dummy()` verifica **siempre**: si no hay usuario, comprueba contra un **hash señuelo** de 12 rondas (el mismo coste que los de verdad) y descarta el resultado. El coste es el mismo en los dos casos, así que el tiempo deja de filtrar nada.
+- **Criterios de aceptación**:
+  - [x] Medido: 13,9 ms frente a 207,6 ms (×15) — el oráculo existía.
+  - [x] El login con email inexistente **ejecuta el bcrypt** (comprobado con un espía en `_bcrypt_verify`).
+  - [x] La diferencia entre los dos casos es **menor de 100 ms** (comparación de medianas de 3, con calentamiento: un suelo absoluto no discriminaba dentro del `TestClient`).
+  - [x] El hash señuelo tiene las **mismas 12 rondas** que los hashes reales: si no, el tiempo seguiría filtrando.
+  - [x] Prueba inversa: quitando el hash señuelo, los dos tests de latencia **fallan**.
+
+### T-87 · P1 (seguridad) — bcrypt truncaba en silencio a 72 bytes
+
+- **Estado**: **completado** — el límite real de 72 bytes está en un solo sitio y es un 422
+- **Contexto**: **bcrypt sólo tiene en cuenta los primeros 72 bytes** y passlib **trunca en silencio**. Los esquemas de la API permitían contraseñas de hasta **128 caracteres**.
+- **Medido** (2026-10-23, en el contenedor real):
+  ```python
+  >>> bcrypt.verify("a" * 100 + "b", bcrypt.hash("a" * 100))
+  True
+  ```
+  O sea: **dos contraseñas distintas con los mismos 72 primeros bytes eran la misma contraseña** para el sistema. Tres consecuencias:
+  1. El usuario fijaba una clave de 128 caracteres creyendo que el sufijo protegía algo: **no protegía nada**.
+  2. Al **verificar**, una contraseña de 80 bytes servía para entrar con cualquier sufijo.
+  3. `truncate_error=True` de passlib **sólo protege al hashear**: al verificar sigue truncando (medido: `verify_password("A" * 80, hash_de_72)` devolvía `True` con el flag puesto). Por eso el límite se comprueba **antes** de comparar, no con la bandera.
+- **El arreglo**: un único módulo (`backend/app/core/password_policy.py`) con el límite **en bytes** (que es lo que cuenta bcrypt: «ñ» son 2 bytes), aplicado en el alta, el cambio de contraseña, el reset y el login. `hash_password` **falla** en vez de guardar truncado, y `verify_password` **rechaza** en vez de comparar truncada.
+- **Criterios de aceptación**:
+  - [x] Medido: `bcrypt.verify("a"*100 + "b", bcrypt.hash("a"*100))` → `True` (truncamiento silencioso).
+  - [x] El límite es de **bytes** y vive en **un solo sitio** (`app/core/password_policy.py`).
+  - [x] Alta de usuario, cambio de contraseña, reset y login **rechazan** (422) una contraseña de más de 72 bytes, con un mensaje que dice cuántos bytes lleva.
+  - [x] `verify_password("A" * 80, hash_de_72)` → `False` (ya no es la misma contraseña).
+  - [x] `hash_password` con más de 72 bytes **lanza** en vez de guardar un hash truncado.
+  - [x] 5 tests nuevos; prueba inversa: quitando la comprobación, el test del prefijo equivalente **falla**.
+  - [x] Consecuencia documentada: una cuenta con una contraseña de más de 72 bytes creada **antes** de este cambio no puede entrar con ella (debe usar «olvidé mi contraseña»). Se acepta: en este repositorio no hay todavía clientes reales.
+
+### T-88 · P1 (seguridad) — 7 vulnerabilidades «high» en las dependencias de producción del frontend
+
+- **Estado**: **completado** — `npm audit --omit=dev` da 0
+- **Contexto**: el `package-lock.json` tenía versiones con avisos de seguridad **en el árbol que se envía al navegador**:
+  | paquete | versión | aviso |
+  |---|---|---|
+  | `vue` | 3.5.39 | XSS en `@vue/server-renderer` (CR en el nombre de atributo) |
+  | `axios` | 1.18.1 | contaminación de prototipos, ReDoS, inyección de cabeceras, SSRF por redirección |
+  | `postcss` | 8.5.16 | denegación de servicio por complejidad cuadrática |
+  | `nanoid` | 3.3.15 | bucle infinito con tamaños no positivos |
+  | `follow-redirects` | 1.16.0 | cabeceras de credenciales en la redirección |
+  | `source-map-js` | 1.2.1 | denegación de servicio por índices del mapa de fuentes |
+- **Medido**: `npm audit --omit=dev` → **7 vulnerabilidades «high»** y **0 «critical»**; con las de desarrollo, 22.
+- **El arreglo**: `npm audit fix` (sin `--force`: `--force` instalaba **tailwindcss 4**, un cambio incompatible que no se hace a ciegas). Los rangos de `package.json` **no cambiaron**: sólo se actualizó el lockfile, así que `npm ci` sigue siendo reproducible.
+- **Criterios de aceptación**:
+  - [x] Medido: 7 avisos «high» en el árbol de producción antes; **0 después** (`npm audit --omit=dev`).
+  - [x] `package.json` **no se toca**: el arreglo cabe en los rangos que ya había.
+  - [x] `npm run lint`, `npx vue-tsc --noEmit` y `npm run build` en verde con el lockfile nuevo.
+  - [x] Las 11 vulnerabilidades que quedan son **sólo de desarrollo** (vite, tailwind 3, eslint): su arreglo exige migraciones mayores (tailwind 4, vite 8) y **no viajan al cliente**. Se **informan**, no se ocultan (ver T-89).
+
+### T-89 · P1 (seguridad) — ninguna puerta miraba las vulnerabilidades de las dependencias
+
+- **Estado**: **completado** — nueva puerta `tools/verificar_dependencias.py` (con autoprueba) conectada al CI
+- **Contexto**: el repo no miraba **nunca** las vulnerabilidades de sus dependencias. Eso es lo que dejó pasar T-88 y T-90: dos cosas de verdad, y ninguna se vio porque nadie miraba.
+- **Qué mide**:
+  - **Alcance fatal**: las dependencias **directas** que declara `backend/pyproject.toml` (26) y el árbol de **producción** del `package-lock.json` (55, directos y transitivos: es lo que se envía al navegador, y el lockfile fija las versiones exactas).
+  - **Alcance informativo**: el resto del árbol transitivo del backend (65 paquetes) y las dependencias de desarrollo del frontend. Se **informan** con el número de avisos y la versión que los arregla, pero no rompen la puerta: no son una decisión nuestra y **el backend no tiene lockfile** (las versiones dependen de cuándo se construyó la imagen).
+  - **El ajuste del alcance está medido**: mirando *todo* lo instalado la puerta daba **260 avisos** de los que sólo 68 eran reales (el resto, paquetes del host ajenos al proyecto). Mirando el árbol transitivo entero daba **119**, de los que 69 eran de dependencias directas. Una puerta que grita de más es una puerta que nadie mira.
+- **Fuente de verdad**: **OSV** (la base que alimenta `pip-audit` y `npm audit`). Los avisos vienen duplicados (el mismo problema con un identificador `GHSA-…` y otro `PYSEC-…`): se **agrupan por alias en los dos sentidos** y cada problema cuenta **una vez**.
+- **Las excepciones**: `tools/dependencias_aceptadas.json`. Cada entrada necesita un **motivo** y una **prueba**; una excepción sin motivo hace **fallar** la puerta. Hoy hay una: `python-jose` (GHSA-3qf3-8w2g-rqmx / CVE-2026-85394), que **no tiene versión arreglada** pero **no es alcanzable** porque el despliegue es de clave compartida (HS256), `decode_token` restringe los algoritmos y **la configuración ahora rechaza cualquier algoritmo que no sea HS256** (`app/core/config.py`). La prueba son los 6 tests de `backend/tests/test_jwt_algoritmos.py`.
+- **Criterios de aceptación**:
+  - [x] **Medido contra el repo real**: la puerta daba 69 avisos en el alcance fatal antes de arreglar T-90 y da **1** ahora (el justificado).
+  - [x] `ruff` y `mypy` en verde; la autoprueba tiene **7 casos** y **falla** si la lógica de detección se rompe (dos de ellos los encontró la propia autoprueba: el agrupado de alias no unía en los dos sentidos, y el aviso transitivo no se informaba).
+  - [x] Si OSV no responde, la puerta devuelve el **código 3** («no comprobado»), que **no** es verde.
+  - [x] Conectada al CI (job `backend`, paso propio), a `tools/verificar_repo.py` (25 comprobaciones) y a `tools/autopruebas.py` (24 autopruebas).
+  - [x] El paso del CI va **después** de instalar las dependencias (mira las versiones **instaladas**, no los rangos).
+
+### T-90 · P1 (seguridad) — Pillow 10.4.0 con 68 avisos, alcanzable por las fotos de los incidentes
+
+- **Estado**: **completado** — Pillow 13.0.0 en el host y en la imagen del contenedor
+- **Contexto**: el backend **abre las imágenes que suben los usuarios** (`app/services/incident_attachments.py`: valida la firma y decodifica con Pillow, y genera la miniatura). El pin era `pillow>=10.0,<11.0`: la mayor versión mayor **nunca** ha estado libre de avisos.
+- **Medido** (2026-10-23, OSV):
+  | versión | avisos |
+  |---|---|
+  | 10.4.0 (la instalada) | **68** |
+  | 11.3.0 | 74 |
+  | 12.3.0 | 39 |
+  | **13.0.0** | **0** |
+  Entre los 68: bombas de descompresión, desbordamientos de búfer en la decodificación de TIFF/PSD/HEIF, bucles infinitos en TIFF y PDF, y evasión de la protección de descompresión. Todos en el camino que ejecuta una **foto de un incidente**.
+- **El arreglo**: pin a `pillow>=13.0.0,<14.0` (la primera versión sin ningún aviso). La imagen del contenedor se **reconstruyó** y se comprobó dentro: `Pillow en el contenedor: 13.0.0`.
+- **Efecto secundario útil**: los tipos que trae Pillow 13 hicieron **fallar `mypy --strict`** en `generar_miniatura()` (`Image.open` devuelve `ImageFile` y `convert` devuelve `Image`; el código reasignaba la misma variable con las dos cosas). Arreglado con una variable aparte: era un bug de tipos **latente** que el CI no miraba porque la versión anterior no traía stubs.
+- **Criterios de aceptación**:
+  - [x] Medido: 68 avisos en 10.4.0 y **0** en 13.0.0 (consultado en OSV).
+  - [x] La imagen del contenedor **reconstruida** y verificada por dentro: `Pillow en el contenedor: 13.0.0`.
+  - [x] Los 23 tests de adjuntos pasan con Pillow 13 (compatibilidad de la API comprobada, no supuesta).
+  - [x] `mypy --strict` en verde (con el arreglo del tipo de `generar_miniatura`).
+  - [x] El pin de `pytest` sube a `>=9.0.3` (las 8.x tienen un aviso de manejo del `tmpdir` que se arregla en la 9.0.3).
+
+
+
+### T-91 · P1 (seguridad) — el JWT acababa en texto claro en los logs de acceso
+
+- **Estado**: **completado** — ni nginx ni el backend escriben la query string
+- **Contexto**: para las miniaturas de los adjuntos y para el stream MJPEG, el frontend mete el token **en la query string** (un `<img>` no puede mandar cabeceras `Authorization`). Con el log por defecto, esa URL va entera al log de acceso.
+- **Medido** (2026-10-23, contra la imagen de producción y contra el contenedor real):
+  ```
+  nginx:   "GET /api/v1/incidents/attachments/1/thumbnail?token=SEGRETO_MEDIDO_12345 HTTP/1.1" 401
+  backend: "GET /api/v1/incidents/attachments/1/thumbnail?token=SEGRETO_MEDIDO_12345 HTTP/1.1" 401
+  ```
+  Y de ahí al fichero que scrapea Promtail y a Loki. Un access token son 15 minutos de vida **con permisos de administrador**: en un log es una credencial caducada, pero da acceso a lo que quede de ella y enseña la estructura de la API a quien lea el log.
+- **El arreglo** (dos sitios):
+  1. **nginx**: un `log_format` propio (`app_sin_query`) que escribe `$uri` —la ruta **sin** la query string— en lugar de `$request`. Se sigue viendo qué se pidió, sin la credencial.
+  2. **el backend**: un filtro en el logger `uvicorn.access` (`app/core/logging.py`) que quita la query string de la ruta antes de escribirla. Va sobre los **argumentos** del registro (no sobre el texto ya formateado), así que si uvicorn cambiara el formato el filtro no rompe nada… y el test, que usa el `AccessFormatter` de verdad, se entera.
+- **Criterios de aceptación**:
+  - [x] Medido: el token aparecía **en los dos** logs (nginx y uvicorn).
+  - [x] **Medido después del arreglo**: `"GET /api/v1/incidents/attachments/1/thumbnail HTTP/1.1" 401` — sin query string, en los dos.
+  - [x] 3 tests nuevos (`backend/tests/test_access_log.py`) que pasan por el **logger de verdad** y con el formateador de uvicorn.
+  - [x] Prueba inversa: sin el filtro, el test **falla**.
+  - [x] Una ruta sin query string se escribe igual (el filtro no toca lo que no debe).
+
+### T-92 · P1 (despliegue) — el backend se publicaba en `0.0.0.0` y se saltaba nginx
+
+- **Estado**: **completado** — todo el compose se publica en `127.0.0.1`
+- **Contexto**: el compose publicaba el backend con `"8000:8000"`, que en Docker significa **todas las interfaces**. La API contestaba a cualquiera que llegara por la red de la sucursal, **sin TLS** y **sin pasar por nginx** (y con él, su único límite de cuerpo de 32 MB y sus cabeceras de seguridad). El compose de producción **no** lo corregía: heredaba los puertos del de desarrollo.
+- **Medido**: `docker compose config` resolvía `published: "8000"` **sin `host_ip`** (0.0.0.0) para el backend, mientras que la base de datos, Redis, Grafana y Loki ya usaban `127.0.0.1`.
+- **El arreglo**: `127.0.0.1:8000:8000` en el compose de desarrollo, y en el de producción **además** un `ports: !override` para el backend (que antes heredaba el puerto abierto) y `127.0.0.1:5173:80` para el nginx de la sucursal, cuyo tráfico entra por el terminador de TLS de la misma máquina.
+- **Dentro de la red de Docker nada cambia**: el proxy de nginx, el worker de Celery y los contenedores del OCR siguen hablando con `backend:8000` por el nombre del servicio.
+- **Criterios de aceptación**:
+  - [x] Medido: el backend se publicaba en `0.0.0.0` (`docker compose config` sin `host_ip`).
+  - [x] `docker compose config` resuelve **todos** los puertos publicados con `host_ip: 127.0.0.1`.
+  - [x] El compose de producción **overridea** los puertos del backend (antes los heredaba abiertos).
+  - [x] La QA visual y la puerta del servidor de producción siguen hablando con `127.0.0.1` (no cambian).
+
 
 ### T-14 · I3 — OCR con GPU
 

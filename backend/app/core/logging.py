@@ -38,6 +38,43 @@ LOG_DIR = Path("/var/log/solidapp")
 LOG_FILE = LOG_DIR / "backend.log"
 
 
+class _FiltroSinQueryString(logging.Filter):
+    """Quita la query string de la ruta que uvicorn escribe en el log.
+
+    POR QUE (T-93, 2026-10-23): el frontend mete el JWT en la query string
+    de las miniaturas y del stream MJPEG (un ``<img>`` no puede mandar
+    cabeceras), asi que el access log de uvicorn acababa con el token en
+    **texto claro** y, de ahi, en el fichero que scrapea Promtail. Medido
+    el 2026-10-23 contra el contenedor real:
+
+        "GET /api/v1/incidents/attachments/1/thumbnail?token=SEGRETO... HTTP/1.1" 401
+
+    uvicorn mete la ruta completa en ``record.args`` (posicion 2:
+    ``client_addr, method, full_path, http_version, status_code``). El
+    filtro va **por los argumentos**, no por el texto ya formateado, y
+    quita la query de cualquier cadena que la traiga: si uvicorn
+    cambiara el formato, el filtro no rompe nada (y el log volveria a
+    enseñar el token, que es justo lo que se vigila con el test).
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = getattr(record, "args", None)
+        if isinstance(args, tuple):
+            record.args = tuple(
+                valor.split("?", 1)[0] if isinstance(valor, str) and "?" in valor
+                else valor
+                for valor in args
+            )
+        return True
+
+
+def instalar_filtro_access_log() -> None:
+    """Instala el filtro en el logger ``uvicorn.access`` (idempotente)."""
+    logger = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, _FiltroSinQueryString) for f in logger.filters):
+        logger.addFilter(_FiltroSinQueryString())
+
+
 def configure_logging() -> None:
     """Configura el logger raíz. Idempotente (safe re-call)."""
     settings = get_settings()
@@ -155,5 +192,14 @@ def configure_logging() -> None:
                     "(permisos de volumen?). Continuando sólo con stdout."
                 )
 
+    # T-93: el access log no debe guardar la query string (el frontend
+    # manda el JWT ahí para las miniaturas y el stream MJPEG).
+    instalar_filtro_access_log()
 
-__all__ = ["configure_logging", "LOG_DIR", "LOG_FILE"]
+
+__all__ = [
+    "configure_logging",
+    "instalar_filtro_access_log",
+    "LOG_DIR",
+    "LOG_FILE",
+]
