@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **310 de 311 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **311 de 312 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1148,9 +1148,13 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
 - **Por qué no se vio antes**: en el entorno actual hay **0 peticiones fallidas y 0 errores de consola** (medido en las 26 pantallas × 5 anchos), así que la puerta "funcionaba" por casualidad. El fallo era **latente**: aparecería el primer día que un endpoint devolviera un 500.
 - **El arreglo**:
   - El veredicto pasa a una función pura `_evaluar(resultados, errores_login)` que devuelve `(código, motivos)` y cuenta también las peticiones fallidas y los errores de consola.
-  - La autoprueba de la QA pasa de 5 a **9 casos**: además de los del detector de desbordes, comprueba que una petición fallida, un error de consola y un fallo de login **ponen la puerta en rojo**.
+  - **Sólo los *errores* de consola rompen la puerta; los *avisos* se informan pero no la rompen.** Una puerta que falla por ruido acaba apagada, y eso es peor que un aviso. (La diferencia se nota justo al arreglar esto: el handler de consola recogía `error` **y** `warning` en la misma lista.)
+  - **Las peticiones que nunca reciben respuesta** (conexión rechazada, DNS, abortada) no emiten `response`: emiten `requestfailed`. Sin esa escucha, ese fallo era invisible para la puerta. Ahora se recogen como `SIN RESPUESTA <método> <url> (<motivo>)`.
+  - **PERO `net::ERR_ABORTED` no es un fallo**: es el navegador cancelando una petición que la app ya no espera (al cambiar de pantalla antes de que termine el fetch, o al cerrar el **SSE** `/parkings/{id}/events`, que está abierto por diseño). Al añadir la escucha aparecieron 13 "fallos" que eran todos abortos: el SSE en las 5 anchuras y dos fetches al cambiar de pantalla. Las cancelaciones se cuentan aparte y se informan ("13 peticiones canceladas (no son fallos)"); el resto de fallos de red (conexión rechazada, DNS, reset, timeout) **sí** rompen la puerta.
+  - La autoprueba de la QA pasa de 5 a **12 casos**: además de los del detector de desbordes, comprueba que una petición fallida, un error de consola y un fallo de login **ponen la puerta en rojo**, y que **un aviso de consola** y **una petición cancelada** no la rompen.
 - **Criterios de aceptación**:
-  - [x] La autoprueba demuestra que la puerta falla con una petición fallida, un error de consola y un fallo de login (9 casos en verde).
+  - [x] La autoprueba demuestra que la puerta falla con una petición fallida, un error de consola y un fallo de login, y que **no** falla con un aviso (11 casos en verde).
+  - [x] Las peticiones sin respuesta (`requestfailed`) se recogen y rompen la puerta.
   - [x] La QA real sigue en verde: 26 pantallas × 5 anchos, **0 peticiones fallidas y 0 errores de consola**.
   - [x] El informe y la salida de consola incluyen ahora el recuento de peticiones fallidas y de errores de consola.
   - [x] La meta-puerta sigue en verde (16 autopruebas, la de la QA incluida).

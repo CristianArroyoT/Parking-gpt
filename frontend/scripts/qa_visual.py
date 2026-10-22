@@ -215,6 +215,31 @@ CASOS_DESBORDE: list[tuple[str, str, bool, str]] = [
 ]
 
 
+def _sin_respuesta(red: list[str], req) -> None:
+    """Anota una peticion que NO recibio respuesta.
+
+    OJO: ``net::ERR_ABORTED`` **no es un fallo**. Es el navegador
+    cancelando una peticion que la app ya no espera: al cambiar de
+    pantalla antes de que termine el fetch, o al cerrar el stream SSE
+    (``/parkings/{id}/events``), que esta abierto por diseno hasta que
+    se navega. Los 13 abortos que aparecieron al anadir esta escucha
+    eran todos eso.
+
+    Los demas fallos (conexion rechazada, DNS, reset, timeout) **si** son
+    fallos, y si que deben poner la puerta en rojo.
+    """
+    fallo = str(req.failure or "")
+    if "ERR_ABORTED" in fallo:
+        CANCELADAS.append(f"{req.method} {req.url}")
+        return
+    red.append(f"SIN RESPUESTA {req.method} {req.url} ({fallo})")
+
+
+#: Peticiones canceladas por la app (cambio de pantalla, cierre del SSE).
+#: No son fallos: se informan aparte para que se vea.
+CANCELADAS: list[str] = []
+
+
 def _evaluar(
     resultados: "list[Resultado]", errores_login: "list[str]"
 ) -> tuple[int, list[str]]:
@@ -232,11 +257,16 @@ def _evaluar(
     motivos: list[str] = []
     desbordes = sum(len(r.desbordes) for r in resultados)
     red = sum(len(r.red) for r in resultados)
-    consola = sum(len(r.consola) for r in resultados)
+    # Solo los **errores** de consola rompen la puerta. Los *warnings* se
+    # informan (que el ojo los vea) pero no la rompen: una puerta que
+    # falla por ruido acaba apagada, y eso es peor que un aviso.
+    consola = sum(
+        1 for r in resultados for c in r.consola if c.startswith("error:")
+    )
     if desbordes:
         motivos.append(f"{desbordes} contenido(s) recortado(s) sin desplazar")
     if red:
-        motivos.append(f"{red} peticion(es) fallida(s) (4xx/5xx)")
+        motivos.append(f"{red} peticion(es) fallida(s) (4xx/5xx o sin respuesta)")
     if consola:
         motivos.append(f"{consola} error(es) de consola")
     if errores_login:
@@ -321,6 +351,52 @@ def _autoprueba() -> int:
         fallos += 1
     else:
         print("  OK: un fallo de login pone la puerta en rojo")
+
+    # Un AVISO de consola (no un error) informa pero no rompe la puerta:
+    # una puerta que falla por ruido acaba apagada.
+    caso_aviso = Resultado(
+        etiqueta="x", ruta="/x", url_final="/x", consola=["warning: Vuedeprecated"]
+    )
+    codigo, motivos = _evaluar([caso_aviso], [])
+    if codigo != 0:
+        print("  FALLO: un aviso de consola no deberia romper la puerta")
+        fallos += 1
+    else:
+        print("  OK: un aviso de consola no rompe la puerta")
+
+    # Y una peticion SIN RESPUESTA (conexion rechazada) si rompe: no emite
+    # "response", emite "requestfailed".
+    caso_sin_respuesta = Resultado(
+        etiqueta="x", ruta="/x", url_final="/x",
+        red=["SIN RESPUESTA GET /api/v1/x (net::ERR_CONNECTION_REFUSED)"],
+    )
+    codigo, motivos = _evaluar([caso_sin_respuesta], [])
+    if codigo != 1:
+        print("  FALLO: una peticion sin respuesta no pone la puerta en rojo")
+        fallos += 1
+    else:
+        print("  OK: una peticion sin respuesta pone la puerta en rojo")
+
+    # Y una peticion CANCELADA (ERR_ABORTED) NO rompe la puerta: es el
+    # navegador cancelando lo que la app ya no espera (cambio de
+    # pantalla, cierre del SSE).
+    canceladas_antes = len(CANCELADAS)
+
+    class _ReqFalso:
+        method = "GET"
+        url = "/api/v1/parkings/11/events"
+        failure = "net::ERR_ABORTED"
+
+    lista: list[str] = []
+    _sin_respuesta(lista, _ReqFalso())
+    if lista:
+        print("  FALLO: una peticion cancelada se ha contado como fallo")
+        fallos += 1
+    else:
+        print("  OK: una peticion cancelada (ERR_ABORTED) no es un fallo")
+    if len(CANCELADAS) != canceladas_antes + 1:
+        print("  FALLO: la peticion cancelada no se ha registrado aparte")
+        fallos += 1
 
     if fallos:
         print(f"Autoprueba FALLIDA: {fallos} caso(s).")
@@ -510,6 +586,10 @@ def main() -> int:
             lambda r: red_publica.append(f"{r.status} {r.request.method} {r.url}")
             if r.status >= 400 else None,
         )
+        pagina_publica.on(
+            "requestfailed",
+            lambda req: _sin_respuesta(red_publica, req),
+        )
         for ancho in anchos:
             pagina_publica.set_viewport_size({"width": ancho, "height": altura})
             destino = salida / str(ancho) if len(anchos) > 1 else salida
@@ -540,6 +620,13 @@ def main() -> int:
                 lambda r: red.append(f"{r.status} {r.request.method} {r.url}")
                 if r.status >= 400 else None,
             )
+            # Una peticion que NO recibe respuesta (conexion rechazada, DNS,
+            # abortada) no emite "response": emite "requestfailed". Sin
+            # esta escucha, ese fallo era invisible para la puerta.
+            pagina.on(
+                "requestfailed",
+                lambda req: _sin_respuesta(red, req),
+            )
             email, password = CUENTAS[rol]
             ok, motivo = _login(pagina, email, password)
             inicios_de_sesion += 1
@@ -561,6 +648,7 @@ def main() -> int:
     informe = {
         "anchos": anchos,
         "inicios_de_sesion": inicios_de_sesion,
+        "canceladas": list(CANCELADAS),
         "errores_login": errores_login,
         "avisos": avisos,
         "pantallas": [r.__dict__ for r in resultados],
@@ -601,7 +689,8 @@ def main() -> int:
     print(
         f"{len(resultados)} capturas · {len(anchos)} ancho(s) · "
         f"{inicios_de_sesion} inicio(s) de sesión · "
-        f"{total_red} peticion(es) fallida(s) · {total_consola} error(es) de consola"
+        f"{total_red} peticion(es) fallida(s) · {total_consola} error(es) de consola · "
+        f"{len(CANCELADAS)} peticion(es) cancelada(s) (no son fallos)"
     )
     # OJO (2026-10-22): antes la QA **imprimia** los errores de red y de
     # consola pero NO fallaba con ellos: una pantalla cuyo fetch devolviera
