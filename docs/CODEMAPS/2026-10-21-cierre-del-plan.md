@@ -2019,3 +2019,16 @@ verde** (solo comparaba el recuento de filas).
 los recupera, y el simulacro mete un fichero de prueba y comprueba que
 vuelve con su contenido.
 
+### 3-sexagésimoprimera. Crear incidentes y subir adjuntos no tenían rate-limit (2026-10-22)
+
+Los endpoints que más recursos consumen del backend (crear un incidente:
+una fila en la BD; subir sus fotos: 3 ficheros de 10 MB que se
+descomprimen enteros, 150 MB por foto de 50 MP) no pasaban por el
+`EndpointRateLimiter`: los scopes existentes eran de usuarios, vehículos,
+sucursales, tarifas, cámaras y geocercas. Un operador autenticado
+podía crear incidentes y subir fotos sin límite de peticiones.
+
+**El arreglo**: los dos pasan por `enforce_endpoint_rate_limit` (la
+función única de T-69) con sus scopes, y el `conftest.py` limpia también
+sus buckets.
+

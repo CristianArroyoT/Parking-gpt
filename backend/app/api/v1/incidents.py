@@ -70,6 +70,7 @@ from app.models.user import User
 from app.schemas.audit import IncidentCreate, IncidentRead
 from app.schemas.incident import IncidentAttachmentRead
 from app.services import incident_attachments as adjuntos
+from app.services.endpoint_rate_limit import enforce_endpoint_rate_limit
 from app.services import record_audit
 from app.services.incidents import create_incident
 
@@ -106,6 +107,12 @@ def create_incident_endpoint(
     # OJO (T-62): con ``request.client.host`` se auditaba la IP del
     # PROXY (nginx), no la del cliente.
     ip = get_real_ip(request) if request.client else None
+    # T-79: crear un incidente es de los endpoints que mas recursos
+    # consumen (una fila en la BD) y no tenia rate-limit por endpoint: un
+    # operador autenticado podia crear incidentes sin limite.
+    enforce_endpoint_rate_limit(
+        request, db, scope="incidents_create", actor_id=current_user.id,
+    )
     alert = create_incident(
         payload,
         parking_id=parking_id,
@@ -308,6 +315,15 @@ async def subir_adjuntos_incidente(
     current_user: User = Depends(get_current_user),
 ) -> list[IncidentAttachmentRead]:
     """Sube hasta 3 fotos a un incidente.
+
+    # T-79: la subida es el endpoint que mas recursos consume del backend
+    # (hasta 3 ficheros de 10 MB, que al generar la miniatura se
+    # descomprimen enteros: 150 MB por foto de 50 MP) y no tenia
+    # rate-limit por endpoint.
+    enforce_endpoint_rate_limit(
+        request, db, scope="incident_attachments_upload",
+        actor_id=current_user.id,
+    )
 
     Validación (todas obligatorias):
 

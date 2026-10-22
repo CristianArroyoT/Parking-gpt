@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **437 de 438 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **443 de 444 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1542,6 +1542,23 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] El backup de los adjuntos se verifica al crearlo (se descifra y se lista el tar, como el dump).
   - [x] Los scripts conservan el bit de ejecución `100755` (si no, el cron no haría backups).
   - [x] `simulacro.sh` pasa entero (volcado, cifrado, restauración, esquema y arranque de la app).
+
+### T-79 · P1 (seguridad) — crear incidentes y subir adjuntos no tenían rate-limit por endpoint
+
+- **Estado**: **completado** — los dos endpoints pasan por el limitador, con scope propio
+- **Contexto**: los endpoints que **más recursos consumen** del backend no tenían rate-limit por endpoint:
+  - `POST /incidents/parkings/{id}` → una fila en la base de datos (y el aviso a los admins);
+  - `POST /incidents/{id}/attachments` → hasta 3 ficheros de 10 MB, y al generar la miniatura **se descomprimen enteros**: 150 MB de RAM por foto de 50 MP (`MAX_PIXELES = 50.000.000`).
+  Los scopes que existían eran `users_*`, `vehicles_*`, `parkings_*`, `tariffs_*`, `cameras_*` y `geofences_*`. O sea que un **operador** autenticado (el rol con menos permisos) podía crear incidentes y subir fotos **sin límite de peticiones**: llenar el volumen de adjuntos, llenar la base de datos y provocar descompresiones de 150 MB una y otra vez.
+- **El arreglo**: los dos endpoints pasan por `enforce_endpoint_rate_limit` (la función única de T-69) con sus scopes (`incidents_create` e `incident_attachments_upload`) y el límite general por defecto (30 por minuto y actor): de sobra para el flujo real (una entrada de coche = un incidente) y corta el abuso. El bucket es **por actor**, así que un operador no bloquea a otro de la misma sucursal.
+- **Y la fixture de limpieza de Redis del `conftest.py`** borra también los buckets nuevos: si no, los tests se contaminarían entre sí (es el mismo problema que el T-65).
+- **Criterios de aceptación**:
+  - [x] Medido: los scopes del limitador no incluían incidentes ni adjuntos.
+  - [x] Los dos endpoints pasan por la función única, con su scope.
+  - [x] El límite es **por actor**: otro operador de la misma sucursal no topa (test).
+  - [x] **Probado que el test detecta el defecto** reintroduciéndolo (sin limitador, el test falla).
+  - [x] La fixture de limpieza borra los buckets nuevos.
+  - [x] `ruff` y `mypy` en verde.
 
 ### T-14 · I3 — OCR con GPU
 
