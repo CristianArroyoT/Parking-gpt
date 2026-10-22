@@ -1585,6 +1585,35 @@ igual (585 en SQLite; 595 contra PostgreSQL). El CI no cambia de
 comportamiento: allí `REDIS_URL` viene en el entorno.
 
 
+### 3-trigésimotercera. La QA recogía los errores de red y de consola, los imprimía y no fallaba (2026-10-22)
+
+La QA visual ya recogía **dos** cosas que no llegaban al veredicto: las
+**peticiones fallidas (4xx/5xx)** y los **errores de consola**. Los
+imprimía en el informe y en la salida… y devolvía el código 0. Es decir:
+una pantalla cuyo `fetch` devolviera un 500 (o con un error de
+JavaScript) dejaba **la puerta en verde**.
+
+**Por qué importa más de lo que parece**: la QA es la única puerta que
+mira la app **en funcionamiento**. Todo lo demás (la suite, los
+linters, las comprobaciones estáticas) ve el código; la QA ve **lo que el
+usuario ve**. Si el fetch de una pantalla falla, la pantalla se queda en
+blanco o vacía, y eso era justo lo que la puerta no valoraba.
+
+**Por qué no se vio antes**: en el entorno actual hay **0 peticiones
+fallidas y 0 errores de consola** (medido en las 26 pantallas × 5
+anchos), así que la puerta "funcionaba" por casualidad. El fallo era
+**latente**: aparecería el primer día que un endpoint devolviera un 500.
+
+**El arreglo**:
+
+- El veredicto pasa a una función pura `_evaluar(resultados,
+  errores_login)` que devuelve `(código, motivos)` y cuenta también las
+  peticiones fallidas y los errores de consola.
+- La autoprueba de la QA pasa de 5 a **9 casos**: además de los del
+  detector de desbordes, comprueba que una petición fallida, un error de
+  consola y un fallo de login **ponen la puerta en rojo**.
+
+
 | Modelo | Tabla | Notas |
 |---|---|---|
 | `IncidentAttachment` | `incident_attachments` | `alert_id` con `ON DELETE CASCADE`; el binario **no** está en la BD, vive en el volumen `incident_attachments` |

@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **306 de 307 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **310 de 311 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1139,6 +1139,21 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] En el contenedor sigue funcionando igual (585 passed, 10 skipped en SQLite; 595 passed, 1 skipped contra PostgreSQL).
   - [x] El CI no cambia de comportamiento: allí `REDIS_URL` viene en el entorno y se usa el primer candidato.
   - [x] `ruff` y el escáner de texto en verde.
+
+### T-54 · P1 — la QA recogía los errores de red y de consola, los imprimía y no fallaba
+
+- **Estado**: **completado** — el veredicto cuenta también con las peticiones fallidas y los errores de consola
+- **Contexto**: la QA visual ya recogía **dos** cosas que no llegan al veredicto: las **peticiones fallidas (4xx/5xx)** y los **errores de consola**. Los imprimía en el informe y en la salida… y devolvía el código 0. Es decir: una pantalla cuyo `fetch` devolviera un 500 (o con un error de JavaScript) dejaba **la puerta en verde**.
+- **Por qué importa más de lo que parece**: la QA es la única puerta que mira la app **en funcionamiento**. Todo lo demás (la suite, los linters, las comprobaciones estáticas) ve el código; la QA ve **lo que el usuario ve**. Si el fetch de una pantalla falla, la pantalla se queda en blanco o vacía, y eso era exactamente lo que la puerta no valoraba.
+- **Por qué no se vio antes**: en el entorno actual hay **0 peticiones fallidas y 0 errores de consola** (medido en las 26 pantallas × 5 anchos), así que la puerta "funcionaba" por casualidad. El fallo era **latente**: aparecería el primer día que un endpoint devolviera un 500.
+- **El arreglo**:
+  - El veredicto pasa a una función pura `_evaluar(resultados, errores_login)` que devuelve `(código, motivos)` y cuenta también las peticiones fallidas y los errores de consola.
+  - La autoprueba de la QA pasa de 5 a **9 casos**: además de los del detector de desbordes, comprueba que una petición fallida, un error de consola y un fallo de login **ponen la puerta en rojo**.
+- **Criterios de aceptación**:
+  - [x] La autoprueba demuestra que la puerta falla con una petición fallida, un error de consola y un fallo de login (9 casos en verde).
+  - [x] La QA real sigue en verde: 26 pantallas × 5 anchos, **0 peticiones fallidas y 0 errores de consola**.
+  - [x] El informe y la salida de consola incluyen ahora el recuento de peticiones fallidas y de errores de consola.
+  - [x] La meta-puerta sigue en verde (16 autopruebas, la de la QA incluida).
 
 ### T-14 · I3 — OCR con GPU
 

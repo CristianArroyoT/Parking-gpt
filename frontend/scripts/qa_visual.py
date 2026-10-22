@@ -215,6 +215,35 @@ CASOS_DESBORDE: list[tuple[str, str, bool, str]] = [
 ]
 
 
+def _evaluar(
+    resultados: "list[Resultado]", errores_login: "list[str]"
+) -> tuple[int, list[str]]:
+    """El veredicto de la QA: ``(código de salida, motivos)``.
+
+    Está **separado** para poder probarlo con casos de mentira (ver
+    ``_autoprueba``): una puerta que no se puede ver fallar no es una
+    puerta.
+
+    OJO (2026-10-22): antes la QA **imprimía** los errores de red y de
+    consola pero NO fallaba con ellos. Una pantalla cuyo fetch devolviera
+    un 500 (o con un error de JavaScript) dejaba la puerta en verde: la
+    puerta recogía la evidencia y no actuaba sobre ella.
+    """
+    motivos: list[str] = []
+    desbordes = sum(len(r.desbordes) for r in resultados)
+    red = sum(len(r.red) for r in resultados)
+    consola = sum(len(r.consola) for r in resultados)
+    if desbordes:
+        motivos.append(f"{desbordes} contenido(s) recortado(s) sin desplazar")
+    if red:
+        motivos.append(f"{red} peticion(es) fallida(s) (4xx/5xx)")
+    if consola:
+        motivos.append(f"{consola} error(es) de consola")
+    if errores_login:
+        motivos.append(f"{len(errores_login)} inicio(s) de sesión fallido(s)")
+    return (1 if motivos else 0), motivos
+
+
 def _autoprueba() -> int:
     """Comprueba que el detector de desbordes SIGUE detecting.
 
@@ -256,6 +285,42 @@ def _autoprueba() -> int:
                 continue
             print(f"  OK: {nombre} -> {'detectado' if detectado else 'limpio'}")
         navegador.close()
+
+    # El veredicto: una peticion fallida o un error de consola tienen que
+    # PONER la puerta en rojo (antes sólo se imprimian).
+    codigo, motivos = _evaluar([], [])
+    if codigo != 0:
+        print(f"  FALLO: sin problemas el veredicto deberia ser 0 ({motivos})")
+        fallos += 1
+    else:
+        print("  OK: sin problemas el veredicto es 0")
+
+    caso_red = Resultado(
+        etiqueta="x", ruta="/x", url_final="/x", red=["500 GET /api/v1/x"]
+    )
+    codigo, motivos = _evaluar([caso_red], [])
+    if codigo != 1:
+        print("  FALLO: una peticion fallida no pone la puerta en rojo")
+        fallos += 1
+    else:
+        print("  OK: una peticion fallida pone la puerta en rojo")
+
+    caso_consola = Resultado(
+        etiqueta="x", ruta="/x", url_final="/x", consola=["error: TypeError"]
+    )
+    codigo, motivos = _evaluar([caso_consola], [])
+    if codigo != 1:
+        print("  FALLO: un error de consola no pone la puerta en rojo")
+        fallos += 1
+    else:
+        print("  OK: un error de consola pone la puerta en rojo")
+
+    codigo, motivos = _evaluar([], ["admin: no se pudo iniciar sesion"])
+    if codigo != 1:
+        print("  FALLO: un fallo de login no pone la puerta en rojo")
+        fallos += 1
+    else:
+        print("  OK: un fallo de login pone la puerta en rojo")
 
     if fallos:
         print(f"Autoprueba FALLIDA: {fallos} caso(s).")
@@ -524,14 +589,29 @@ def main() -> int:
         for a in avisos:
             print(f"    {a[:160]}")
     total_desbordes = sum(len(r.desbordes) for r in resultados)
+    total_red = sum(len(r.red) for r in resultados)
+    total_consola = sum(len(r.consola) for r in resultados)
     if total_desbordes:
         print(f"\nATENCION: {total_desbordes} contenido(s) recortado(s) sin desplazar")
+    if total_red:
+        print(f"\nATENCION: {total_red} peticion(es) fallida(s) (4xx/5xx)")
+    if total_consola:
+        print(f"\nATENCION: {total_consola} error(es) de consola")
     print(f"\nCapturas e informe en {salida}")
     print(
         f"{len(resultados)} capturas · {len(anchos)} ancho(s) · "
-        f"{inicios_de_sesion} inicio(s) de sesión"
+        f"{inicios_de_sesion} inicio(s) de sesión · "
+        f"{total_red} peticion(es) fallida(s) · {total_consola} error(es) de consola"
     )
-    return 1 if (total_desbordes or errores_login) else 0
+    # OJO (2026-10-22): antes la QA **imprimia** los errores de red y de
+    # consola pero NO fallaba con ellos: una pantalla cuyo fetch devolviera
+    # un 500 (o con un error de JavaScript) dejaba la puerta en verde. La
+    # puerta recogía la evidencia y no actuaba sobre ella, que es
+    # justamente lo que hace que una puerta deje de ser una puerta.
+    codigo, motivos = _evaluar(resultados, errores_login)
+    for motivo in motivos:
+        print(f"  FALLO: {motivo}")
+    return codigo
 
 
 if __name__ == "__main__":
