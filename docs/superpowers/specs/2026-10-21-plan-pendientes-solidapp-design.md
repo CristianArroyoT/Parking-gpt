@@ -8,7 +8,7 @@
 >
 > | Comprobación | Resultado |
 > |---|---|
-> | Suite completa | **606 passed, 9 skipped** en SQLite · **615 passed** en PostgreSQL (medido el 2026-10-22) |
+> | Suite completa | **624 passed, 9 skipped** en SQLite · **633 passed** en PostgreSQL (medido el 2026-10-22) |
 > | QA visual (Chromium) | **26 pantallas** a **5 anchos** (414, 768, 1024, 1232, 1440 px): 130 capturas, **0 desbordes, 0 errores de consola, 0 errores de login** |
 > | PWA | verificado: instalable y **arranca sin red** |
 > | API | **101 rutas** inventariadas (coinciden con el código) y **99 de 99 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
@@ -1851,7 +1851,7 @@ T-22 (recuperación de contraseña) ──> T-24 (PWA, que necesita self-service
 
 - [x] `cd backend && ruff check app tests` → sin errores.
 - [x] `cd backend && mypy app` → **sin errores** (modo `strict`). Antes daba 77 y su paso iba con `continue-on-error: true`; ver T-28.
-- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **606 passed, 9 skipped** en SQLite y **615 passed** en PostgreSQL (las cifras del CI; en el contenedor de desarrollo son **605 passed, 10 skipped** y **613 passed, 1 skipped**, porque allí sólo se monta `backend/` y el test que comprueba la nota del README sobre el reconocimiento facial se salta).
+- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **624 passed, 9 skipped** en SQLite y **633 passed** en PostgreSQL (las cifras del CI; en el contenedor de desarrollo son **623 passed, 10 skipped** y **632 passed, 1 skipped**, porque allí sólo se monta `backend/` y el test que comprueba la nota del README sobre el reconocimiento facial se salta).
 - [x] `docker compose up -d` → todos los servicios *healthy* y `/health` responde 200.
 - [x] QA visual en el navegador de las pantallas tocadas (con la app real, no sólo tests).
       → **HECHA** con Chromium headless (Playwright) sobre la app real
