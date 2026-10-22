@@ -370,9 +370,18 @@ def probe_heartbeats() -> dict[str, Any]:
     50 cámaras y cada probe tarda ~1 s, la ronda tarda ~50 s. Está
     bien: el threshold mide fallos consecutivos, no ventana de tiempo.
 
-    ``ping_camera`` sigue corriendo en paralelo con ``kind="frame"``;
-    ambos comparten el lock de 1 h de CAMERA_OFFLINE, así que sólo
-    se crea UNA alerta cuando hay caída real (no doble).
+    ``ping_camera`` detectaría las caídas por ``kind="frame"`` (decodifica
+    el frame entero) y comparte el lock de 1 h de CAMERA_OFFLINE con
+    este detector, así que sólo se crearía UNA alerta cuando hay caída
+    real (no doble).
+
+    OJO (2026-10-22): ``ping_camera`` **NO se despacha hoy**. No está en
+    el ``beat_schedule`` y nadie la encola (el endpoint
+    ``/admin/cameras/{id}/ping`` que la dispararía nunca se añadió; ver
+    el commit 66c172f). Es decir: **la lectura automática de matrículas
+    no está activa**; el único detector de caída que corre es este, por
+    ``kind="heartbeat"``. La puerta ``tools/verificar_tareas_celery.py``
+    avisa si esa tarea sigue sin despacharse.
 
     Sprint Fase 3C (2026-07-01): un único ``correlation_id`` por
     invocación se propaga a TODOS los audit_logs + logs estructurados

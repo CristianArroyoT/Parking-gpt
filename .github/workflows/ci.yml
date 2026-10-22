@@ -276,6 +276,24 @@ jobs:
         # no se podría asignar desde la interfaz.
         run: python ../tools/verificar_enums_frontend.py
 
+      - name: Las tareas de Celery se ejecutan de verdad
+        # POR QUÉ (2026-10-22): una tarea de Celery puede existir, estar
+        # REGISTRADA en el worker (eso es lo que dice "celery inspect
+        # registered") y no ejecutarse NUNCA: basta con que no esté en el
+        # beat_schedule y que nadie la despache.
+        #
+        # El caso real del repo: ``solidapp.ping_camera`` —la que agarra
+        # el frame, lo manda al OCR y crea el ticket— no se despacha desde
+        # junio de 2026. Tiene sus tests (que la llaman directamente, así
+        # que pasan) y el código describía en dos comentarios un
+        # comportamiento que no existía. Medido en la base de datos: la
+        # última matrícula leída por el sistema es del 2026-06-30.
+        #
+        # Esta puerta lo dice en voz alta. Las tareas que no se ejecuten
+        # a propósito tienen que estar en la lista de exenciones de la
+        # herramienta, con su motivo.
+        run: python ../tools/verificar_tareas_celery.py
+
       - name: Las migraciones y los modelos coinciden
         # POR QUÉ (2026-10-21): los tests crean el esquema con
         # ``Base.metadata.create_all``, es decir, **NO ejecutan las

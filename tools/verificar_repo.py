@@ -105,6 +105,11 @@ def _comprobaciones() -> list[Comprobacion]:
             patron=r"(OK: el frontend conoce todos los valores.*)",
         ),
         Comprobacion(
+            "Las tareas de Celery se ejecutan de verdad",
+            [py, "tools/verificar_tareas_celery.py"],
+            patron=r"(OK: toda tarea sin ejecutar tiene su motivo.*)",
+        ),
+        Comprobacion(
             "Modelos y migraciones coinciden",
             [
                 "docker", "exec",

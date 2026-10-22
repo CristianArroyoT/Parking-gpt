@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **287 de 288 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **292 de 293 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1042,6 +1042,34 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] `statusBadge` (en las dos vistas) ya no devuelve "Anulado" para un estado desconocido.
   - [x] `vue-tsc --noEmit` y `npm run lint` en verde, y la QA visual sigue en verde.
   - [x] Está en la meta-puerta (que pasa de 13 a **14 autopruebas**), en `tools/verificar_repo.py` (16 comprobaciones) y en el CI.
+
+### T-50 · P0 — la lectura automática de matrículas NO estaba conectada a nada
+
+- **Estado**: **completado** — el hueco queda documentado, los comentarios que lo ocultaban corregidos, y hay una puerta que lo vigila
+- **Contexto**: `solidapp.ping_camera` es la tarea que agarra el frame de la cámara, se lo manda al servicio OCR y **crea el ticket**. Es el corazón del producto.
+- **Lo que se encontró (medido, no supuesto)**:
+  - La tarea **existe** y está **registrada** en el worker (`celery inspect registered` la lista).
+  - **No está** en el `beat_schedule` de `app/workers/celery_app.py`.
+  - **Nadie la despacha**: en todo el backend no hay ni un `.delay()`, ni un `.apply_async()`, ni un `send_task()`. El único que consume el servicio OCR es esa misma tarea.
+  - El commit que la creó (66c172f, 2026-06-30) lo dijo explícitamente: *"solidapp.ping_camera (bajo demanda): stub de health-check de una cámara concreta... **Diseñado para que el endpoint `/admin/cameras/{id}/ping` lo enqueue cuando se añada**"*. Ese endpoint **nunca se añadió**.
+  - Al día siguiente (0e9057f) se escribió el comentario que la daba por viva: *"``ping_camera`` sigue corriendo en paralelo con ``kind='frame'``; ambos comparten el lock de 1 h de CAMERA_OFFLINE"*. Y en `celery_app.py`: *"Comparte lock de 1 h con el detector de ``frame`` para no duplicar"*. **Los dos comentarios describían un comportamiento que no existía.**
+  - **La prueba en la base de datos**: las 8 filas de `plates_detected` son del **2026-06-30** y son datos de prueba empujados a mano (`1234ABC`, `9999XYZ`); la última matrícula que el sistema leyó en su vida es de hace **más de tres meses y medio**. En cambio hay **98 alertas de cámara caída**, todas del detector de *heartbeat* (`probe_heartbeats`), que sí se despacha cada 60 s.
+  - Es decir: **la detección de cámaras caídas funciona; la lectura de matrículas no**. El pipeline que hoy funciona es el **push externo** al endpoint `POST /parkings/{id}/plates-detected` (el que usa el `rtsp-push` de QA), no la tarea de Celery.
+- **El arreglo (3 cosas)**:
+  1. **Los comentarios que mentían, corregidos**: `tasks.py` y `celery_app.py` dicen ahora exactamente qué corre y qué no, y por qué. Un comentario que describe un comportamiento inexistente es peor que no tener comentario: hace que el próximo que lo lea dé por hecho que el pipeline funciona.
+  2. **Puerta nueva** (`tools/verificar_tareas_celery.py`): comprueba que **toda tarea de Celery se ejecuta de verdad** (está en el beat, o alguien la despacha, o alguien la llama directamente). Recorre el AST, no un grep: por eso ve el comentario que mentía y lo ve como lo que es (un comentario). Las tareas que no se ejecutan **a propósito** van en una lista de exenciones con su motivo; las demás son un **fallo del CI**.
+  3. **El hallazgo queda escrito** en el código, en el plan y en el codemap, con su medida (la fecha de la última matrícula leída).
+- **Criterios de aceptación**:
+  - [x] La puerta detecta una tarea nueva sin horario ni despacho (**probado**: con una tarea de prueba inyectada, la puerta la canta y sale con código 1) y **no** se queja de una que sí se despacha ni de la que se llama directamente.
+  - [x] La puerta recorre el AST, así que las menciones en docstrings y comentarios **no** cuentan como ejecución (justo donde estaba la mentira).
+  - [x] Los comentarios de `tasks.py` y `celery_app.py` dicen la verdad sobre qué detector corre.
+  - [x] Está en la meta-puerta (que pasa de 14 a **15 autopruebas**), en `tools/verificar_repo.py` (17 comprobaciones) y en el CI.
+  - [x] `actionlint` exit 0 y `ruff` limpio.
+- **Decisión que queda para el usuario (no es un olvido)**: **despachar o no `ping_camera`**. Conectarla implica decisiones de producto que este repo no puede tomar solo:
+  - **Cómo**: `ping_camera` es *por cámara* (`ping_camera(camera_id)`), así que el beat tendría que despacharla una por cámara (una tarea batch que itere y encole, como hace `probe_heartbeats` con su sonda). Eso implica decidir cada cuánto y con qué concurrencia.
+  - **Qué pasa con las cámaras de demo**: las del seed apuntan a `rtsp://demo.invalid` a propósito; `probe_heartbeats` las skipea (`heartbeat_skip_url_prefixes`), pero `ping_camera` **no**: abriría un RTSP inexistente por cámara y por minuto.
+  - **Qué pasa con la carga**: decodificar un JPEG completo por cámara y por minuto es mucho más caro que el `grab()` sin decodificar del heartbeat, y el servicio OCR (PaddleOCR) es el piece más pesado del stack.
+  - **Qué pasa con la detección de caídas**: con los dos detectores vivos habría que confiar en el lock de 1 h para no duplicar alertas (eso ya está implementado y testeado, pero nunca se ha ejercido en producción).
 
 ### T-14 · I3 — OCR con GPU
 

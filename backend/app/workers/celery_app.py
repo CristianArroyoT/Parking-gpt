@@ -51,7 +51,11 @@ celery_app.conf.beat_schedule = {
     # con ``cv2.VideoCapture.open() + grab()`` (sin decodificar).
     # Tras N fallos consecutivos (``heartbeat_failures_before_alert``)
     # crea alerta CAMERA_OFFLINE con ``context.kind="heartbeat"``.
-    # Comparte lock de 1 h con el detector de ``frame`` para no duplicar.
+    #
+    # OJO (2026-10-22): el detector por ``kind="frame"``
+    # (``solidapp.ping_camera``) **no se despacha**: no está en este
+    # horario y nadie la encola. Así que hoy sólo corre este detector.
+    # La puerta ``tools/verificar_tareas_celery.py`` lo comprueba.
     "probe-heartbeats-every-minute": {
         "task": "solidapp.probe_heartbeats",
         "schedule": 60.0,  # cada 60 segundos exactos

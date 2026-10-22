@@ -83,6 +83,10 @@ AUTOPRUEBAS: list[tuple[str, list[str]]] = [
         [sys.executable, "tools/verificar_enums_frontend.py", "--autoprueba"],
     ),
     (
+        "La puerta de tareas de Celery sigue viendo",
+        [sys.executable, "tools/verificar_tareas_celery.py", "--autoprueba"],
+    ),
+    (
         "La puerta de roles del frontend sigue viendo",
         [sys.executable, "tools/verificar_roles_frontend.py", "--autoprueba"],
     ),
