@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **292 de 293 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **297 de 298 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1070,6 +1070,30 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - **Qué pasa con las cámaras de demo**: las del seed apuntan a `rtsp://demo.invalid` a propósito; `probe_heartbeats` las skipea (`heartbeat_skip_url_prefixes`), pero `ping_camera` **no**: abriría un RTSP inexistente por cámara y por minuto.
   - **Qué pasa con la carga**: decodificar un JPEG completo por cámara y por minuto es mucho más caro que el `grab()` sin decodificar del heartbeat, y el servicio OCR (PaddleOCR) es el piece más pesado del stack.
   - **Qué pasa con la detección de caídas**: con los dos detectores vivos habría que confiar en el lock de 1 h para no duplicar alertas (eso ya está implementado y testeado, pero nunca se ha ejercido en producción).
+
+### T-51 · P1 — siete ajustes del backend que nadie leía (y dos que engañaban)
+
+- **Estado**: **completado** — los siete documentados con su motivo, y puerta nueva que vigila que no crezca la lista
+- **Contexto**: un ajuste **muerto** (declarado, configurable por entorno y que **nadie lee**) es una trampa silenciosa: parece configurable y no hace nada. El que más daño hace es el que parece importante.
+- **Los siete, con su motivo real**:
+  | Ajuste | Por qué está muerto | Dónde vive de verdad |
+  |---|---|---|
+  | `ocr_confidence_threshold` (0.85) | parecía un filtro global de confianza | el filtro real es el `confidence_threshold` de **cada geocerca** (lo calibra el operador) |
+  | `ocr_lang` ("es") | parecía decidir el idioma del OCR | lo decide el **servicio** OCR (`docker/ocr`, `OCR_LANG=en` para matrículas EU) |
+  | `ocr_engine` | parecía elegir el motor | lo elige el servicio OCR (`OCR_ENGINE`) |
+  | `async_database_url` | la app es **síncrona**: no hay `create_async_engine` en ninguna parte | — |
+  | `api_host` / `api_port` | el `CMD` del Dockerfile fija `--host 0.0.0.0 --port 8000` en duro | — |
+  | `loki_url` | la app no habla con Loki | los logs salen por stdout y los reenvía Promtail (`infra/promtail/promtail-config.yaml`) |
+- **Los dos engañados**: `ocr_confidence_threshold` y `ocr_lang`. Con `ocr_lang` hay además una contradicción: el backend dice "es" y el servicio va con "en", y **el valor del backend no hace nada**. Un operador que lo cambiara creyendo que el OCR lee en español no lo estaría haciendo.
+- **El arreglo (2 cosas)**:
+  1. **Cada ajuste muerto lleva ahora un comentario que dice que no se usa y por qué**, con el puntero a dónde vive lo que sí manda. Nada de "parece configurable": o funciona, o dice que no.
+  2. **Puerta nueva** (`tools/verificar_ajustes_muertos.py`): recorre los 47 ajustes declarados en `Settings` y cuenta cuántas veces se leen (por acceso al atributo, en todo el backend, tests incluidos). Los que no se leen salen listados; los conocidos están en una lista con su motivo y **cualquier otro es un fallo del CI**.
+- **Criterios de aceptación**:
+  - [x] La puerta detecta un ajuste muerto nuevo (**probado**: con un ajuste de prueba inyectado, la puerta lo canta y sale con código 1) y no se queja de los que se leen.
+  - [x] Los 47 ajustes del backend están inventariados: 40 se leen, 7 no, y los 7 tienen su motivo documentado.
+  - [x] El comentario de cada ajuste muerto dice **dónde vive de verdad** lo que el operador quiere cambiar.
+  - [x] La suite sigue en verde tras el cambio de `config.py` (565 passed, 10 skipped en el contenedor).
+  - [x] Está en la meta-puerta (que pasa de 15 a **16 autopruebas**), en `tools/verificar_repo.py` (18 comprobaciones) y en el CI.
 
 ### T-14 · I3 — OCR con GPU
 

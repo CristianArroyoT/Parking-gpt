@@ -1448,6 +1448,38 @@ confiar en el lock de 1 h, que ya está implementado y testeado pero nunca
 se ha ejercido en producción).
 
 
+### 3-trigésimoseptima. Siete ajustes del backend que nadie leía (2026-10-22)
+
+Un ajuste **muerto** (declarado, configurable por entorno y que **nadie
+lee**) es una trampa silenciosa: parece configurable y no hace nada.
+
+| Ajuste | Por qué está muerto | Dónde vive de verdad |
+|---|---|---|
+| `ocr_confidence_threshold` (0.85) | parecía un filtro global de confianza | el filtro real es el `confidence_threshold` de **cada geocerca** (lo calibra el operador) |
+| `ocr_lang` ("es") | parecía decidir el idioma del OCR | lo decide el **servicio** OCR (`docker/ocr`, `OCR_LANG=en` para matrículas EU) |
+| `ocr_engine` | parecía elegir el motor | lo elige el servicio OCR (`OCR_ENGINE`) |
+| `async_database_url` | la app es **síncrona**: no hay `create_async_engine` | — |
+| `api_host` / `api_port` | el `CMD` del Dockerfile los fija en duro | — |
+| `loki_url` | la app no habla con Loki | los logs salen por stdout y los reenvía Promtail |
+
+**Los dos engañados**: `ocr_confidence_threshold` y `ocr_lang`. Con
+`ocr_lang` hay además una contradicción: el backend dice "es" y el
+servicio va con "en", y **el valor del backend no hace nada**. Un
+operador que lo cambiara creyendo que el OCR lee en español no lo
+estaría haciendo.
+
+**El arreglo (2 cosas)**:
+
+1. **Cada ajuste muerto lleva ahora un comentario que dice que no se usa
+   y por qué**, con el puntero a dónde vive lo que sí manda. Nada de
+   "parece configurable": o funciona, o dice que no.
+2. **Puerta nueva** (`tools/verificar_ajustes_muertos.py`): recorre los
+   47 ajustes declarados en `Settings` y cuenta cuántas veces se leen
+   (por acceso al atributo, en todo el backend, tests incluidos). Los
+   que no se leen salen listados; los conocidos están en una lista con su
+   motivo y **cualquier otro es un fallo del CI**.
+
+
 | Modelo | Tabla | Notas |
 |---|---|---|
 | `IncidentAttachment` | `incident_attachments` | `alert_id` con `ON DELETE CASCADE`; el binario **no** está en la BD, vive en el volumen `incident_attachments` |

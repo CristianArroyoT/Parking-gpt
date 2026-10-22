@@ -87,6 +87,10 @@ AUTOPRUEBAS: list[tuple[str, list[str]]] = [
         [sys.executable, "tools/verificar_tareas_celery.py", "--autoprueba"],
     ),
     (
+        "La puerta de ajustes muertos sigue viendo",
+        [sys.executable, "tools/verificar_ajustes_muertos.py", "--autoprueba"],
+    ),
+    (
         "La puerta de roles del frontend sigue viendo",
         [sys.executable, "tools/verificar_roles_frontend.py", "--autoprueba"],
     ),

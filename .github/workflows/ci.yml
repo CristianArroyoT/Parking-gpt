@@ -294,6 +294,22 @@ jobs:
         # herramienta, con su motivo.
         run: python ../tools/verificar_tareas_celery.py
 
+      - name: Los ajustes muertos del backend tienen su motivo
+        # POR QUÉ (2026-10-22): un ajuste muerto (declarado,
+        # configurable por entorno y que NADIE lee) es una trampa
+        # silenciosa: parece configurable y no hace nada.
+        #
+        # En el repo había siete, y dos de los peores parecían
+        # importantes: ``ocr_confidence_threshold`` (parecía un filtro
+        # global de confianza, pero el real es el de cada geocerca) y
+        # ``ocr_lang`` (parecía decidir el idioma del OCR, pero lo
+        # elige el servicio OCR, que va con "en": los dos valores no
+        # coincidían y el del backend no hacía nada).
+        #
+        # Esta puerta lista los que nadie lee. Los conocidos están
+        # documentados con su motivo; cualquier otro es un fallo del CI.
+        run: python ../tools/verificar_ajustes_muertos.py
+
       - name: Las migraciones y los modelos coinciden
         # POR QUÉ (2026-10-21): los tests crean el esquema con
         # ``Base.metadata.create_all``, es decir, **NO ejecutan las

@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     )
 
     database_url: str = Field(default="postgresql+psycopg://parking:parking@db:5432/parking", alias="DATABASE_URL")
+    # NO USADO (2026-10-22): la aplicación es **síncrona** (no hay
+    # ``create_async_engine`` en ninguna parte). Queda declarado para
+    # cuando haya motor asíncrono; ponerlo no cambia nada.
+    # La puerta tools/verificar_ajustes_muertos.py lo vigila.
     async_database_url: str = Field(default="postgresql+asyncpg://parking:parking@db:5432/parking", alias="ASYNC_DATABASE_URL")
 
     redis_url: str = Field(default="redis://redis:6379/0", alias="REDIS_URL")
@@ -31,10 +35,24 @@ class Settings(BaseSettings):
     access_token_ttl_minutes: int = Field(default=15, alias="ACCESS_TOKEN_TTL_MINUTES")
     refresh_token_ttl_days: int = Field(default=7, alias="REFRESH_TOKEN_TTL_DAYS")
 
+    # NO USADO (2026-10-22): el ``CMD`` del Dockerfile fija
+    # ``--host 0.0.0.0 --port 8000`` en duro, y el healthcheck usa el
+    # 8000. Si se cambia el puerto hay que cambiarlo en los dos sitios
+    # (y aquí no sirve de nada).
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")
     api_port: int = Field(default=8000, alias="API_PORT")
     cors_origins: str = Field(default="http://localhost:5173,http://localhost:3000", alias="CORS_ORIGINS")
 
+    # NO USADO (2026-10-22), los tres: el motor y el idioma los elige el
+    # **servicio OCR** (docker/ocr), con sus propias variables
+    # ``OCR_ENGINE`` y ``OCR_LANG``. OJO con ``ocr_lang``: su valor de
+    # aquí ("es") NO es el que se usa; el servicio va con "en" (modelo
+    # de matrículas EU).
+    #
+    # Y ``ocr_confidence_threshold`` tampoco: el filtro de confianza
+    # real es el ``confidence_threshold`` de **cada geocerca** (lo
+    # calibra el operador al pintar la plaza). Poner este valor no
+    # descarta ninguna lectura.
     ocr_engine: Literal["paddleocr", "tesseract"] = Field(default="paddleocr", alias="OCR_ENGINE")
     ocr_lang: str = Field(default="es", alias="OCR_LANG")
     ocr_confidence_threshold: float = Field(default=0.85, alias="OCR_CONFIDENCE_THRESHOLD")
@@ -101,6 +119,10 @@ class Settings(BaseSettings):
     # ``/var/log/solidapp/backend.log`` que Promtail scrapea → Loki).
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     log_format: Literal["json", "plain"] = Field(default="plain", alias="LOG_FORMAT")
+    # NO USADO por la aplicación (2026-10-22): los logs salen por stdout
+    # y los reenvía Promtail, que tiene su URL en
+    # ``infra/promtail/promtail-config.yaml``. Ponerlo aquí no cambia
+    # nada.
     loki_url: str = Field(default="http://loki:3100", alias="LOKI_URL")
     # Retención del histórico de audit_logs (1 año por defecto, alineado
     # con la política del producto documentada en memoria). Usada por la

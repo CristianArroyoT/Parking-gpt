@@ -110,6 +110,11 @@ def _comprobaciones() -> list[Comprobacion]:
             patron=r"(OK: toda tarea sin ejecutar tiene su motivo.*)",
         ),
         Comprobacion(
+            "Los ajustes muertos del backend tienen su motivo",
+            [py, "tools/verificar_ajustes_muertos.py"],
+            patron=r"(OK: todo ajuste muerto tiene su motivo.*)",
+        ),
+        Comprobacion(
             "Modelos y migraciones coinciden",
             [
                 "docker", "exec",
