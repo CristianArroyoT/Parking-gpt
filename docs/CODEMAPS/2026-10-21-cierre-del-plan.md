@@ -2019,14 +2019,3 @@ verde** (solo comparaba el recuento de filas).
 los recupera, y el simulacro mete un fichero de prueba y comprueba que
 vuelve con su contenido.
 
-### 3-sexagésimocuarta. Los informes CSV no neutralizaban las fórmulas (2026-10-22)
-
-Los exportes CSV meten datos que pone un usuario (la matrícula —que el
-alta manual no valida— y el nombre de la sucursal) y se escribían con
-`csv.writer` tal cual: una celda que empieza por `=` se ejecutaba al
-abrir el CSV en Excel o LibreOffice (`=cmd|'/c calc'!A0` ejecuta un
-comando en Windows).
-
-**El arreglo**: `escapar_celda_csv` (apóstrofo delante, patrón OWASP)
-aplicado a todas las celdas en el punto de salida. Los **números no se
-escapan**: un importe negativo no es una fórmula.

