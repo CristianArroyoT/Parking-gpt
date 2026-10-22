@@ -486,3 +486,115 @@ def _force_settings_max(
     if window_seconds is not None:
         data["login_rate_limit_window_seconds"] = window_seconds
     monkeypatch.setattr(cfg_mod, "get_settings", lambda: SimpleNamespace(**data))
+
+
+# ── T-59: el rate-limit cubre las DOS vias de login ──────────────────────
+#
+# OJO (2026-10-22): ``POST /auth/login/oauth`` (form-urlencoded) hace el
+# MISMO ``verify_password`` que ``POST /auth/login`` (JSON) pero NO pasaba
+# por el limitador. Medido contra la API en marcha: 15 intentos por la via
+# OAuth2 devolvieron 15 x 401 y NUNCA un 429, mientras que la via JSON
+# devolvia 429 en el quinto. Es decir: cambiar el ``Content-Type`` de la
+# peticion esquivaba la proteccion de fuerza bruta.
+
+
+def _ip_por_xff(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Parchea ``get_real_ip`` para que use el ``X-Forwarded-For``.
+
+    Sin esto el TestClient ve siempre ``client.host="testclient"`` y el
+    bucket de IP se comparte entre tests (contaminacion).
+    """
+    from app.api.v1 import auth as auth_mod
+    from app.core import ip as ip_mod
+
+    def fake_get_real_ip(request):
+        xff = request.headers.get("x-forwarded-for")
+        return xff.split(",")[0].strip() if xff else "testclient"
+
+    monkeypatch.setattr(auth_mod, "get_real_ip", fake_get_real_ip)
+    monkeypatch.setattr(ip_mod, "get_real_ip", fake_get_real_ip)
+
+
+def test_rate_limit_cubre_tambien_la_via_oauth(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """La via OAuth2 tambien devuelve 429: no se puede esquivar el limite
+    cambiando el Content-Type de la peticion."""
+    monkeypatch.setattr(
+        "app.services.rate_limit.get_settings",
+        lambda: _patched_settings(max_attempts=3),
+    )
+    _force_settings_max(monkeypatch, max_attempts=3)
+    _ip_por_xff(monkeypatch)
+
+    email = "victim-oauth@example.com"
+    _clean_email_buckets(email)
+    cabeceras = {"X-Forwarded-For": "10.10.10.10"}
+
+    for i in range(3):
+        r = client.post(
+            "/api/v1/auth/login/oauth",
+            data={"username": email, "password": "wrong"},
+            headers=cabeceras,
+        )
+        assert r.status_code == 401, f"intento {i}: {r.status_code} {r.text}"
+
+    r = client.post(
+        "/api/v1/auth/login/oauth",
+        data={"username": email, "password": "wrong"},
+        headers=cabeceras,
+    )
+    assert r.status_code == 429, (
+        f"la via OAuth2 no esta limitada: esperaba 429, obtuve {r.status_code}"
+    )
+    assert "Demasiados intentos" in r.text
+
+
+def test_no_se_puede_esquivar_alternando_la_via(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Alternar JSON y OAuth2 tampoco esquiva el limite: el bucket es el
+    mismo, porque las dos vias limitan por IP y por email."""
+    monkeypatch.setattr(
+        "app.services.rate_limit.get_settings",
+        lambda: _patched_settings(max_attempts=3),
+    )
+    _force_settings_max(monkeypatch, max_attempts=3)
+    _ip_por_xff(monkeypatch)
+
+    email = "victim-alterno@example.com"
+    _clean_email_buckets(email)
+    cabeceras = {"X-Forwarded-For": "10.10.10.11"}
+
+    # 2 intentos por la via JSON (cuentas 1 y 2 del mismo bucket).
+    for _ in range(2):
+        r = client.post(
+            "/api/v1/auth/login",
+            json={"email": email, "password": "wrong"},
+            headers=cabeceras,
+        )
+        assert r.status_code == 401, f"JSON: {r.status_code} {r.text}"
+
+    # El tercero, pero por la via OAuth2 (cuenta 3): todavia pasa.
+    r = client.post(
+        "/api/v1/auth/login/oauth",
+        data={"username": email, "password": "wrong"},
+        headers=cabeceras,
+    )
+    assert r.status_code == 401, f"OAuth2 intento 3: {r.status_code} {r.text}"
+
+    # El cuarto (cuenta 4, ya por encima del max=3): da 429, tambien si va
+    # por la via OAuth2. Antes: 401, y el limite se esquivaba alternando.
+    r = client.post(
+        "/api/v1/auth/login/oauth",
+        data={"username": email, "password": "wrong"},
+        headers=cabeceras,
+    )
+    assert r.status_code == 429, (
+        f"alternar las vias esquiva el limite: esperaba 429 en el "
+        f"intento 4, obtuve {r.status_code}"
+    )

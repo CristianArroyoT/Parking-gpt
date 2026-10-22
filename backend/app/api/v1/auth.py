@@ -79,6 +79,41 @@ def _build_tokens(user: User) -> TokenPair:
     )
 
 
+def _comprobar_rate_limit_login(
+    request: Request,
+    db: Session,
+    email: str,
+    extra: dict[str, object] | None = None,
+) -> None:
+    """Aplica el rate-limit de login (por IP y por email) y levanta el 429.
+
+    La usan **las dos** vias de login (JSON y OAuth2). Antes cada una hacia
+    su cuenta y la via OAuth2 se olvidaba del limitador, de modo que cambiar
+    el ``Content-Type`` de la peticion esquivaba la proteccion de fuerza
+    bruta (T-59, medido: 15 intentos por la via oauth sin un solo 429).
+
+    Fail-open si Redis cae (igual que ``LoginRateLimiter``).
+    """
+    client_ip = get_real_ip(request)
+    allowed, bucket, count = rate_limiter.check(ip=client_ip, email=email)
+    if allowed:
+        return
+    payload = {"email": email, "ip": client_ip, "bucket": bucket, "count": count}
+    if extra:
+        payload.update(extra)
+    record_audit_from_request(
+        request, db,
+        action="rate_limited_login",
+        payload=payload,
+        result="failure",
+    )
+    db.commit()
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail="Demasiados intentos. Intenta más tarde.",
+    )
+
+
 @router.post("/login", response_model=TokenPair)
 def login_json(
     payload: LoginRequest,
@@ -89,27 +124,12 @@ def login_json(
     # Si CUALQUIER bucket supera ``login_rate_limit_max_attempts`` en
     # ``login_rate_limit_window_seconds`` → 429 Too Many Requests y
     # audit con ``action=rate_limited_login``. Fail-open si Redis cae.
-    client_ip = get_real_ip(request)
-    allowed, bucket, count = rate_limiter.check(
-        ip=client_ip, email=payload.email,
-    )
-    if not allowed:
-        record_audit_from_request(
-            request, db,
-            action="rate_limited_login",
-            payload={
-                "email": payload.email,
-                "ip": client_ip,
-                "bucket": bucket,
-                "count": count,
-            },
-            result="failure",
-        )
-        db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Demasiados intentos. Intenta más tarde.",
-        )
+    #
+    # OJO (T-59): el limitador vive en una funcion compartida por las DOS
+    # vias de login. Antes cada una hacia su cuenta y la via OAuth2 se
+    # olvidaba del limitador: cambiar el ``Content-Type`` de la peticion
+    # esquivaba la proteccion de fuerza bruta.
+    _comprobar_rate_limit_login(request, db, payload.email)
     user = db.query(User).filter(User.email == payload.email).one_or_none()
     if not user or not verify_password(payload.password, user.hashed_password):
         # Sprint Fase 3A: audit de intento fallido (sin password).
@@ -159,6 +179,13 @@ def login_oauth(
     request: Request = None,  # type: ignore[assignment]
     db: Session = Depends(get_db),
 ) -> TokenPair:
+    # OJO (T-59): esta via hace el MISMO ``verify_password`` que la via
+    # JSON, asi que tiene el MISMO rate-limit. Sin esto, cambiar el
+    # ``Content-Type`` de la peticion esquivaba el limite (medido: 15
+    # intentos por esta via, sin un solo 429).
+    _comprobar_rate_limit_login(
+        request, db, form.username, extra={"grant_type": "oauth_form"},
+    )
     user = db.query(User).filter(User.email == form.username).one_or_none()
     if not user or not verify_password(form.password, user.hashed_password):
         record_audit_from_request(
