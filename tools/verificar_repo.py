@@ -135,6 +135,16 @@ def _comprobaciones() -> list[Comprobacion]:
             timeout=600,
         ),
         Comprobacion(
+            "El servidor de produccion admite los cuerpos que el backend acepta",
+            [py, "tools/verificar_nginx_body_size.py"],
+            patron=r"(OK: nginx admite.*)",
+        ),
+        Comprobacion(
+            "El contexto de build de la imagen de produccion esta limpio",
+            [py, "tools/verificar_contexto_build.py"],
+            patron=r"(OK: el contexto de build.*)",
+        ),
+        Comprobacion(
             "Las puertas se prueban a si mismas",
             [py, "tools/autopruebas.py", "--estricto"],
             patron=r"(\d+ autopruebas? pasan.*)",

@@ -825,8 +825,8 @@ porque el host no resolvía los nombres de servicio de Docker:
 
 | Paso del CI | En el host |
 |---|---|
-| Tests (pytest, SQLite) | **587 passed**, 9 skipped |
-| Tests contra PostgreSQL (pytest) | **596 passed** |
+| Tests (pytest, SQLite) | **604 passed, 9 skipped** |
+| Tests contra PostgreSQL (pytest) | **613 passed** |
 | Test de funciones sólo de SQLite | **13 passed** |
 | Type-check (vue-tsc) y build del frontend | exit 0 |
 | Los cuatro jobs | **VERDE** |
@@ -1769,6 +1769,90 @@ CI** en vez de reimplementarlos.
 
 **Verificado**: la QA sigue en verde con 5/5, y se pone en **rojo** (código 1,
 3 requisitos señalados) contra un servidor que incumple.
+
+### 3-trigésimocuarta. El rate-limit de login se esquivaba cambiando el `Content-Type` (2026-10-22)
+
+`POST /auth/login` (JSON) limitaba por IP y email (10 intentos / 5 min);
+`POST /auth/login/oauth` (form-urlencoded) hacía el mismo `verify_password`
+**sin pasar por el limitador**.
+
+Medido contra la API en marcha:
+
+| Vía | 15 intentos |
+|---|---|
+| OAuth2 | **15 × 401, ningún 429** |
+| JSON | `[401, 401, 401, 401, 429, 429, …]` |
+
+**El arreglo**: el limitador se extrae a una función compartida que llaman
+las dos vías, más dos tests (la vía OAuth2 da 429; alternar las vías no
+esquiva el límite). Probado que los tests detectan el defecto
+reintroducido.
+
+### 3-trigésimoquinta. nginx rechazaba con 413 las fotos de los incidentes (2026-10-22)
+
+nginx limita el tamaño de la petición a **1 MB** si no se dice nada; el
+backend acepta 3 × 10 MB. Medido: una petición de 2 MB devolvía el 413 de
+nginx (HTML) y el backend no la veía. En desarrollo (Vite) no hay límite.
+
+**El arreglo**: `client_max_body_size 32m;` + `tools/verificar_nginx_body_size.py`,
+que compara el límite de nginx con el tope real del backend (leído del
+`config.py`) para que los dos no se desincronicen en silencio.
+
+### 3-trigésimosexta. El correo de recuperación apuntaba a localhost:5173 (2026-10-22)
+
+El enlace del correo de "restablece tu contraseña" era una constante a
+`http://localhost:5173`: en producción el cliente pulsaba el enlace y no
+llegaba a nada.
+
+**El arreglo**: nuevo ajuste `FRONTEND_BASE_URL`; en staging/producción la
+aplicación **no arranca** si no es una URL real por HTTPS (mismo patrón
+que el secreto JWT).
+
+### 3-trigésimoséptima. La IP del cliente la elegía el atacante (2026-10-22)
+
+`get_real_ip` tomaba el **primer** elemento del `X-Forwarded-For` (el que
+escribe el cliente) y nginx **concatenaba** el XFF del cliente: mandando un
+XFF distinto en cada intento se esquivaba el rate-limit de login. Además,
+tres endpoints auditaban `request.client.host` (la IP del proxy).
+
+**El arreglo**: se toma el **último** elemento (el que añade el proxy de
+confianza), nginx **sobreescribe** el XFF con `$remote_addr`, y los tres
+endpoints usan `get_real_ip`. Con `backend/tests/test_ip.py` y un test
+funcional de la auditoría.
+
+### 3-trigésimoctava. La imagen de producción arrastraba el `node_modules` del host (2026-10-22)
+
+El contexto de build de `frontend/Dockerfile.prod` es `frontend/`, y Docker
+busca el `.dockerignore` en la raíz del **contexto**: el de la raíz del
+repositorio no se aplica. El `COPY . .` se llevaba el `node_modules` del
+host (el de Windows) dentro de la imagen.
+
+**El arreglo**: `frontend/.dockerignore` + `tools/verificar_contexto_build.py`.
+
+### 3-trigésimonovena. Dos ajustes de lista no se podían configurar (2026-10-22)
+
+`pydantic-settings` sólo entiende JSON para los campos `list`, así que
+`TRUSTED_PROXIES="172.16.0.0/12,10.0.0.0/8"` (el formato que documenta el
+propio `config.py`) **fallaba al arrancar**. Sin esa variable, el backend
+no sabe qué IP es la del cliente: el rate-limit de login se comparte para
+toda la sucursal y la auditoría guarda la IP del proxy.
+
+**El arreglo**: un validador que acepta comas y JSON, aplicado a
+`trusted_proxies` y `heartbeat_skip_url_prefixes`, y la variable visible
+en el `docker-compose.yml`.
+
+### 3-trigésimotrigésima. Dos suites en paralelo se rompían mutuamente (2026-10-22)
+
+La base de Redis de la suite se elegía con `8 + (pid % 8)`: dos PIDs que
+difieren en un múltiplo de 8 compartían base, y cada suite borraba los
+contadores de la otra al limpiar.
+
+Medido: las dos suites del host en paralelo (SQLite y PostgreSQL) →
+**5 fallos en cada una**, todos de rate-limit ("esperaba 429, obtuve
+201"). En solitario, las dos pasaban.
+
+**El arreglo**: cada ejecución reclama su base con un lock `SET NX` (con
+caducidad de una hora) y, si está ocupada, prueba la siguiente.
 
 
 | Modelo | Tabla | Notas |

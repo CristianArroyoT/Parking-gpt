@@ -88,7 +88,7 @@ D:\Parking\
 │   │   ├── workers/         # instancia Celery
 │   │   └── scripts/seed.py  # datos demo
 │   ├── alembic/             # migraciones iniciales
-│   ├── tests/               # pytest (587 tests)
+│   ├── tests/               # pytest (604 tests)
 │   └── Dockerfile
 ├── frontend/                # Vue 3 + Vite
 │   ├── public/              # logo + favicon

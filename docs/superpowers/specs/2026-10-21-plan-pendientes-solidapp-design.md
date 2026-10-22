@@ -4,11 +4,11 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **330 de 331 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **365 de 366 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
-> | Suite completa | **587 passed** en SQLite · **596 passed** en PostgreSQL |
+> | Suite completa | **604 passed, 9 skipped** en SQLite · **613 passed** en PostgreSQL (medido el 2026-10-22) |
 > | QA visual (Chromium) | **26 pantallas** a **5 anchos** (414, 768, 1024, 1232, 1440 px): 130 capturas, **0 desbordes, 0 errores de consola, 0 errores de login** |
 > | PWA | verificado: instalable y **arranca sin red** |
 > | API | **101 rutas** inventariadas (coinciden con el código) y **99 de 99 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
@@ -1226,6 +1226,119 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] **Probado que la QA se pone en rojo** con un servidor que no cumple: contra el servidor viejo, la QA sale con código 1 y señala los 3 requisitos incumplidos.
   - [x] El README del frontend dice la verdad (qué servidores cumplen y cuántos), y ya no afirma que "el preview cumple las tres" sin medirlo.
 
+### T-59 · P0 (seguridad) — el rate-limit de login se esquivaba cambiando el `Content-Type`
+
+- **Estado**: **completado** — las dos vías de login pasan por el mismo limitador
+- **Contexto**: `POST /auth/login` (JSON) tiene rate-limit por IP y email (10 intentos / 5 min, Sprint Fase 3C). `POST /auth/login/oauth` (form-urlencoded) hace **el mismo `verify_password` contra `User.email`** pero **no pasaba por el limitador** (`backend/app/api/v1/auth.py`: el `rate_limiter.check` estaba solo en la vía JSON).
+- **Medido contra la API en marcha** (no era lectura de código):
+  - Vía OAuth2: **15 intentos → 15 × 401 y ningún 429**.
+  - Vía JSON: `[401, 401, 401, 401, 429, 429, …]` → el 429 llegaba en el quinto.
+  Es decir: **cambiar el `Content-Type` de la petición esquivaba la protección de fuerza bruta**.
+- **El arreglo**:
+  1. El bloque del limitador se extrae a una función compartida (`_comprobar_rate_limit_login`) que **llaman las dos vías**: así no pueden volver a divergir.
+  2. La vía OAuth2 añade `grant_type: "oauth_form"` al audit del bloqueo.
+  3. Dos tests nuevos: la vía OAuth2 devuelve 429, y **alternar** las dos vías tampoco esquiva el límite (el bucket es el mismo).
+- **Criterios de aceptación**:
+  - [x] Medido contra la API en marcha: la vía OAuth2 nunca daba 429 (15 × 401) y la vía JSON sí.
+  - [x] Después del arreglo, la vía OAuth2 da 429 en el **intento 11** (el mismo umbral que la vía JSON).
+  - [x] Test de la vía OAuth2 (4 intentos con `max=3` → el 4º da 429).
+  - [x] Test de que alternar las vías no esquiva el límite (2 por JSON + 2 por OAuth2 → el 4º da 429).
+  - [x] **Probado que los tests detectan el defecto reintroducido** (quitando el limitador de la vía OAuth2): los dos fallan.
+  - [x] Audit `rate_limited_login` en las dos vías.
+
+### T-60 · P0 — nginx rechazaba con 413 las fotos de los incidentes (1 MB por defecto)
+
+- **Estado**: **completado** — límite correcto en nginx + puerta que lo compara con el backend
+- **Contexto**: nginx tiene un límite de tamaño de petición y, **si no se dice nada, es de 1 MB**. El backend acepta `incident_attachment_max_files` (3) ficheros de `incident_attachment_max_bytes` (10 MB) → 30 MB por petición, y el frontend acepta fotos de 10 MB.
+- **Medido contra la imagen de producción**: una petición de **2 MB** devolvía `413 Request Entity Too Large` con un **HTML de nginx** y el backend **nunca la veía**. En desarrollo (Vite) no hay límite, así que el fallo sólo aparecía en producción: subir una foto de móvil a un incidente fallaba siempre, con un mensaje que no explicaba el motivo.
+- **El arreglo**:
+  1. `client_max_body_size 32m;` en el `location /api/` de la plantilla de nginx.
+  2. **`tools/verificar_nginx_body_size.py`**: una puerta que compara el límite de nginx con el tope real del backend (leído del `config.py` con `ast`, sin importar el backend), porque los dos valores están en ficheros distintos y cada uno puede cambiar por su cuenta. Con `--autoprueba` (6 casos de mentira escritos a mano) y paso en el CI.
+- **Criterios de aceptación**:
+  - [x] Medido: 2 MB contra la imagen de producción → **413 de nginx**, el backend no lo veía.
+  - [x] La puerta **detecta el defecto del repo** (sin la directiva: "nginx usa su default (1 MB) y el backend acepta 31457280 bytes").
+  - [x] Autoprueba con 6 casos de mentira (1 MB, sin directiva, 32 MB, 30 MB, 60 MB y 60 contra 90): todos detectados.
+  - [x] Con el arreglo, una petición de 2 MB **llega al backend** (401 con JSON del backend, no 413 de nginx).
+  - [x] La puerta está en `tools/autopruebas.py` y en el job `docker-build` del CI.
+  - [x] `actionlint` exit 0.
+
+### T-61 · P0 — el correo de recuperación de contraseña llevaba un enlace a `localhost:5173`
+
+- **Estado**: **completado** — la URL sale de un ajuste y la aplicación no arranca en producción si no está puesta
+- **Contexto**: `backend/app/services/password_reset_email.py` tenía `_RESET_URL_BASE = "http://localhost:5173/recuperar-contrasena"` **hardcodeado**. En producción el cliente recibía un correo con un enlace a su propio localhost: el flujo de "olvidé mi contraseña" estaba roto de punta a punta. Y el comentario al lado decía *"Frontend (aún no implementado)"*, cuando la página ya existía en el router: el comentario quedó obsoleto y el enlace nunca se actualizó.
+- **El arreglo**:
+  1. Nuevo ajuste `FRONTEND_BASE_URL` (default `http://localhost:5173`, el de desarrollo).
+  2. En `staging`/`production`, la aplicación **no arranca** si la URL no es real por HTTPS (mismo patrón que el secreto JWT: que falle al arrancar con un mensaje claro, en vez de mandar un enlace roto). El mensaje dice exactamente qué exportar.
+  3. El enlace del correo sale del ajuste (`_reset_url_base()`).
+  4. Tests: el enlace usa la URL configurada (y no contiene `localhost`), y la configuración rechaza la URL por defecto y una URL sin HTTPS en producción.
+- **Criterios de aceptación**:
+  - [x] Medido en el código: el enlace era una constante a `localhost:5173`.
+  - [x] En producción, sin `FRONTEND_BASE_URL`, la aplicación **no arranca** (con el mensaje que dice qué exportar).
+  - [x] El enlace del correo sale de `FRONTEND_BASE_URL` (test con `https://app.solidapp.es`).
+  - [x] En desarrollo y test no se comprueba (el equipo de QA usa el valor por defecto a propósito).
+  - [x] **Probado que los tests detectan el defecto reintroducido** (quitando el validador y volviendo a hardcodear el enlace): los 3 tests lo detectan.
+  - [x] `ruff` y `mypy` en verde.
+
+### T-62 · P1 (seguridad) — la IP del cliente la elegía el atacante, y tres endpoints auditaban la del proxy
+
+- **Estado**: **completado** — el XFF se toma por el extremo fiable y la auditoría usa la IP real
+- **Contexto (dos cosas)**:
+  1. `app/core/ip.py` tomaba el **primer** elemento del `X-Forwarded-For`, que es justo el que escribe el cliente: mandando un XFF distinto en cada intento, cada intento caía en un bucket distinto del rate-limit de login y **la protección se esquivaba**. Y nginx **concatena** el XFF del cliente (`$proxy_add_x_forwarded_for`), de modo que el primero era el inyectado.
+  2. Tres endpoints auditaban `request.client.host` (la IP del **proxy**) en vez de la del cliente: crear incidente, subir adjunto y alta manual de ticket. En producción, la trazabilidad de esas acciones era falsa.
+- **El arreglo**:
+  1. `get_real_ip` toma el **último** elemento del XFF (el que añade el proxy de confianza, el más cercano al backend: no lo puede elegir el cliente).
+  2. nginx **sobreescribe** el XFF con `$remote_addr` en vez de concatenar: una sola IP y fiable. Documentado: si delante hay un CDN hay que activar el módulo `realip` de nginx.
+  3. Los tres endpoints usan `get_real_ip(request)`.
+  4. `backend/tests/test_ip.py` (6 tests) y un test funcional de la auditoría de incidentes.
+- **Criterios de aceptación**:
+  - [x] Test: con XFF de varios elementos se usa el **último**.
+  - [x] Test: el atacante **no puede elegir** la IP (el último es siempre el del proxy).
+  - [x] Test: sin proxy de confianza, el XFF se ignora (manda `client.host`).
+  - [x] Test funcional: el audit del incidente guarda la IP del cliente, no la del proxy.
+  - [x] **Probado que los tests detectan las dos mutaciones** (volver al primer elemento; volver a `request.client.host`).
+  - [x] `ruff` y `mypy` en verde.
+
+### T-63 · P1 — la imagen de producción se construía con el `node_modules` del host
+
+- **Estado**: **completado** — `frontend/.dockerignore` + puerta del contexto de build
+- **Contexto**: el contexto de build de `frontend/Dockerfile.prod` es `frontend/`, y Docker busca el `.dockerignore` **en la raíz del contexto**: el de la raíz del repositorio **no se aplica**. Sin un `frontend/.dockerignore`, el `COPY . .` de la etapa de build se llevaba el `node_modules` del host (en esta máquina, el de Windows: `@esbuild/win32-x64`) por encima del que acababa de instalar `npm ci`. La imagen que se construía en local **no era la misma que construye el CI** (que parte de un checkout limpio): el bundle que se despliega en una sucursal podía no ser el que verificó el CI.
+- **El arreglo**:
+  1. `frontend/.dockerignore` (excluye `node_modules`, `dist` y más).
+  2. **`tools/verificar_contexto_build.py`**: puerta que exige que el `.dockerignore` del contexto exista y excluya `node_modules` y `dist`, y que el `Dockerfile.prod` no los copie a mano (las copias `--from=` sí valen). Con `--autoprueba` (6 casos de mentira) y paso en el CI.
+- **Criterios de aceptación**:
+  - [x] Medido: no existía `frontend/.dockerignore` y el `.dockerignore` de la raíz tiene `**/node_modules` (que no se aplica a este contexto).
+  - [x] La imagen se reconstruye con el `.dockerignore` nuevo (build en verde) y la puerta del servidor de producción sigue pasando 5/5.
+  - [x] Autoprueba con 6 casos de mentira: todos detectados.
+  - [x] La puerta está en `tools/autopruebas.py` y en el job `docker-build` del CI.
+  - [x] `actionlint` exit 0.
+
+### T-64 · P1 — dos ajustes de tipo lista no se podían configurar con el formato que documenta el propio código
+
+- **Estado**: **completado** — las listas aceptan el formato con comas (y también JSON)
+- **Contexto**: `pydantic-settings` sólo entiende **JSON** para los campos de tipo lista. Así que `TRUSTED_PROXIES="172.16.0.0/12,10.0.0.0/8"` —el formato que dice el comentario del propio ajuste en `backend/app/core/config.py`— **fallaba al arrancar** con un `ValidationError`. Lo mismo con `HEARTBEAT_SKIP_URL_PREFIXES`.
+- **Medido**: `Settings(TRUSTED_PROXIES="172.16.0.0/12,10.0.0.0/8")` → `ValidationError: Input should be a valid list`. El ajuste **parecía configurable y no lo era** (el patrón que este repo lleva dos docenas de ítems cazando).
+- **Por qué importa**: `TRUSTED_PROXIES` es lo que le dice al backend qué IP es la del cliente y cuál la del proxy. Sin poder configurarlo, quien despliega en producción (con el nginx fuera de los rangos por defecto) se queda con **todos los usuarios compartiendo la misma IP** en el rate-limit de login (10 intentos / 5 min contados como si fueran la misma persona) y con la auditoría guardando la IP del proxy.
+- **El arreglo**: un validador de campo que acepta los dos formatos (JSON y lista separada por comas), aplicado a `trusted_proxies` y `heartbeat_skip_url_prefixes`.
+- **Criterios de aceptación**:
+  - [x] Medido: el formato con comas daba `ValidationError` al arrancar.
+  - [x] Las dos listas se configuran ahora con comas (test).
+  - [x] JSON sigue funcionando (test).
+  - [x] Una lista vacía se queda vacía (test).
+  - [x] `TRUSTED_PROXIES` queda **visible en el `docker-compose.yml`**, para que quien despliegue lo vea sin tener que leer el código.
+  - [x] `ruff` y `mypy` en verde.
+
+### T-65 · P1 — dos suites en paralelo se rompían mutuamente los tests de rate-limit
+
+- **Estado**: **completado** — cada ejecución toma su base de Redis con un lock
+- **Contexto**: la suite aísla sus contadores de Redis en una base propia, elegida **por PID**: `8 + (os.getpid() % 8)` (`backend/tests/conftest.py`). Eso **no** garantiza que dos ejecuciones paralelas caigan en bases distintas: dos PIDs que difieren en un múltiplo de 8 comparten base.
+- **Medido** (2026-10-22): las dos suites del host en paralelo (SQLite y PostgreSQL) → **5 fallos en cada una**, todos de rate-limit ("esperaba 429, obtuve 201"): cada suite borraba los contadores de la otra al limpiar, así que ninguna veía el 429 que esperaba. En solitario, las dos pasaban.
+- **El arreglo**: cada ejecución **reclama** una base con un lock (`SET NX`, con caducidad de una hora por si el proceso muere sin soltarlo) y, si está ocupada, prueba la siguiente. Si no hay ninguna libre, error claro.
+- **Criterios de aceptación**:
+  - [x] Medido: dos suites del host en paralelo → 5 + 5 fallos de rate-limit (en solitario, las dos pasaban).
+  - [x] Con el lock, **las dos suites en paralelo pasan las dos**.
+  - [x] `ruff` en verde.
+  - [x] La afirmación del `AGENTS.md` ("la suite aguanta dos ejecuciones en paralelo") es ahora cierta, no sólo para el resto de la suite sino también para los tests de rate-limit.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.
@@ -1534,7 +1647,7 @@ T-22 (recuperación de contraseña) ──> T-24 (PWA, que necesita self-service
 
 - [x] `cd backend && ruff check app tests` → sin errores.
 - [x] `cd backend && mypy app` → **sin errores** (modo `strict`). Antes daba 77 y su paso iba con `continue-on-error: true`; ver T-28.
-- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **587 passed en SQLite y 596 en PostgreSQL** (las cifras del CI; en el contenedor de desarrollo son **585 passed, 10 skipped** y **595 passed, 1 skipped**, porque allí sólo se monta `backend/` y el test que comprueba la nota del README sobre el reconocimiento facial se salta).
+- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **604 passed, 9 skipped** en SQLite y **613 passed** en PostgreSQL (las cifras del CI; en el contenedor de desarrollo son **603 passed, 10 skipped** y **612 passed, 1 skipped**, porque allí sólo se monta `backend/` y el test que comprueba la nota del README sobre el reconocimiento facial se salta).
 - [x] `docker compose up -d` → todos los servicios *healthy* y `/health` responde 200.
 - [x] QA visual en el navegador de las pantallas tocadas (con la app real, no sólo tests).
       → **HECHA** con Chromium headless (Playwright) sobre la app real

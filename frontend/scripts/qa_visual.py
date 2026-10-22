@@ -45,7 +45,10 @@ except ImportError:  # pragma: no cover - depende del entorno
 #: Código de salida de la autoprueba cuando no se puede comprobar.
 SIN_NAVEGADOR = 3
 
-BASE = "http://localhost:5173"
+#: Servidor contra el que se corre la QA por defecto: el de DESARROLLO
+#: (Vite con HMR). Con ``--base`` se puede correr contra cualquier otro
+#: (por ejemplo, el bundle de produccion servido por nginx).
+BASE_POR_DEFECTO = "http://localhost:5173"
 
 # (etiqueta, ruta, rol, nombre de fichero)
 #
@@ -405,7 +408,7 @@ def _autoprueba() -> int:
     return 0
 
 
-def _visitar(pagina: Page, ruta: str) -> str | None:
+def _visitar(pagina: Page, ruta: str, base: str) -> str | None:
     """Abre una ruta y espera a que se calle la red.
 
     Devuelve un aviso si la red no se quedó quieta a tiempo, o ``None``
@@ -418,7 +421,7 @@ def _visitar(pagina: Page, ruta: str) -> str | None:
     red, que es como se confundía antes.
     """
     try:
-        pagina.goto(f"{BASE}{ruta}", wait_until="networkidle", timeout=15000)
+        pagina.goto(f"{base}{ruta}", wait_until="networkidle", timeout=15000)
     except PlaywrightTimeout:
         return "la red no se quedo quieta (video en directo o teselas del mapa)"
     except Exception as exc:  # noqa: BLE001 — la QA no debe abortar
@@ -426,7 +429,7 @@ def _visitar(pagina: Page, ruta: str) -> str | None:
     return None
 
 
-def _login(page: Page, email: str, password: str) -> tuple[bool, str]:
+def _login(page: Page, email: str, password: str, base: str) -> tuple[bool, str]:
     """Inicia sesión. Devuelve ``(ok, motivo_del_fallo)``.
 
     Es importante que **no lance**: si el servidor de desarrollo acaba
@@ -450,7 +453,7 @@ def _login(page: Page, email: str, password: str) -> tuple[bool, str]:
 
     page.on("response", _capturar)
     try:
-        page.goto(f"{BASE}/login", wait_until="domcontentloaded", timeout=30000)
+        page.goto(f"{base}/login", wait_until="domcontentloaded", timeout=30000)
         page.fill("input[type=email]", email)
         page.fill("input[type=password]", password)
         page.click("button[type=submit]")
@@ -478,6 +481,7 @@ def _recorrer(
     red: list[str],
     resultados: list[Resultado],
     avisos: list[str],
+    base: str = BASE_POR_DEFECTO,
 ) -> None:
     """Recorre las pantallas de un rol (o las públicas) en un ancho."""
     for etiqueta, ruta, rol_needed, nombre in PANTALLAS:
@@ -488,7 +492,7 @@ def _recorrer(
             continue
         consola.clear()
         red.clear()
-        aviso = _visitar(pagina, ruta)
+        aviso = _visitar(pagina, ruta, base)
         if aviso:
             avisos.append(f"{etiqueta} @{ancho}px: {aviso}")
         pagina.wait_for_timeout(700)
@@ -539,6 +543,15 @@ def main() -> int:
             "bloquea la QA a partir del cuarto ancho)."
         ),
     )
+    ap.add_argument(
+        "--base",
+        default=BASE_POR_DEFECTO,
+        help=(
+            "Servidor contra el que se corre la QA. Por defecto, el de "
+            "desarrollo (Vite con HMR). Para probar el bundle de produccion: "
+            "--base http://127.0.0.1:8091 (con la imagen de nginx levantada)."
+        ),
+    )
     args = ap.parse_args()
     if args.autoprueba:
         return _autoprueba()
@@ -554,6 +567,10 @@ def main() -> int:
     if not anchos:
         print("No hay ningún ancho que comprobar.")
         return 2
+
+    base = args.base.rstrip("/")
+    if base != BASE_POR_DEFECTO:
+        print(f"QA contra {base} (no es el servidor de desarrollo)")
 
     salida = Path(args.salida)
     salida.mkdir(parents=True, exist_ok=True)
@@ -596,7 +613,7 @@ def main() -> int:
             destino.mkdir(parents=True, exist_ok=True)
             _recorrer(
                 pagina_publica, destino, ancho, "ninguno",
-                consola_publica, red_publica, resultados, avisos,
+                consola_publica, red_publica, resultados, avisos, base,
             )
         contexto_publico.close()
 
@@ -628,7 +645,7 @@ def main() -> int:
                 lambda req: _sin_respuesta(red, req),
             )
             email, password = CUENTAS[rol]
-            ok, motivo = _login(pagina, email, password)
+            ok, motivo = _login(pagina, email, password, base)
             inicios_de_sesion += 1
             if not ok:
                 errores_login.append(f"{rol}: no se pudo iniciar sesión ({motivo})")
@@ -641,11 +658,13 @@ def main() -> int:
                 destino.mkdir(parents=True, exist_ok=True)
                 _recorrer(
                     pagina, destino, ancho, rol, consola, red, resultados, avisos,
+                    base,
                 )
             contexto.close()
         navegador.close()
 
     informe = {
+        "base": base,
         "anchos": anchos,
         "inicios_de_sesion": inicios_de_sesion,
         "canceladas": list(CANCELADAS),
