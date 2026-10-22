@@ -176,16 +176,14 @@ def comprobar(
                     "en este repositorio publico (T-74)"
                 )
 
-    frontend = servicios_prod.get("frontend", {})
-    if "Dockerfile.prod" not in frontend.get("__build__", "") + texto_prod:
-        # El build del frontend se comprueba sobre el texto (el parser
-        # anterior solo recoge `environment`).
-        if "dockerfile: Dockerfile.prod" not in texto_prod:
-            problemas.append(
-                "el frontend del compose de producción no se construye con "
-                "el Dockerfile.prod: en una sucursal se serviria el "
-                "dev-server de Vite en vez de la imagen de produccion (T-74)"
-            )
+    # El `build:` del frontend se comprueba sobre el texto: el parser de
+    # arriba solo recoge los bloques `environment`.
+    if "dockerfile: Dockerfile.prod" not in texto_prod:
+        problemas.append(
+            "el frontend del compose de producción no se construye con "
+            "el Dockerfile.prod: en una sucursal se serviria el "
+            "dev-server de Vite en vez de la imagen de produccion (T-74)"
+        )
 
     # Los valores de los servicios del backend tienen que poder cargarse
     # en ``Settings``. Se valida el CONJUNTO de variables de cada servicio
