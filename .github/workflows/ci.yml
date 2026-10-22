@@ -26,11 +26,6 @@ jobs:
         options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 5
 
     env:
-      # Sprint Fase 4 CI fix (2026-07-06): GH Actions deprecó Node 20 en
-      # 2025-09-19 y fuerza Node 24. Las acciones @v4/@v5 targetean Node 20
-      # → conflicto en cache de dependencias. Esta env var autoriza a las
-      # acciones deprecadas a seguir corriendo en su versión original.
-      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
       # Motor de la BD de test: SQLite en memoria (rápido, sin servicios).
       # ``tests/conftest.py`` fuerza estas variables antes de importar la app.
       DATABASE_URL: "sqlite+pysqlite:///:memory:"
@@ -46,8 +41,8 @@ jobs:
         working-directory: backend
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: "pip"
@@ -160,7 +155,6 @@ jobs:
         options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 5
 
     env:
-      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
       # ÉSTA es la variable que activa el motor real (la lee tests/conftest.py).
       TEST_DATABASE_URL: "postgresql+psycopg://parking:parking@localhost:5432/parking_test"
       DATABASE_URL: "postgresql+psycopg://parking:parking@localhost:5432/parking_test"
@@ -176,8 +170,8 @@ jobs:
         working-directory: backend
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: "pip"
@@ -282,7 +276,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build de la imagen del backend
         run: |
@@ -320,32 +314,37 @@ jobs:
           docker build --tag solidapp-frontend:ci frontend/
 
   # ── Frontend: type-check + build ──────────────────────────────────────
+  # OJO (2026-10-22): aquí ya no hace falta el workaround de Node 20. Las
+  # tres acciones del workflow corren en node24 (checkout@v5,
+  # setup-python@v6, setup-node@v5), así que la variable
+  # ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION, que autorizaba a ejecutar
+  # versiones de Node **inseguras**, se ha quitado de los tres jobs.
   frontend:
     name: Frontend (vue-tsc, build)
     runs-on: ubuntu-latest
-
-    env:
-      # Mismo workaround que backend: GH Actions deprecó Node 20 y la
-      # acción @v4 de setup-node entra en conflicto con el runner Node 24.
-      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
 
     defaults:
       run:
         working-directory: frontend
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: "20"
-          # Sprint Fase 4 CI fix (2026-07-06): el proyecto usa `npm install`
-          # (sin package-lock.json). Quitamos cache de npm porque apunta
-          # a un archivo inexistente y rompe el step con 'Some specified
-          # paths were not resolved'. Si en el futuro se migra a `npm ci`
-          # con lock file, se puede reactivar.
-          cache: ""
+          # (2026-10-22): desde setup-node@v5, si el ``package.json`` trae
+          # un campo ``packageManager``, la acción **activa el cache de npm
+          # por su cuenta**. Aquí no lo queremos (el proyecto no tiene
+          # ``packageManager`` y el cache apuntaría a un lock file que
+          # antes no existía), así que se desactiva explícitamente.
+          package-manager-cache: false
 
       - name: Instalar dependencias
+        # OJO (2026-10-22): el comentario de setup-node de arriba decía que
+        # NO había package-lock.json, pero sí lo hay (y está versionado).
+        # ``npm ci`` es lo correcto: instala exactamente las versiones
+        # fijadas. El ``|| npm install`` queda como red de seguridad por si
+        # el lock file dejara de estar versionado algún día.
         run: npm ci || npm install
 
       - name: Linter (eslint)

@@ -142,6 +142,17 @@ docker run --rm -v "D:\Parking:/repo" -w /repo rhysd/actionlint:latest .github/w
   del backend, y en el CI el job `backend` habría muerto con
   `ModuleNotFoundError` (T-44). Para comprobar el arranque en frío de
   un paso, usa un venv vacío.
+- **El host tampoco es la versión de Node ni de Python del CI** (Node
+  24 vs 20, Python 3.13 vs 3.11). Para probar de verdad el job
+  `frontend` o el `backend`, míralos en un contenedor limpio:
+  `docker run --rm -v "D:\Parking\frontend:/app" -w /app node:20 sh -c
+  "npm ci && npm run lint && npx vue-tsc --noEmit && npm run build"`.
+- **Las acciones del workflow se fijan en la versión que corre en
+  node24** (`checkout@v5`, `setup-python@v6`, `setup-node@v5`). Las
+  versiones `@v4`/`@v5` corren en **node20**, que la plataforma ya
+  desuscribió, y obligaban a usar
+  `ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION` (autorizar Node *inseguro*).
+  Esa variable ya no está en el workflow: no la vuelvas a poner.
 
 ## El bloqueo conocido
 

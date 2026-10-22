@@ -1166,6 +1166,66 @@ nada: el job `backend` habría seguido en rojo y el criterio seguía sin
 poder marcarse. La causa no era la cuenta: era del repo.
 
 
+### 3-trigésimoséptima. Las acciones del workflow iban 3 versiones por detrás y dependían de un workaround sin validar (2026-10-22)
+
+T-44 destapó que la réplica local del CI no reproduce un runner limpio.
+Aplicando esa misma mirada al **workflow en sí**, salió otra cosa.
+
+El workflow fijaba `actions/checkout@v4`, `actions/setup-python@v5` y
+`actions/setup-node@v4` — tres versiones mayores por detrás — y su
+propio comentario explicaba por qué:
+
+> *"GH Actions deprecó Node 20 en 2025-09-19 y fuerza Node 24. Las
+> acciones @v4/@v5 targetean Node 20 → conflicto en cache de
+> dependencias. Esta env var autoriza a las acciones deprecadas a seguir
+> corriendo en su versión original."*
+
+**Medido contra la API de GitHub** (el runtime de Node de cada versión,
+leído del `action.yml` de cada etiqueta):
+
+| Acción | Fijada | Runtime | Primera con node24 |
+|---|---|---|---|
+| `actions/checkout` | v4 | **node20** | v5 |
+| `actions/setup-python` | v5 | **node20** | v6 |
+| `actions/setup-node` | v4 | **node20** | v5 |
+
+Las tres estaban en **node20, un runtime desuscrito**, y dependían de
+`ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION` — cuyo nombre dice, literalmente,
+que autoriza a ejecutar versiones de Node **inseguras**. Como el CI no
+arranca un job desde el 2026-07-07, esas versiones estaban **completamente
+sin validar** contra la plataforma de hoy: el workflow podía fallar en el
+**primer paso** (el checkout), antes de ejecutar nada del proyecto.
+
+**El arreglo: el salto mínimo al runtime soportado**, no el más grande.
+`checkout@v5`, `setup-python@v6`, `setup-node@v5` — una versión mayor, no
+tres. Los cambios incompatibles se revisaron uno a uno:
+
+- `setup-python@v6`: sólo "upgrade a node 24" (requiere runner ≥ v2.327.1;
+  los runners hospedados lo son). Ninguna entrada cambia.
+- `setup-node@v5`: "upgrade a node 24" y **auto-cache de npm** si el
+  `package.json` trae un campo `packageManager`. Este proyecto no lo
+  tiene, pero se desactiva explícitamente con `package-manager-cache:
+  false` (la forma que documenta la acción), en vez del `cache: ""` de
+  antes.
+- `checkout@v5`: node 24, sin cambios que afecten (no usa entradas).
+
+Y se **elimina** `ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION` de los tres
+jobs: ya no hay nada que autorizar.
+
+**Lo que se verificó al mismo tiempo** (la otra mitad del mismo audit):
+
+| Entorno | Simulación | Resultado |
+|---|---|---|
+| Job `frontend` | contenedor `node:20`, `npm ci` desde cero | lint, type-check y build **en verde** (36 assets en el precache) |
+| Job `backend` | contenedor `python:3.11-slim`, `pip install -e ".[dev]"` desde cero | **565 passed, 10 skipped** |
+| Fin de línea | `git ls-files --eol` | todos los ejecutables guardados con **LF** ✓ |
+| Dependencias | `package-lock.json` | **existe y está versionado** (el comentario decía lo contrario) |
+
+Nota: el host usa **Node 24** y el CI usa **Node 20**, y el host usa
+Python 3.13 y el CI 3.11. Las dos simulaciones de arriba son las que
+verifican de verdad esos jobs.
+
+
 | Modelo | Tabla | Notas |
 |---|---|---|
 | `IncidentAttachment` | `incident_attachments` | `alert_id` con `ON DELETE CASCADE`; el binario **no** está en la BD, vive en el volumen `incident_attachments` |

@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **262 de 263 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **268 de 269 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -927,6 +927,38 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] En el host (con playwright): "Las 11 autopruebas pasan", código 0, también con `--estricto`.
   - [x] El workflow instala el navegador antes de las autopruebas, y las autopruebas del CI van con `--estricto`.
   - [x] `actionlint` exit 0 y el job `backend` replicado en local con el paso nuevo.
+
+### T-45 · P0 — las acciones del workflow iban 3 versiones por detrás y dependían de un workaround ya sin validar
+
+- **Estado**: **completado** — las tres acciones pasan a la versión que corre en node24, y el workaround de Node "inseguro" desaparece
+- **Contexto**: T-44 destapó que la réplica local del CI no reproduce un runner limpio. Aplicando esa misma mirada al **workflow en sí**, salió otra cosa: el workflow fijaba `actions/checkout@v4`, `actions/setup-python@v5` y `actions/setup-node@v4` — **tres versiones mayores por detrás** de las actuales — y su propio comentario explicaba por qué:
+  > *"GH Actions deprecó Node 20 en 2025-09-19 y fuerza Node 24. Las acciones @v4/@v5 targetean Node 20 → conflicto en cache de dependencias. Esta env var autoriza a las acciones deprecadas a seguir corriendo en su versión original."*
+- **El problema, medido contra la API de GitHub** (el runtime de Node de cada versión, leído del `action.yml` de cada etiqueta):
+
+  | Acción | Fijada | Runtime | Primera versión con node24 |
+  |---|---|---|---|
+  | `actions/checkout` | v4 | **node20** | v5 |
+  | `actions/setup-python` | v5 | **node20** | v6 |
+  | `actions/setup-node` | v4 | **node20** | v5 |
+
+  Las tres estaban en **node20, un runtime que la plataforma ya ha desuscrito** y fuerza a node24, y dependían de `ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION` — una variable cuyo nombre dice, literalmente, que autoriza a ejecutar versiones de Node **inseguras**, y que la plataforma puede retirar cuando quiera. Como el CI **no ha arrancado un job desde el 2026-07-07**, esas versiones estaban **completamente sin validar contra la plataforma de hoy**: el workflow podía fallar en el **primer paso** (el checkout), antes de ejecutar nada del proyecto.
+- **El arreglo**: el **salto mínimo** al runtime soportado, no el más grande. `checkout@v5`, `setup-python@v6`, `setup-node@v5` — una versión mayor, no tres. Los cambios incompatibles de esas versiones se revisaron uno a uno en sus notas de versión:
+  - `setup-python@v6`: sólo "upgrade a node 24" (requiere runner ≥ v2.327.1, y los runners hospedados de GitHub lo son). Ninguna entrada cambia.
+  - `setup-node@v5`: "upgrade a node 24" y **auto-cache de npm** si el `package.json` trae un campo `packageManager`. Este proyecto no lo tiene, pero se desactiva explícitamente con `package-manager-cache: false` (que es justo la forma que documenta la acción), en lugar del `cache: ""` de antes.
+  - `checkout@v5`: node 24, sin cambios que afecten a este workflow (no usa entradas).
+  - Y se **elimina** `ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION` de los tres jobs: ya no hay nada que autorizar.
+- **Lo que se verificó al mismo tiempo** (porque es la otra mitad del mismo audit):
+  - **Job `frontend` en su entorno real**: un contenedor `node:20` con `npm ci` **desde cero** (Node 20 = el del CI, host = Node 24) → `npm ci`, `npm run lint`, `npx vue-tsc --noEmit` y `npm run build`: **todo en verde**, 36 assets en el precache del service worker.
+  - **Job `backend` en su entorno real**: un contenedor `python:3.11-slim` limpio con `pip install -e ".[dev]"` **desde cero** → **565 passed, 10 skipped**.
+  - **Fin de línea**: todos los ficheros ejecutables (`.sh` y el hook) están guardados con **LF** en el repo, así que en Linux no hay `/bin/bash^M: bad interpreter`. El `.gitattributes` ya lo fuerza para `*.sh`.
+  - **`package-lock.json`**: **sí existe y sí está versionado** (el comentario del workflow decía lo contrario). Se corrige el comentario: `npm ci` es lo correcto.
+- **Criterios de aceptación**:
+  - [x] Las tres acciones del workflow corren en **node24** (comprobado leyendo el `action.yml` de cada etiqueta).
+  - [x] Se elimina `ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION` de los tres jobs.
+  - [x] `setup-node` desactiva el auto-cache de npm de la v5 de forma explícita.
+  - [x] Los cambios incompatibles de las tres versiones revisados en sus notas de versión: ninguno afecta a este workflow.
+  - [x] `actionlint` exit 0 con el workflow actualizado.
+  - [x] El job `frontend` pasa entero en `node:20` con instalación limpia, y el job `backend` en `python:3.11-slim` con instalación limpia.
 
 ### T-14 · I3 — OCR con GPU
 
