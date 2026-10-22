@@ -210,11 +210,52 @@ def _stack_arriba() -> tuple[bool, str]:
     return True, ""
 
 
+def _autoprueba() -> int:
+    """Comprueba que ESTA puerta detecta un fallo.
+
+    Es la puerta de todas las puertas: si dejara de contar los fallos,
+    todo lo demás dejaría de importar. Se ejecuta con una comprobación
+    inyectada que falla siempre y se comprueba que sale con código 1.
+    """
+    print("AUTOPRUEBA DE LA PUERTA DEL REPO")
+    print("=" * 78)
+    comprobacion_rota = Comprobacion(
+        "comprobacion de mentira (debe fallar)",
+        [sys.executable, "-c", "raise SystemExit(3)"],
+        patron=r"(.*)",
+    )
+    ok, resumen, _segundos = _ejecutar(comprobacion_rota)
+    if ok:
+        print("  FALLO: una comprobacion que falla no se ha detectado")
+        return 1
+    print(f"  OK: una comprobacion que falla se detecta (resumen: {resumen[:60]})")
+
+    # Y la comprobacion buena, para comprobar que no se marca como FALLO
+    # lo que pasa.
+    comprobacion_buena = Comprobacion(
+        "comprobacion de mentira (debe pasar)",
+        [sys.executable, "-c", "print('todo bien')"],
+        patron=r"(todo bien)",
+    )
+    ok, _resumen, _segundos = _ejecutar(comprobacion_buena)
+    if not ok:
+        print("  FALLO: una comprobacion que pasa se ha marcado como fallo")
+        return 1
+    print("  OK: una comprobacion que pasa no se marca como fallo")
+    print("Autoprueba correcta: la puerta detecta los fallos.")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--completo", action="store_true",
                     help="Anade el CI local y la QA visual en los cinco anchos")
+    ap.add_argument("--autoprueba", action="store_true",
+                    help="Comprueba que esta puerta detecta un fallo")
     args = ap.parse_args()
+
+    if args.autoprueba:
+        return _autoprueba()
 
     print("ESTADO DEL REPOSITORIO solidAPP")
     print("=" * 78)

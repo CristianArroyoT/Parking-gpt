@@ -143,6 +143,82 @@ def _desbordes(pagina: Page) -> list[str]:
         return [f"no se pudo evaluar el desbordamiento: {type(exc).__name__}"]
 
 
+#: Páginas de mentira para probar el detector de desbordes.
+#:
+#: El detector es el que destapó los 26 desbordes del móvil, así que
+#: tiene que quedar demostrado que sigue viendo. Cada página monta un
+#: caso distinto del detector.
+CASOS_DESBORDE: list[tuple[str, str, bool, str]] = [
+    (
+        "contenido recortado",
+        "<div style='width:300px;overflow:hidden'><div style='width:900px'>ancho</div></div>",
+        True,
+        "[recortado]",
+    ),
+    (
+        "contenido desbordado",
+        "<div style='width:300px'><div style='width:900px'>ancho</div></div>",
+        True,
+        "[desbordado]",
+    ),
+    (
+        "contenido con scroll propio (la solucion, no el defecto)",
+        "<div style='width:300px;overflow-x:auto'><div style='width:900px'>ancho</div></div>",
+        False,
+        "",
+    ),
+    (
+        "contenido que cabe",
+        "<div style='width:300px'>cabe</div>",
+        False,
+        "",
+    ),
+    (
+        "pagina con scroll horizontal",
+        "<div style='width:900px'>ancho</div>",
+        True,
+        "documento con scroll horizontal",
+    ),
+]
+
+
+def _autoprueba() -> int:
+    """Comprueba que el detector de desbordes SIGUE detecting.
+
+    Una puerta que no se puede ver fallar no es una puerta. Este
+    detector es el que destapo los 26 desbordes del movil: si dejara de
+    verlos, la QA pasara todas las pantallas y nadie se enterara.
+    """
+    fallos = 0
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        pagina = navegador.new_page(viewport={"width": 360, "height": 800})
+        for nombre, html, debe_detectar, marca in CASOS_DESBORDE:
+            pagina.set_content(f"<html><body>{html}</body></html>")
+            pagina.wait_for_timeout(60)
+            encontrados = pagina.evaluate(JS_DESBORDES) or []
+            detectado = bool(encontrados)
+            if detectado != debe_detectar:
+                fallos += 1
+                print(
+                    f"  FALLO: {nombre} -> detectado={detectado} "
+                    f"(se esperaba {debe_detectar})"
+                )
+                continue
+            if marca and not any(marca in e for e in encontrados):
+                fallos += 1
+                print(f"  FALLO: {nombre} -> detectado pero sin la marca {marca!r}")
+                continue
+            print(f"  OK: {nombre} -> {'detectado' if detectado else 'limpio'}")
+        navegador.close()
+
+    if fallos:
+        print(f"Autoprueba FALLIDA: {fallos} caso(s).")
+        return 1
+    print("Autoprueba correcta: el detector de desbordes sigue viendo.")
+    return 0
+
+
 def _visitar(pagina: Page, ruta: str) -> str | None:
     """Abre una ruta y espera a que se calle la red.
 
@@ -189,6 +265,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--salida", default="D:/tmp/qa-solidapp")
     ap.add_argument(
+        "--autoprueba", action="store_true",
+        help="Comprueba que el detector de desbordes sigue detectando (no necesita la app)",
+    )
+    ap.add_argument(
         "--ancho", type=int, default=1440,
         help=(
             "Ancho del viewport en px. 1440 es el ancho de referencia; "
@@ -197,6 +277,8 @@ def main() -> int:
         ),
     )
     args = ap.parse_args()
+    if args.autoprueba:
+        return _autoprueba()
     salida = Path(args.salida)
     salida.mkdir(parents=True, exist_ok=True)
     viewport = {"width": args.ancho, "height": 900}

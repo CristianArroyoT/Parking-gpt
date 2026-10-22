@@ -40,6 +40,14 @@ AUTOPRUEBAS: list[tuple[str, list[str]]] = [
         "El escaner de secretos detecta los secretos y respeta las exenciones",
         [sys.executable, "tools/escanear_secretos.py", "--autoprueba"],
     ),
+    (
+        "El detector de desbordes de la QA sigue viendo",
+        [sys.executable, "frontend/scripts/qa_visual.py", "--autoprueba"],
+    ),
+    (
+        "La puerta del repo detecta los fallos",
+        [sys.executable, "tools/verificar_repo.py", "--autoprueba"],
+    ),
 ]
 
 

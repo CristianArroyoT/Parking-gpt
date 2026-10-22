@@ -310,12 +310,108 @@ def formatear(resultados: list[Resultado], informe: list[Entrada], slo: dict[str
     return "\n".join(lineas)
 
 
+def _autoprueba() -> int:
+    """Comprueba que el verificador del SLO SIGUE incumpliendo lo que debe.
+
+    Dos casos, y el segundo es el importante:
+
+    1. Un p95 por encima del umbral tiene que fallar.
+    2. **Una aparición de un preview omitido con un 409 tiene que fallar.**
+       Esa métrica (``max_peticiones``) existe porque Locust cuenta un
+       409 como "éxito" (es una regla de negocio, no un fallo HTTP): sin
+       ella el SLO era ciego justo al síntoma del P2 del preview. Si
+       la métrica dejara de contar, el SLO volvería a ser ciego sin
+       avisar, y eso no se ve hasta que pasa de verdad.
+
+    Y además: el informe de referencia tiene que cumplir.
+    """
+    import tempfile
+
+    def entrada(
+        method: str, name: str, peticiones: int, fallos: int, tiempos: dict[int, int]
+    ) -> dict[str, Any]:
+        return {
+            "method": method,
+            "name": name,
+            "num_requests": peticiones,
+            "num_failures": fallos,
+            "total_content_length": 1000 * peticiones,
+            "response_times": {str(k): v for k, v in tiempos.items()},
+        }
+
+    casos: list[tuple[str, list[dict[str, Any]], str, bool]] = [
+        (
+            "p95 por encima del umbral",
+            [entrada("POST", "login", 5, 0, {2000: 5})],
+            "login_p95",
+            False,
+        ),
+        (
+            "un preview omitido con un 409",
+            [entrada("GET", "preview_mjpeg_omitido_409", 1, 0, {10: 1})],
+            "mjpeg_sin_409",
+            False,
+        ),
+        (
+            "el mismo login rapido",
+            [entrada("POST", "login", 5, 0, {200: 5})],
+            "login_p95",
+            True,
+        ),
+    ]
+
+    slo = cargar_slo(RUTA_SLO_POR_DEFECTO)
+    fallos = 0
+    for nombre, informe, id_regla, debe_cumplir in casos:
+        with tempfile.TemporaryDirectory(prefix="solidapp-slo-") as temporal:
+            ruta = Path(temporal) / "informe.json"
+            ruta.write_text(json.dumps(informe), encoding="utf-8")
+            resultados = evaluar(cargar_informe(ruta), slo)
+        relevantes = [r for r in resultados if r.id == id_regla]
+        if not relevantes:
+            fallos += 1
+            print(f"  FALLO: {nombre} -> la regla {id_regla} no existe")
+            continue
+        cumple = relevantes[0].cumple
+        if cumple != debe_cumplir:
+            fallos += 1
+            print(
+                f"  FALLO: {nombre} -> {id_regla} cumple={cumple} "
+                f"(se esperaba {debe_cumplir})"
+            )
+        else:
+            print(f"  OK: {nombre} -> {id_regla} {'cumple' if cumple else 'incumple'}")
+
+    # El informe de referencia tiene que cumplir entero.
+    referencia = Path(__file__).resolve().parent / "reports" / "2026-10-21-revalidacion.json"
+    if referencia.exists():
+        resultados = evaluar(cargar_informe(referencia), cargar_slo(RUTA_SLO_POR_DEFECTO))
+        incumplidas = [r for r in resultados if not r.cumple]
+        if incumplidas:
+            fallos += 1
+            print(f"  FALLO: el informe de referencia incumple {len(incumplidas)} regla(s)")
+        else:
+            print(f"  OK: el informe de referencia cumple {len(resultados)} regla(s)")
+    else:
+        print("  (sin informe de referencia: se omite ese caso)")
+
+    if fallos:
+        print(f"Autoprueba FALLIDA: {fallos} caso(s).")
+        return 1
+    print("Autoprueba correcta: el verificador del SLO sigue incumpliendo lo que debe.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Punto de entrada. Devuelve 0 (cumple), 1 (incumple) o 2 (error)."""
     parser = argparse.ArgumentParser(
         description="Comprueba el informe de carga de Locust contra el SLO de solidAPP.",
     )
-    parser.add_argument("--report", required=True, help="Informe JSON de Locust (--json-file)")
+    parser.add_argument("--report", help="Informe JSON de Locust (--json-file)")
+    parser.add_argument(
+        "--autoprueba", action="store_true",
+        help="Comprueba que el verificador sigue incumpliendo lo que debe",
+    )
     parser.add_argument(
         "--slo",
         default=str(RUTA_SLO_POR_DEFECTO),
@@ -327,6 +423,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Muestra sólo las reglas que fallan",
     )
     args = parser.parse_args(argv)
+
+    if args.autoprueba:
+        return _autoprueba()
+
+    if not args.report:
+        print("ERROR: falta --report (o usa --autoprueba)", file=sys.stderr)
+        return 2
 
     try:
         informe = cargar_informe(Path(args.report))
