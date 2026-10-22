@@ -1,0 +1,23 @@
+# Contexto de build de `frontend/Dockerfile.prod`.
+#
+# POR QUÉ este fichero (T-63, 2026-10-22): el contexto de esa construcción
+# es `frontend/`, y Docker busca el `.dockerignore` **en la raíz del
+# contexto**. El `.dockerignore` de la raíz del repositorio NO se aplica.
+#
+# Sin este fichero, el `COPY . .` de la etapa de build se llevaba el
+# `node_modules` del HOST dentro de la imagen (en esta máquina, el de
+# Windows: `@esbuild/win32-x64`), por encima del `node_modules` de Linux
+# que acababa de instalar `npm ci`. La imagen que se construía en local
+# no era, entonces, la misma que construye el CI (que parte de un
+# checkout limpio): la bundle que se despliega en una sucursal podía no
+# ser la que verificó el CI.
+#
+# Con este fichero, dentro de la imagen sólo está lo que instala
+# `npm ci` a partir del `package-lock.json`.
+
+node_modules
+dist
+coverage
+.vite
+*.log
+.DS_Store

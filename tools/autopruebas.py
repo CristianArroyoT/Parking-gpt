@@ -103,6 +103,14 @@ AUTOPRUEBAS: list[tuple[str, list[str]]] = [
         [sys.executable, "frontend/scripts/verificar_servidor_produccion.py", "--autoprueba"],
     ),
     (
+        "La puerta del limite de cuerpo de nginx sigue viendo",
+        [sys.executable, "tools/verificar_nginx_body_size.py", "--autoprueba"],
+    ),
+    (
+        "La puerta del contexto de build sigue viendo",
+        [sys.executable, "tools/verificar_contexto_build.py", "--autoprueba"],
+    ),
+    (
         "La puerta del repo detecta los fallos",
         [sys.executable, "tools/verificar_repo.py", "--autoprueba"],
     ),

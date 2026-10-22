@@ -364,6 +364,26 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: El contexto de build de la imagen de produccion esta limpio
+        # POR QUÉ (2026-10-22): el contexto de esa imagen es 'frontend/', y
+        # Docker busca el .dockerignore en la raiz del CONTEXTO: el de la
+        # raiz del repositorio NO se aplica. Sin 'frontend/.dockerignore',
+        # el 'COPY . .' se llevaba el node_modules del HOST (en la maquina
+        # de QA, el de Windows) dentro de la imagen, por encima del que
+        # instala 'npm ci': la imagen que se construia en local no era la
+        # misma que construye el CI.
+        run: python tools/verificar_contexto_build.py
+
+      - name: El servidor de produccion admite los cuerpos que el backend acepta
+        # POR QUÉ (2026-10-22): nginx tiene un límite de 1 MB por petición si
+        # no se dice nada (su default), y el backend acepta 3 ficheros de
+        # 10 MB. Medido contra la imagen de producción: una petición de 2 MB
+        # devolvía un 413 de nginx (HTML) y el backend NUNCA la veía, así que
+        # en producción subir una foto de incidente a un móvil fallaba
+        # siempre. En desarrollo (Vite) no había límite, así que el fallo
+        # sólo aparecía en producción.
+        run: python tools/verificar_nginx_body_size.py
+
       - name: Build de la imagen del backend
         run: |
           set -o pipefail
