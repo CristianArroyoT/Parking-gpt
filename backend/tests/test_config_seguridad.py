@@ -129,3 +129,61 @@ def test_las_listas_son_strings_y_no_se_parsean() -> None:
 def test_una_lista_vacia_se_queda_vacia() -> None:
     ajustes = Settings(TRUSTED_PROXIES="")  # type: ignore[call-arg]
     assert ajustes.trusted_proxies_list == []
+
+
+# ── T-81: el secreto del .env.example no puede servir en produccion ──────
+#
+# El .env.example proponia "change-me-in-production-32-bytes-min" y la
+# lista de secretos prohibidos comparaba de forma EXACTA: el sufijo lo
+# esquivaba. Con el README diciendo "cp .env.example .env", quien montaba
+# una sucursal arrancaba con un secreto PUBLICO (tokens de administrador
+# falsificables).
+
+
+def test_el_secreto_del_env_example_no_sirve_en_produccion() -> None:
+    with pytest.raises(ValidationError) as exc:
+        Settings(  # type: ignore[call-arg]
+            ENVIRONMENT="production",
+            JWT_SECRET="change-me-in-production-32-bytes-min",
+            FRONTEND_BASE_URL="https://app.ejemplo.es",
+        )
+    assert "JWT_SECRET" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "secreto",
+    [
+        "change-me",
+        "change-me-in-production",
+        "change-me-in-production-32-bytes-min",
+        "change-me-cualquier-cosa",
+        "changeme-esto-tampoco",
+        "",
+    ],
+)
+def test_los_secretos_de_mentira_se_rechazan_en_produccion(secreto: str) -> None:
+    with pytest.raises(ValidationError):
+        Settings(  # type: ignore[call-arg]
+            ENVIRONMENT="production",
+            JWT_SECRET=secreto,
+            FRONTEND_BASE_URL="https://app.ejemplo.es",
+        )
+
+
+def test_un_secreto_real_si_sirve_en_produccion() -> None:
+    """El filtro no puede ser tan laxo que rechace los secretos de verdad."""
+    ajustes = Settings(  # type: ignore[call-arg]
+        ENVIRONMENT="production",
+        JWT_SECRET="un-secreto-real-de-prueba-para-el-test-1234567890",
+        FRONTEND_BASE_URL="https://app.ejemplo.es",
+    )
+    assert ajustes.jwt_secret.startswith("un-secreto-real")
+
+
+def test_en_desarrollo_el_secreto_de_mentira_sirve() -> None:
+    """El equipo de QA usa el valor por defecto a proposito."""
+    ajustes = Settings(  # type: ignore[call-arg]
+        ENVIRONMENT="development",
+        JWT_SECRET="change-me-in-production-32-bytes-min",
+    )
+    assert ajustes.jwt_secret == "change-me-in-production-32-bytes-min"

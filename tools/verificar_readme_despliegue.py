@@ -67,6 +67,22 @@ def comprobar(readme: str, env_example: str) -> list[str]:
                 "entorno no ve la variable"
             )
 
+    # T-81: el .env.example NO puede proponer un secreto de mentira: ese
+    # fichero se copia a .env y el valor acababa en produccion (con el
+    # filtro por comparacion exacta, "change-me-in-production-32-bytes-min"
+    # se colaba).
+    for linea in env_example.splitlines():
+        limpia = linea.strip()
+        if limpia.startswith("JWT_SECRET="):
+            valor = limpia.split("=", 1)[1].strip()
+            if valor:
+                problemas.append(
+                    f"el .env.example propone un JWT_SECRET de mentira "
+                    f"({valor!r}): ese fichero se copia a .env y el valor "
+                    "acaba en produccion (tokens de administrador "
+                    "falsificables)"
+                )
+
     return problemas
 
 
@@ -80,7 +96,11 @@ def autoprueba() -> int:
         "Con JWT_SECRET, FRONTEND_BASE_URL y CORS_ORIGINS (obligatorios).\n"
         "El stack por defecto es el de desarrollo.\n"
     )
-    env_ok = "FRONTEND_BASE_URL=https://app.ejemplo.es\nTRUSTED_PROXIES=10.0.0.0/8\n"
+    env_ok = (
+        "FRONTEND_BASE_URL=https://app.ejemplo.es\n"
+        "TRUSTED_PROXIES=10.0.0.0/8\n"
+        "JWT_SECRET=\n"
+    )
 
     casos = [
         ("todo correcto", readme_ok, env_ok, False),
@@ -91,6 +111,12 @@ def autoprueba() -> int:
         ("sin el aviso de desarrollo", readme_ok.replace("desarrollo", ""), env_ok, True),
         ("sin FRONTEND_BASE_URL en el .env.example", readme_ok, env_ok.replace("FRONTEND_BASE_URL", ""), True),
         ("sin TRUSTED_PROXIES en el .env.example", readme_ok, env_ok.replace("TRUSTED_PROXIES", ""), True),
+        (
+            "el .env.example con un secreto de mentira",
+            readme_ok,
+            env_ok.replace("JWT_SECRET=\n", "JWT_SECRET=change-me-in-production\n"),
+            True,
+        ),
     ]
     for nombre, readme, env, debe_fallar in casos:
         problemas = comprobar(readme, env)

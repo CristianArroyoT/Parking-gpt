@@ -284,13 +284,18 @@ class Settings(BaseSettings):
         """
         if self.environment not in ("production", "staging"):
             return self
-        if self.jwt_secret.strip().lower() in {
-            "change-me",
-            "change-me-in-production",
-            "changeme",
-            "secret",
-            "",
-        }:
+        # T-81: la comparación es por PREFIJO, no exacta. Con la exacta
+        # se colaba el valor que propone el propio .env.example
+        # ("change-me-in-production-32-bytes-min"): quien copiaba el
+        # .env.example a .env (que es lo que dice el README) arrancaba en
+        # produccion con un secreto PUBLICO y podia firmar tokens de
+        # administrador.
+        secreto = self.jwt_secret.strip().lower()
+        if (
+            not secreto
+            or secreto.startswith(_MARCADORES_SECRETO_POR_DEFECTO)
+            or secreto in _SECRETOS_POR_DEFECTO_EXACTOS
+        ):
             raise ValueError(
                 "JWT_SECRET debe definirse con un valor real cuando "
                 f"ENVIRONMENT={self.environment}: el valor por defecto "
@@ -360,6 +365,14 @@ class Settings(BaseSettings):
             for m in self.incident_attachment_allowed_mime_types.split(",")
             if m.strip()
         ]
+
+
+#: Secretos que se rechazan tal cual en staging/produccion.
+_SECRETOS_POR_DEFECTO_EXACTOS = ("secret", "")
+#: Marcadores que hacen rechazar cualquier secreto que **empiece** por
+#: ellos (T-81): asi se cubre "change-me-in-production-32-bytes-min", que
+#: es el valor que propone el .env.example.
+_MARCADORES_SECRETO_POR_DEFECTO = ("change-me", "changeme")
 
 
 @lru_cache(maxsize=1)
