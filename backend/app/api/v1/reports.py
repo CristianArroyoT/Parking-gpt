@@ -65,6 +65,7 @@ from app.services.pdf import render_report_pdf
 from app.services.reports import (
     FILE_BASENAMES,
     REPORT_BUILDERS,
+    escapar_celda_csv,
     render_report_csv,
     to_utc,
 )
@@ -239,8 +240,10 @@ def margin_report_csv(
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["parking_id", "parking_name", "from", "to"])
+    # T-77: el nombre de la sucursal lo pone un admin: sin escapar, una
+    # celda que empieza por "=" seria una formula al abrir el CSV.
     writer.writerow([
-        report.parking_id, report.parking_name,
+        report.parking_id, escapar_celda_csv(report.parking_name),
         report.from_.isoformat(), report.to.isoformat(),
     ])
     writer.writerow([])

