@@ -63,6 +63,7 @@ SI_MATRICULAS = [
     "M1234A",
     "5555LOW",   # el de los datos de prueba del repo
     "9999ZZZ",
+    "ABC123",   # formato alemán (3 letras + 3 dígitos)
     " 1234ABC ",  # con espacios alrededor
     "1234-ABC",   # con guion
 ]

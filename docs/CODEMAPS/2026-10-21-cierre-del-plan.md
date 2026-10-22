@@ -1522,11 +1522,19 @@ imagen**, y a veces la marca.
 
 **Verificado con la cámara real**: el OCR leyó los dos rótulos, los dos se
 descartaron, `plates_found: 0`, `plates_descartadas: 1`, **0 vehículos y
-0 tickets creados**. Y **20 tests nuevos** (`backend/tests/test_plates_ocr.py`):
-la regla acepta las 8 matrículas legítimas (incluida la diplomática y la
-antigua, con y sin separadores) y rechaza las 7 formas de texto quemado;
-un hit basura **no crea vehículo ni ticket**; y una matrícula de verdad
-**sí** crea el vehículo.
+0 tickets creados**. Y **por la API real** (el otro camino de ingesta,
+`POST /api/v1/parkings/11/cameras/81/plates`): `"CAM 01"` →
+`skipped_not_a_plate` sin vehículo ni ticket, y `"1234ABC"` sigue su
+curso normal. La demostración salió sin que hizo falta: con el proceso
+viejo todavía en memoria, la petición basura **creó un vehículo**
+`CAM 01` (que se deshizo por rollback porque la plaza estaba ocupada;
+con plaza libre se habría quedado **para siempre**).
+
+Y **20 tests nuevos** (`backend/tests/test_plates_ocr.py`): la regla
+acepta las matrículas legítimas (incluida la diplomática y la antigua,
+con y sin separadores) y rechaza las formas de texto quemado; un hit
+basura **no crea vehículo ni ticket**; y una matrícula de verdad **sí**
+crea el vehículo.
 
 **Lo que queda fuera (documentado, no escondido)**: un rótulo como
 `HD 1080P` tiene **exactamente la misma forma** que una matrícula antigua

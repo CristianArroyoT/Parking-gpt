@@ -30,13 +30,17 @@ import re
 #: y sin separadores):
 #:
 #: - ``1234ABC``: formato español actual (4 dígitos + 3 letras).
-#: - ``1234B`` / ``E1234`` / ``M1234A``: formatos antiguos, diplomáticas
-#:   y consulares.
+#: - ``1234B`` / ``E1234A`` / ``M1234A``: antiguos, diplomáticas y
+#:   consulares.
+#: - ``ABC123``: formato alemán (3 letras + 3 dígitos), por si el
+#:   parking tiene clientes de fuera.
 #:
-#: Lo que **no** entra: texto quemado ("T1050SFRAME2625", "CAM01",
-#: "SOLIDAPP"), porque no tiene forma de matrícula.
+#: Lo que **no** entra: el texto quemado ("T1050SFRAME2625", "CAM01",
+#: "SOLIDAPP"), porque no tiene forma de matrícula. El patrón está
+#: **anclado** (usa ``^...$``), así que "T1050SFRAME" tampoco entra: los
+#: cuatro dígitos de "1050" se consumen y luego sobran letras.
 PATRON_MATRICULA = re.compile(
-    r"^(?:[0-9]{4}[A-Z]{1,3}|[A-Z]{1,2}[0-9]{3,4}[A-Z]{0,2})$"
+    r"^(?:[0-9]{4}[A-Z]{1,3}|[A-Z]{1,3}[0-9]{3,4}[A-Z]{0,2})$"
 )
 
 
