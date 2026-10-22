@@ -723,6 +723,37 @@ comprobara.
 
 Ahora `docker compose ps` muestra los **11 servicios** como `(healthy)`.
 
+### 3-vigésimoseptima. El inventario de la API decía "Público" en 9 endpoints de admin (2026-10-22)
+
+Auditando la columna **"Quién"** de `docs/API-INTERNAL.md` (el contrato que
+lee quien integra la API) contra el código, los **9 endpoints de
+`/plans`** aparecían como **"Público"**: catálogo, alta y borrado de
+planes, suscripciones y "mi plan". En el código **todos exigen
+autenticación** y casi todos son **de admin**.
+
+**Por qué**: `tools/extraer_api.py` sacaba las dependencias de FastAPI
+sólo del **valor por defecto** del parámetro (`x: User = Depends(...)`).
+El idioma moderno es **en la anotación**
+(`x: Annotated[User, Depends(require_role(...))]`), y ese camino no se
+miraba. Encima, el bucle de los posicionales recorría únicamente los
+parámetros **con valor por defecto**, así que los que llevan la
+dependencia en la anotación ni se visitaban.
+
+**Por qué nadie lo vio**: el verificador compara el **conjunto de
+rutas**, que no había cambiado (9 endpoints "Público" y 9 con el RBAC
+correcto son el mismo juego de rutas). La deriva estaba en la **columna**,
+y el gate no la cubría.
+
+| Cambio | |
+|---|---|
+| `extraer_api.py` | Mira las **dos** formas (default **y** `Annotated[...]`) y recorre **todos** los parámetros, no sólo los que tienen default |
+| `verificar_api_doc.py --autoprueba` | **Tercera** cara: cambiar el "Quién" de una fila debe detectarse (antes sólo añadía y quitaba rutas) |
+
+Verificado: los 9 endpoints de `/plans` documentan su RBAC real, y los
+7 que **sí** son públicos (login, login OAuth, refresh, forgot-password,
+reset-password y los dos de salud) siguen marcándose como públicos,
+comprobado contra el código.
+
 Y con el IPv4 arreglado, la réplica local pasó a poder ejecutar **el CI
 completo**, incluidos los dos pasos de test que antes se saltaban
 porque el host no resolvía los nombres de servicio de Docker:

@@ -141,30 +141,74 @@ def _deps_de_decorador(dec: ast.Call, constantes: dict[str, list[str]]) -> list[
     return encontradas
 
 
+def _deps_de_anotacion(anotacion: ast.expr | None, constantes: dict[str, list[str]]) -> list[Dep]:
+    """Dependencias declaradas en la **anotación** del parámetro.
+
+    Forma moderna de FastAPI: ``x: Annotated[User, Depends(require_role(...))]``
+
+    OJO: esta forma estaba pasando desapercibida y hacía que el endpoint
+    se documentara como **"Público"** cuando en realidad exige
+    autenticación (o admin). Un inventario que miente sobre el RBAC es
+    peor que no tenerlo: es el contrato que lee quien integra la API.
+    """
+    if not isinstance(anotacion, ast.Subscript):
+        return []
+    valor = anotacion.value
+    if not (isinstance(valor, ast.Name) and valor.id == "Annotated"):
+        return []
+    corte = anotacion.slice
+    elementos = corte.elts if isinstance(corte, ast.Tuple) else [corte]
+    encontradas: list[Dep] = []
+    for elemento in elementos:
+        nombre = _nombre_dep(elemento)
+        if not nombre:
+            continue
+        roles: tuple[str, ...] = ()
+        if isinstance(elemento, ast.Call) and elemento.args:
+            roles = tuple(_roles_de(elemento.args[0], constantes))
+        dep: Dep = (nombre, roles)
+        if dep not in encontradas:
+            encontradas.append(dep)
+    return encontradas
+
+
 def _deps_de_firma(func: ast.FunctionDef, constantes: dict[str, list[str]]) -> list[Dep]:
-    """Las dependencias declaradas en la firma de la funcion."""
+    """Las dependencias declaradas en la firma de la funcion.
+
+    Se miran los dos sitios donde FastAPI las admite: el **valor por
+    defecto** (``x: User = Depends(...)``) y la **anotación**
+    (``x: Annotated[User, Depends(...)]``).
+    """
     encontradas: list[Dep] = []
     posicionales = func.args.args
     n_defs = len(func.args.defaults)
-    pares: list[tuple[ast.expr, ast.expr | None]] = []
-    for i, default in enumerate(func.args.defaults):
-        pares.append((posicionales[len(posicionales) - n_defs + i], default))
+    pares: list[tuple[ast.arg, ast.expr | None]] = []
+    # OJO: hay que recorrer **todos** los posicionales, no sólo los que
+    # tienen valor por defecto. Los que no lo tienen (los que declaran su
+    # dependencia en la anotación, ``x: Annotated[User, Depends(...)]``)
+    # son justamente los que se perdían.
+    for i, arg in enumerate(posicionales):
+        default: ast.expr | None = None
+        if i >= len(posicionales) - n_defs:
+            default = func.args.defaults[i - (len(posicionales) - n_defs)]
+        pares.append((arg, default))
     for arg, default in zip(
         func.args.kwonlyargs, func.args.kw_defaults, strict=False
     ):
         pares.append((arg, default))
-    for _arg, default in pares:
-        if default is None:
-            continue
-        nombre = _nombre_dep(default)
-        if not nombre:
-            continue
-        roles: tuple[str, ...] = ()
-        if isinstance(default, ast.Call) and default.args:
-            roles = tuple(_roles_de(default.args[0], constantes))
-        dep: Dep = (nombre, roles)
-        if dep not in encontradas:
-            encontradas.append(dep)
+    for arg, default in pares:
+        candidatas: list[Dep] = []
+        if default is not None:
+            nombre = _nombre_dep(default)
+            if nombre:
+                roles: tuple[str, ...] = ()
+                if isinstance(default, ast.Call) and default.args:
+                    roles = tuple(_roles_de(default.args[0], constantes))
+                candidatas.append((nombre, roles))
+        candidatas.extend(_deps_de_anotacion(arg.annotation, constantes))
+        for dep in candidatas:
+            if dep not in encontradas:
+                encontradas.append(dep)
     return encontradas
 
 

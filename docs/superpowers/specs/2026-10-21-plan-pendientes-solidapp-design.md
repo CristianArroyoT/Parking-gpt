@@ -738,6 +738,21 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] El verificador de la API **detecta** la deriva en la prosa (probado: falla con código 1 si el documento no se regenera).
   - [x] La autoprueba del verificador sigue en verde.
 
+### T-35 · P1 — el inventario de la API documentaba como "Público" 9 endpoints que exigen admin
+
+- **Estado**: **completado** — el RBAC del documento coincide con el código
+- **Contexto**: auditando la columna **"Quién"** de `docs/API-INTERNAL.md` (el contrato que lee quien integra la API) contra el código, los 9 endpoints de `/plans` aparecían como **"Público"**: el catálogo de planes, el alta y el borrado de planes, las suscripciones y "mi plan". En el código, **todos exigen autenticación** y casi todos son **de admin**.
+- **Por qué pasaba**: `tools/extraer_api.py` sacaba las dependencias de FastAPI **sólo del valor por defecto** del parámetro (`x: User = Depends(...)`). El idioma moderno es **en la anotación** (`x: Annotated[User, Depends(require_role(...))]`), y ese camino no se miraba. Encima, el bucle de los posicionales recorría únicamente los parámetros **que tenían valor por defecto**, así que los que llevan la dependencia en la anotación ni siquiera se visitaban.
+- **Por qué nadie lo vio**: el verificador (`tools/verificar_api_doc.py`) compara el **conjunto de rutas**, que no había cambiado: 9 endpoints "Público" y 9 endpoints con el RBAC correcto dan el mismo juego de rutas. La deriva estaba en la **columna**, y nadie la miraba porque el gate no la cubría.
+- **El arreglo**:
+  - `extraer_api.py` mira **las dos** formas (valor por defecto **y** anotación `Annotated[...]`), y recorre **todos** los parámetros, no sólo los que tienen default.
+  - `verificar_api_doc.py --autoprueba` tiene ahora una **tercera** cara: cambiar el "Quién" de una fila debe detectarse. Antes sólo comprobaba que se detectara añadir y quitar rutas.
+- **Criterios de aceptación**:
+  - [x] Los 9 endpoints de `/plans` documentan su RBAC real (`require_role('admin')` / `require_role('admin', 'cliente')`).
+  - [x] Los 7 endpoints que **sí** son públicos siguen marcándose como tal: login, login OAuth, refresh, forgot-password, reset-password y los dos de salud. Comprobado contra el código.
+  - [x] La autoprueba detecta las **tres** caras de la deriva (quitar ruta, añadir ruta inexistente y cambiar el RBAC).
+  - [x] El documento regenerado y el verificador en verde.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.

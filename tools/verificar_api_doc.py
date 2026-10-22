@@ -145,7 +145,31 @@ def _autoprueba() -> int:
         return 1
     print(f"  OK: al anadir {inventada[0]} {inventada[1]} se detecta")
 
-    print("Autoprueba correcta: el verificador detecta las dos caras de la deriva.")
+    # 3. Cambiar el RBAC ("Quién") de una ruta sin tocarla.
+    #    Esto es lo que NO se detectaba: el juego de rutas era el mismo,
+    #    pero el documento afirmaba "Público" para endpoints que exigen
+    #    admin (pasó con los 9 endpoints de /plans, que declaran su
+    #    dependencia con Annotated[..., Depends(require_role(...))]).
+    generada = _seccion_generada()
+    documentada = _seccion_del_documento(DOC)
+    lineas = [
+        x for x in documentada.splitlines() if x.startswith("| ") and "Público" in x
+    ]
+    if not lineas:
+        print("FALLO: no hay ninguna fila 'Público' donde probar el cambio de RBAC")
+        return 1
+    fila = lineas[0]
+    fila_mala = fila.replace("Público", "`require_role('admin')`")
+    if fila_mala == fila:
+        print("FALLO: no se ha podido alterar la fila de prueba")
+        return 1
+    documentada_mala = documentada.replace(fila, fila_mala, 1)
+    if not _comparar_secciones(generada, documentada_mala):
+        print("FALLO: cambiar el RBAC de una ruta no se ha detectado")
+        return 1
+    print("  OK: al cambiar el RBAC de una ruta se detecta")
+
+    print("Autoprueba correcta: el verificador detecta las tres caras de la deriva.")
     return 0
 
 

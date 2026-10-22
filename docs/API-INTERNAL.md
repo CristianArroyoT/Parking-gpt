@@ -173,15 +173,15 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 
 | Método | Ruta | Quién |
 |---|---|---|
-| GET | `/plans` | Público |
-| POST | `/plans` | Público |
-| GET | `/plans/me` | Público |
-| GET | `/plans/subscriptions` | Público |
-| POST | `/plans/subscriptions` | Público |
-| DELETE | `/plans/subscriptions/{subscription_id}` | Público |
-| GET | `/plans/{plan_id}` | Público |
-| PATCH | `/plans/{plan_id}` | Público |
-| DELETE | `/plans/{plan_id}` | Público |
+| GET | `/plans` | `require_role('admin', 'cliente')` |
+| POST | `/plans` | `require_role('admin')` |
+| GET | `/plans/me` | `require_role('admin', 'cliente')` |
+| GET | `/plans/subscriptions` | `require_role('admin')` |
+| POST | `/plans/subscriptions` | `require_role('admin')` |
+| DELETE | `/plans/subscriptions/{subscription_id}` | `require_role('admin')` |
+| GET | `/plans/{plan_id}` | `require_role('admin', 'cliente')` |
+| PATCH | `/plans/{plan_id}` | `require_role('admin')` |
+| DELETE | `/plans/{plan_id}` | `require_role('admin')` |
 
 ### 3.17 Placas (OCR) — `plates` (`plates.py`)
 
