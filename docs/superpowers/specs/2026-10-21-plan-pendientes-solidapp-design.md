@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **249 de 250 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **257 de 258 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -873,6 +873,41 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] `tools/verificar_repo.py --completo` usa ahora el modo multi-anchos (una sola QA, no cinco).
   - [x] El fallo de login dice **por qué** falla.
   - [x] La autoprueba del detector de desbordes sigue en verde tras el refactor.
+
+### T-42 · P1 — la herramienta que decide si el CI está verde tenía un falso verde
+
+- **Estado**: **completado** — clasificación con estados separados, autoprueba de 5 casos y filtro por rama
+- **Contexto**: `tools/estado_ci.py` es la herramienta que decide si el **último criterio del plan** está cumplido (los 4 checks del CI sobre `main` en SUCCESS). Si clasifica mal, el plan se cierra —o se deja abierto— por un motivo falso. Es, por tanto, la puerta más delicada del repo, y era la **única sin autoprueba**.
+- **Los 2 defectos que tenía**:
+  1. **Falso verde con un run en curso.** Si el run todavía no había terminado (por ejemplo, recién acabas de hacer `git push`), no hay jobs todavía: la lista de jobs salía vacía, no había ningún job en rojo, y la herramienta caía en el mensaje **"El CI de main está EN VERDE"**. Justo en el momento en que se decide si el criterio está cumplido.
+  2. **No filtraba por rama.** El docstring dice "sobre `main`" y el criterio es "los checks del CI **sobre `main`**", pero la herramienta usaba el run más reciente **sea cual sea su rama**. Con una rama de trabajo con runs, informaría del CI equivocado. (Medido: hoy los 30 runs más recientes son todos de `main`, así que no está muerde — pero el día que haya una rama con runs, morderá.)
+- **El arreglo**:
+  - La clasificación se separa en una función pura `_clasificar(run, jobs)` → (código, líneas), que se puede probar con casos de mentira.
+  - Un **estado nuevo `EN_CURSO` (código 3)**: un run que no ha terminado no es verde, y `verificar_repo.py` lo dice así ("todavía en curso, no se puede afirmar").
+  - Un run completado **sin jobs** tampoco es verde.
+  - **Filtro por rama** (`--rama`, por defecto `main`) en la consulta a la API, y el commit del run aparece en el informe para poder compararlo con el `HEAD` local.
+- **Criterios de aceptación**:
+  - [x] La autoprueba distingue los **5 casos**: 4 jobs en verde → VERDE; un job en rojo con pasos → ROJO; 4 jobs en `failure` sin pasos → RECHAZADO POR LA CUENTA; run en curso sin jobs → EN_CURSO (**no** verde); run completado sin jobs → no verde.
+  - [x] Está en la meta-puerta, que pasa de 10 a **11 autopruebas**.
+  - [x] Comprobado contra el CI real: el último run de `main` (4 jobs, 0 pasos) se clasifica como **rechazado por la cuenta** (código 2), que es lo que es.
+  - [x] `verificar_repo.py` distingue el estado "en curso" del "en rojo".
+
+### T-43 · P1 — la puerta del inventario comparaba el documento contra el generador, y los dos del mismo código
+
+- **Estado**: **completado** — la cadena pasa a ser *app real → extractor → documento*
+- **Contexto**: T-40 arregló el extractor (leía un solo rol). Al arreglarlo, la autoprueba del extractor se añadió como **tercera** fuente, pero quedó un hueco por delante: la puerta del inventario (`tools/verificar_api_doc.py`) comparaba el documento contra el **generador** (`generar_seccion_api.seccion()`), y el generador usa el **mismo extractor**.
+- **El hueco**: si el extractor **no veía una ruta**, esa ruta tampoco estaría en el documento (se genera con el extractor) y la puerta diría "el inventario coincide con el código". Es decir: **una ruta invisible en el extractor era invisible en el documento y en la puerta**. Y la puerta del contrato sólo la habría cantado si el frontend la llamara.
+- **La tercera fuente era la que ya existía y no se usaba**: `extraer_api.py` (sin `--autoprueba`) compara el extractor contra el **OpenAPI de la aplicación real** — la verdad de referencia. Pero **ninguna puerta lo ejecutaba**: era un dato que se comprobaba a mano de vez en cuando.
+- **El arreglo**:
+  - `verificar_api_doc.py` compara ahora **el extractor contra el OpenAPI de la app real**, antes de comparar el documento. La cadena completa es: *app real → extractor → documento*, y cada eslabón se comprueba contra el anterior.
+  - La comparación se extrae a una función pura `_comparar_con_openapi(extraidas, openapi)` para que la autoprueba pueda probarla **sin** la app instalada (importa la app en el camino normal, no en la autoprueba).
+  - La autoprueba del verificador pasa de **3 a 5 caras**: además de quitar ruta, añadir ruta inexistente y cambiar el RBAC, ahora comprueba que se detecta una ruta que el extractor no ve y una ruta que el extractor inventa.
+  - `extraer_api._rutas_openapi()` pasa a ser público (`rutas_openapi`), porque ahora lo usa otra herramienta.
+- **Criterios de aceptación**:
+  - [x] La puerta dice las tres cifras: rutas del código, rutas del OpenAPI (la verdad) y rutas documentadas — **101 / 101 / 101**.
+  - [x] La autoprueba detecta las **5** caras de la deriva.
+  - [x] La autoprueba **no** depende de la app instalada (sigue funcionando en el job `backend`, que corre antes del `pip install`).
+  - [x] El inventario sigue coincidiendo con el código.
 
 ### T-14 · I3 — OCR con GPU
 

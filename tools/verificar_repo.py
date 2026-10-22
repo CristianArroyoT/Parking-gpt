@@ -306,6 +306,8 @@ def main() -> int:
         print("[OK  ] CI remoto en main                              en verde", flush=True)
     elif codigo == 2:
         print("[AVISO] CI remoto en main                              rechazado por la cuenta (facturacion)", flush=True)
+    elif codigo == 3:
+        print("[AVISO] CI remoto en main                              todavia en curso (no se puede afirmar)", flush=True)
     else:
         print("[AVISO] CI remoto en main                              en rojo o sin comprobar", flush=True)
 

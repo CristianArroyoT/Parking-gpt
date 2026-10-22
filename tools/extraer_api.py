@@ -436,8 +436,16 @@ def extraer_de_modulo(ruta_fichero: Path) -> list[tuple[str, str, str, str]]:
     return filas
 
 
-def _rutas_openapi() -> set[tuple[str, str]]:
-    """Las rutas reales, tal y como las publica la app."""
+def rutas_openapi() -> set[tuple[str, str]]:
+    """Las rutas reales, tal y como las publica la app.
+
+    Esta es la **verdad de referencia**: sale de la aplicación de verdad,
+    no de leer el código. Comparar el extractor contra esto es lo que
+    demuestra que el extractor no se ha dejado ninguna ruta por el
+    camino (el tipo de fallo que el documento no vería nunca: si el
+    extractor no ve una ruta, el documento tampoco la tiene y todo
+    cuadra).
+    """
     sys.path.insert(0, str(RAIZ / "backend"))
     warnings.filterwarnings("ignore")
     from app.main import create_app  # noqa: PLC0415
@@ -599,7 +607,7 @@ def main() -> int:
     # El OpenAPI manda: si el extractor se deja alguna ruta fuera, se ve.
     # Los endpoints de salud los define ``create_app``, fuera de los
     # routers, asi que se restan de la comparacion.
-    openapi = _rutas_openapi() - {("GET", "/health"), ("GET", "/health/ready")}
+    openapi = rutas_openapi() - {("GET", "/health"), ("GET", "/health/ready")}
     extraidas = {(m, r) for m, r, _, _ in filas}
     if args.markdown:
         for metodo, ruta, quien, _modulo in filas:

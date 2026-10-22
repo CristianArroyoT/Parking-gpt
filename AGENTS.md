@@ -143,3 +143,16 @@ facturación (*Billing & plans*) o abriendo el repositorio a público.
 Mientras tanto, la réplica local (`tools/ejecutar_ci_local.py --all`) **es**
 el CI completo de facto, y `tools/verificar_repo.py` da el veredicto.
 Para ver el estado del CI remoto: `python tools/estado_ci.py`.
+
+`estado_ci.py` devuelve un código por estado, y **ninguno de ellos es
+"verde" por defecto**:
+
+| Código | Estado |
+|---|---|
+| 0 | en verde |
+| 1 | rojo de verdad (un job ejecutó pasos y falló): es el código |
+| 2 | rechazado por la cuenta (jobs en `failure` **sin** un solo paso) |
+| 3 | el run sigue en curso: no se puede afirmar nada |
+
+Mira **siempre** la rama `main` (es lo que pide el criterio del plan);
+la herramienta tiene `--rama` para mirar otra.

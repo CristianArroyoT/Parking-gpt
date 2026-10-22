@@ -57,6 +57,10 @@ AUTOPRUEBAS: list[tuple[str, list[str]]] = [
         [sys.executable, "tools/extraer_api.py", "--autoprueba"],
     ),
     (
+        "La clasificacion del CI remoto sigue distinguiendo",
+        [sys.executable, "tools/estado_ci.py", "--autoprueba"],
+    ),
+    (
         "La puerta de roles del frontend sigue viendo",
         [sys.executable, "tools/verificar_roles_frontend.py", "--autoprueba"],
     ),

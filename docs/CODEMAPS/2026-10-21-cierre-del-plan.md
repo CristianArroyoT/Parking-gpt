@@ -1029,6 +1029,91 @@ mensaje no decía "429", el diagnóstico empezaba por el sitio equivocado.
 | Avisos | 10 (2 por ancho: `/mapa` y `/vivo`, que nunca dejan la red en reposo) |
 
 
+### 3-trigésimocuarta. La herramienta que decide si el CI está verde tenía un falso verde (2026-10-22)
+
+`tools/estado_ci.py` es la herramienta que decide si el **último criterio
+del plan** está cumplido (los 4 checks del CI sobre `main` en SUCCESS). Si
+clasifica mal, el plan se cierra —o se deja abierto— por un motivo falso.
+Es la puerta más delicada del repo, y era la **única sin autoprueba**.
+
+**Los 2 defectos que tenía**:
+
+1. **Falso verde con un run en curso.** Si el run todavía no había
+   terminado (por ejemplo, recién acabas de hacer `git push`), no hay jobs
+   todavía: la lista salía vacía, no había ningún job en rojo, y caía en
+   el mensaje **"El CI de main está EN VERDE"**. Justo en el momento en
+   que se decide si el criterio está cumplido.
+2. **No filtraba por rama.** El docstring dice "sobre `main`" y el
+   criterio es "los checks del CI **sobre `main`**", pero usaba el run
+   más reciente **sea cual sea su rama**. Medido: hoy los 30 runs más
+   recientes son todos de `main`, así que no muerde todavía — pero el día
+   que haya una rama con runs, morderá.
+
+**El arreglo**:
+
+- La clasificación se separa en una función pura `_clasificar(run, jobs)`
+  → (código, líneas), que se puede probar con casos de mentira.
+- Un **estado nuevo `EN_CURSO` (código 3)**: un run que no ha terminado no
+  es verde, y `verificar_repo.py` lo dice así ("todavía en curso, no se
+  puede afirmar"). Un run completado **sin jobs** tampoco es verde.
+- **Filtro por rama** (`--rama`, por defecto `main`) y el commit del run
+  en el informe, para poder compararlo con el `HEAD` local.
+
+**La autoprueba distingue los 5 casos**:
+
+| Caso | Resultado esperado |
+|---|---|
+| 4 jobs en `success` | VERDE |
+| 1 job en `failure` **con** pasos | ROJO DE CÓDIGO |
+| 4 jobs en `failure` **sin** pasos | RECHAZADO POR LA CUENTA |
+| Run en curso, sin jobs | EN_CURSO (no verde) |
+| Run completado, sin jobs | no verde |
+
+La meta-puerta pasa de 10 a **11 autopruebas**. Comprobado contra el CI
+real: el último run de `main` (4 jobs, 0 pasos) se clasifica como
+**rechazado por la cuenta** (código 2).
+
+
+### 3-trigésimoquinta. La cadena del inventario de la API tenía un eslabón sin comprobar (2026-10-22)
+
+T-40 arregló el extractor de la API (leía un solo rol de `require_role`)
+y le añadió su autoprueba como tercera fuente. Pero quedaba un hueco por
+delante: la puerta del inventario (`tools/verificar_api_doc.py`) comparaba
+el documento contra el **generador**, y el generador usa el **mismo
+extractor**.
+
+**El hueco**: si el extractor **no veía una ruta**, esa ruta tampoco
+estaría en el documento (se genera con el extractor) y la puerta diría
+"el inventario coincide con el código". Una ruta invisible en el extractor
+era invisible en el documento **y** en la puerta. Y la puerta del contrato
+sólo la habría cantado si el frontend la llamara.
+
+**La tercera fuente ya existía y no se usaba**: `extraer_api.py` (sin
+`--autoprueba`) compara el extractor contra el **OpenAPI de la aplicación
+real**. Pero ninguna puerta lo ejecutaba: era un dato que se comprobaba a
+mano de vez en cuando.
+
+**El arreglo**: la cadena pasa a ser *app real → extractor → documento*,
+y cada eslabón se comprueba contra el anterior:
+
+```
+   app real (OpenAPI)  ──►  extractor  ──►  documento
+        ▲                     ▲
+        │                     └── las 5 caras de la deriva (autoprueba)
+        └── si el extractor no ve una ruta, se ve aquí
+```
+
+- `verificar_api_doc.py` compara el extractor contra el OpenAPI **antes**
+  de comparar el documento, y dice las tres cifras: **101 / 101 / 101**.
+- La comparación se extrae a una función pura, para que la autoprueba
+  pueda probarla **sin** la app instalada (importa la app en el camino
+  normal, no en la autoprueba: el job `backend` corre las autopruebas
+  antes del `pip install`).
+- La autoprueba del verificador pasa de **3 a 5 caras**: quitar ruta,
+  añadir ruta inexistente, cambiar el RBAC, **una ruta que el extractor
+  no ve** y **una ruta que el extractor inventa**.
+
+
 | Modelo | Tabla | Notas |
 |---|---|---|
 | `IncidentAttachment` | `incident_attachments` | `alert_id` con `ON DELETE CASCADE`; el binario **no** está en la BD, vive en el volumen `incident_attachments` |

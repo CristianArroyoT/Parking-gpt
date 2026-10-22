@@ -112,6 +112,30 @@ def _comparar_secciones(generada: str, documentada: str, max_lineas: int = 12) -
     return diferencias
 
 
+def _comparar_con_openapi(
+    extraidas: set[tuple[str, str]], openapi: set[tuple[str, str]]
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """(rutas reales que el extractor NO vio, rutas del extractor que no existen).
+
+    POR QUÉ (2026-10-22): hasta aquí, el verificador comparaba el
+    documento contra el **extractor**, y el generador del documento usa el
+    mismo extractor. Los dos salían del mismo código, así que una ruta que
+    el extractor no viera **tampoco** aparecería en el documento y todo
+    quadraría: verde sobre mentira.
+
+    La tercera fuente es la **aplicación de verdad**: su OpenAPI. Si el
+    extractor se deja una ruta, aquí se ve.
+    """
+    return sorted(openapi - extraidas), sorted(extraidas - openapi)
+
+
+def _rutas_del_openapi() -> set[tuple[str, str]]:
+    """Las rutas que la aplicación real expone (la verdad de referencia)."""
+    from extraer_api import rutas_openapi  # noqa: PLC0415 — import tardío
+
+    return rutas_openapi()
+
+
 def _autoprueba() -> int:
     """Comprueba que el verificador DETECTA la deriva.
 
@@ -169,7 +193,30 @@ def _autoprueba() -> int:
         return 1
     print("  OK: al cambiar el RBAC de una ruta se detecta")
 
-    print("Autoprueba correcta: el verificador detecta las tres caras de la deriva.")
+    # 4. Que el extractor no se deje una ruta SIN que el documento lo note.
+    #    Es el hueco que tapaba esta puerta: el documento y el extractor
+    #    venían del mismo código, así que una ruta que el extractor no
+    #    viera no aparecía en el documento y todo cuadraba. La tercera
+    #    fuente es la aplicación real (su OpenAPI).
+    #
+    #    Aquí se comprueba con casos de mentira sobre la comparación, para
+    #    que la autoprueba siga sin depender de la app instalada.
+    openapi = {("GET", "/api/v1/lo-que-sea"), ("POST", "/api/v1/otra")}
+    faltan, sobran_openapi = _comparar_con_openapi(set(), openapi)
+    if len(faltan) != 2 or sobran_openapi:
+        print(f"FALLO: una ruta que el extractor no ve no se ha detectado ({faltan})")
+        return 1
+    print("  OK: una ruta que el extractor no ve se detecta contra el OpenAPI")
+
+    # Y al revés: una ruta que el extractor inventa.
+    inventadas = {("GET", "/api/v1/inventada")}
+    faltan, sobran_openapi = _comparar_con_openapi(inventadas, set())
+    if not sobran_openapi:
+        print("FALLO: una ruta inventada por el extractor no se ha detectado")
+        return 1
+    print("  OK: una ruta inventada por el extractor se detecta")
+
+    print("Autoprueba correcta: el verificador detecta las cinco caras de la deriva.")
     return 0
 
 
@@ -180,10 +227,30 @@ def main() -> int:
     documentadas = rutas_documentadas(DOC)
     reales = rutas_del_codigo()
 
+    # La verdad de referencia: las rutas que expone la aplicación REAL.
+    # Sin esta comparación, el verificador sólo compararía el documento
+    # contra el extractor, y los dos vienen del mismo código: una ruta que
+    # el extractor no viera tampoco estaría en el documento y todo
+    # quadraría (verde sobre mentira).
+    openapi = _rutas_del_openapi()
+    faltan_openapi, sobran_openapi = _comparar_con_openapi(reales, openapi)
+    if faltan_openapi or sobran_openapi:
+        print(f"\nEl EXTRACTOR no coincide con la aplicacion ({len(faltan_openapi)} "
+              f"sin ver, {len(sobran_openapi)} de mas):")
+        for metodo, ruta in faltan_openapi:
+            print(f"  NO LA VE  {metodo:6} {ruta}")
+        for metodo, ruta in sobran_openapi:
+            print(f"  INVENTADA {metodo:6} {ruta}")
+        print("\nEl documento se genera con este extractor, asi que el documento")
+        print("tambien estara mal. Arregla el extractor y regenera:")
+        print("    python tools/generar_seccion_api.py --escribir")
+        return 1
+
     sin_doc, sobran = _comparar(documentadas, reales)
 
     print(f"rutas del codigo:    {len(reales)}")
-    print(f"rutas documentadas: {len(documentadas)}")
+    print(f"rutas del OpenAPI:   {len(openapi)} (la verdad de referencia)")
+    print(f"rutas documentadas:  {len(documentadas)}")
 
     if sin_doc:
         print(f"\n{len(sin_doc)} ruta(s) DEL CODIGO SIN DOCUMENTAR:")
