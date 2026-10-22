@@ -118,6 +118,15 @@ docker run --rm -v "D:\Parking:/repo" -w /repo rhysd/actionlint:latest .github/w
   objetivo por invocación).
 - PowerShell 5.1 no soporta `&&` ni `||`. No uses `tail` fuera de un
   `docker exec`: es un binario de Unix.
+- **`POST /auth/login` tiene rate-limit: 10 intentos por IP cada 5
+  minutos**, y cuenta también los exitosos. La QA visual inicia sesión
+  una vez por rol, así que **no la lances 5 veces seguidas** (15 inicios →
+  429): usa `python frontend/scripts/qa_visual.py --anchos
+  "414,768,1024,1232,1440"`, que recorre los 5 anchos con 3 inicios.
+- La suite da **566** en SQLite y **575** en PostgreSQL en el host (lo
+  que ve el CI), y **565/574** en el contenedor de desarrollo: allí sólo
+  se monta `backend/`, así que el test que comprueba la nota del README
+  sobre el reconocimiento facial se salta. No es una deriva.
 
 ## El bloqueo conocido
 
