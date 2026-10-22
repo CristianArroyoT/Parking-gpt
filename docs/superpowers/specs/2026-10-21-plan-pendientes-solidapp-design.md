@@ -4,11 +4,11 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **420 de 421 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **424 de 425 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
-> | Suite completa | **604 passed, 9 skipped** en SQLite · **613 passed** en PostgreSQL (medido el 2026-10-22) |
+> | Suite completa | **606 passed, 9 skipped** en SQLite · **615 passed** en PostgreSQL (medido el 2026-10-22) |
 > | QA visual (Chromium) | **26 pantallas** a **5 anchos** (414, 768, 1024, 1232, 1440 px): 130 capturas, **0 desbordes, 0 errores de consola, 0 errores de login** |
 > | PWA | verificado: instalable y **arranca sin red** |
 > | API | **101 rutas** inventariadas (coinciden con el código) y **99 de 99 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
@@ -1492,6 +1492,21 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] La puerta del compose carga los valores de los 12 servicios en `Settings` sin errores.
   - [x] `ruff` y `mypy` en verde.
 
+### T-76 · P1 — el lock de Redis dejaba a la suite sin bases libres (y se negaba a arrancar)
+
+- **Estado**: **completado** — el lock se suelta al salir y se pueden robar los locks de procesos muertos
+- **Contexto**: el aislamiento de Redis por base (T-65) toma la base con un lock `SET NX` de una hora. Pero **el proceso no soltaba el lock al terminar**: la base quedaba reservada hasta que pasase la hora.
+- **Medido** (2026-10-22): tras varias ejecuciones seguidas, las ocho bases (8-15) quedaron reservadas y la suite se negaba a arrancar con `RuntimeError: no hay ninguna base de Redis libre (8-15) para la suite: hay demasiadas ejecuciones en paralelo`. Es decir: el arreglo de T-65, con el tiempo, **dejaba el repo sin poder ejecutar la suite**.
+- **El arreglo (tres cosas)**:
+  1. al salir, el proceso **libera** su base (`atexit`);
+  2. si el lock lo tiene un proceso que ya no existe, **se puede robar** (comprobando el PID; en Windows con la API de Windows, porque `os.kill(pid, 0)` **mata** el proceso);
+  3. la caducidad del lock baja a 15 minutos (respaldo para un proceso que muera sin poder soltar).
+- **Criterios de aceptación**:
+  - [x] Medido: la suite se negaba a arrancar por falta de bases libres.
+  - [x] Las dos suites del host en paralelo (SQLite y PostgreSQL) **pasan las dos** (606 y 615), sin romperse los tests de rate-limit.
+  - [x] Un lock de un proceso muerto se puede robar (y el proceso vivo suelta el suyo al salir).
+  - [x] `ruff` en verde.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.
@@ -1800,7 +1815,7 @@ T-22 (recuperación de contraseña) ──> T-24 (PWA, que necesita self-service
 
 - [x] `cd backend && ruff check app tests` → sin errores.
 - [x] `cd backend && mypy app` → **sin errores** (modo `strict`). Antes daba 77 y su paso iba con `continue-on-error: true`; ver T-28.
-- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **604 passed, 9 skipped** en SQLite y **613 passed** en PostgreSQL (las cifras del CI; en el contenedor de desarrollo son **603 passed, 10 skipped** y **612 passed, 1 skipped**, porque allí sólo se monta `backend/` y el test que comprueba la nota del README sobre el reconocimiento facial se salta).
+- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **606 passed, 9 skipped** en SQLite y **615 passed** en PostgreSQL (las cifras del CI; en el contenedor de desarrollo son **605 passed, 10 skipped** y **613 passed, 1 skipped**, porque allí sólo se monta `backend/` y el test que comprueba la nota del README sobre el reconocimiento facial se salta).
 - [x] `docker compose up -d` → todos los servicios *healthy* y `/health` responde 200.
 - [x] QA visual en el navegador de las pantallas tocadas (con la app real, no sólo tests).
       → **HECHA** con Chromium headless (Playwright) sobre la app real

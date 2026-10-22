@@ -825,8 +825,8 @@ porque el host no resolvía los nombres de servicio de Docker:
 
 | Paso del CI | En el host |
 |---|---|
-| Tests (pytest, SQLite) | **604 passed, 9 skipped** |
-| Tests contra PostgreSQL (pytest) | **613 passed** |
+| Tests (pytest, SQLite) | **606 passed, 9 skipped** |
+| Tests contra PostgreSQL (pytest) | **615 passed** |
 | Test de funciones sólo de SQLite | **13 passed** |
 | Type-check (vue-tsc) y build del frontend | exit 0 |
 | Los cuatro jobs | **VERDE** |
@@ -1985,3 +1985,13 @@ compose lleva ese valor: **el despliegue de producción no arrancaba**.
 
 **El arreglo**: los dos campos pasan a ser **string** con su property
 (`trusted_proxies_list`), igual que `cors_origins`.
+
+### 3-sexagésimoprimera. El lock de Redis dejaba a la suite sin bases (2026-10-22)
+
+El lock `SET NX` de una hora **no se soltaba** al terminar el proceso: las
+ocho bases quedaban reservadas y la suite se negaba a arrancar ("no hay
+ninguna base de Redis libre (8-15)").
+
+**El arreglo**: el proceso libera su base al salir (`atexit`), un lock de
+un proceso muerto se puede robar (comprobando el PID) y la caducidad baja
+a 15 minutos.

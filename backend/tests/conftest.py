@@ -140,8 +140,60 @@ CLAVE_LOCK_SUITE = "solidapp:suite:lock"
 #: Bases de Redis que puede usar la suite (la 0 la usa la app real).
 BASES_SUITE = range(8, 16)
 #: Caducidad del lock: si el proceso muere sin soltarlo, la base queda
-#: libre al cabo de una hora (las suites duran 7-10 minutos).
-CADUCIDAD_LOCK = 3600
+#: libre al cabo de este tiempo (las suites duran 7-10 minutos).
+#:
+#: OJO (T-76, 2026-10-22): esto estaba en una hora y el proceso **no
+#: soltaba** el lock al terminar, de modo que las ocho bases (8-15) se
+#: quedaban reservadas y la suite se negaba a arrancar ("no hay ninguna
+#: base de Redis libre"). Ahora el proceso suelta su base al salir, un
+#: lock de un proceso muerto se puede robar, y la caducidad es un
+#: respaldo corto.
+CADUCIDAD_LOCK = 900
+
+
+def _pid_vivo(pid: int) -> bool:
+    """¿El proceso sigue vivo?
+
+    Se usa para poder robar un lock cuyo dueño ya no existe (T-76). En
+    Windows NO se puede usar ``os.kill(pid, 0)`` (mata el proceso), asi
+    que se pregunta a la API de Windows.
+    """
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            proceso = ctypes.windll.kernel32.OpenProcess(0x1000, False, int(pid))
+            if not proceso:
+                return False
+            ctypes.windll.kernel32.CloseHandle(proceso)
+            return True
+        except Exception:
+            # Si no se puede comprobar, se asume vivo: es el caso prudente
+            # (no robar una base que esta en uso).
+            return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return True
+    return True
+
+
+def _liberar_base_redis(url_base: str, base: int) -> None:
+    """Suelta la base (para que la siguiente ejecución pueda tomarla)."""
+    try:
+        cliente = redis.Redis.from_url(
+            f"{url_base}/{base}", socket_connect_timeout=1, socket_timeout=1
+        )
+        if cliente.get(CLAVE_LOCK_SUITE) == str(os.getpid()).encode():
+            cliente.delete(CLAVE_LOCK_SUITE)
+    except Exception:
+        pass
 
 
 def _elegir_base_redis_suite(url_base: str) -> int:
@@ -152,11 +204,13 @@ def _elegir_base_redis_suite(url_base: str) -> int:
     distintas: dos PIDs que difieren en un múltiplo de 8 comparten base.
     Medido: con dos suites del host en paralelo (SQLite y PostgreSQL) los
     tests de rate-limit se rompieron mutuamente (5 fallos en cada una:
-    "esperaba 429, obtuve 201"), porque compartían base y cada una
+    "esperaba 429, obtubre 201"), porque compartían base y cada una
     borraba los contadores de la otra al limpiar.
 
     Ahora cada ejecución **reclama** una base con un lock (``SET NX``): si
-    está ocupada, se prueba la siguiente.
+    está ocupada, se prueba la siguiente. Y si el lock lo tiene un proceso
+    que ya no existe, se puede robar (T-76): si no, las bases se quedan
+    reservadas hasta que caduca el lock y la suite deja de poder arrancar.
     """
     for base in BASES_SUITE:
         cliente = redis.Redis.from_url(
@@ -166,6 +220,15 @@ def _elegir_base_redis_suite(url_base: str) -> int:
             if cliente.set(
                 CLAVE_LOCK_SUITE, os.getpid(), nx=True, ex=CADUCIDAD_LOCK
             ):
+                _liberar_al_salir(url_base, base)
+                return base
+            # La base está tomada: si el dueño ya no existe, se puede robar.
+            dueno = cliente.get(CLAVE_LOCK_SUITE)
+            if dueno and not _pid_vivo(int(dueno)):
+                cliente.set(
+                    CLAVE_LOCK_SUITE, os.getpid(), ex=CADUCIDAD_LOCK
+                )
+                _liberar_al_salir(url_base, base)
                 return base
         except Exception:
             continue
@@ -173,6 +236,13 @@ def _elegir_base_redis_suite(url_base: str) -> int:
         "no hay ninguna base de Redis libre (8-15) para la suite: hay "
         "demasiadas ejecuciones en paralelo"
     )
+
+
+def _liberar_al_salir(url_base: str, base: int) -> None:
+    """Al terminar el proceso, suelta la base (T-76)."""
+    import atexit
+
+    atexit.register(_liberar_base_redis, url_base, base)
 
 
 _BASE_REDIS_SUITE = _elegir_base_redis_suite(_URL_REDIS_REAL.rsplit("/", 1)[0])
