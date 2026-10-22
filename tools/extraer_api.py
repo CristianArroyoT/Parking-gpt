@@ -73,14 +73,25 @@ def _nombre_dep(nodo: ast.AST) -> str | None:
 def _roles_de(nodo: ast.AST, constantes: dict[str, list[str]]) -> list[str]:
     """Los roles que se pasan a ``require_role(...)``.
 
-    Admite las tres formas que usa el codigo:
+    Admite las cuatro formas que usa el codigo:
       * ``require_role(UserRole.ADMIN)``      → ``['admin']``
       * ``require_role(UserRole.ADMIN.value)`` → ``['admin']``
       * ``require_role(*_STAFF)``              → los roles de la constante
+      * ``require_role(A, B, C)``              → los tres
+
+    OJO (2026-10-22): antes sólo se leía el **primer** argumento, así que
+    un endpoint que admitía tres roles se documentaba como "sólo admin".
+    No era un detalle de formato: el inventario de la API miente sobre
+    quién puede usar cinco endpoints, y una puerta que se construya
+    sobre él (la de los roles del frontend) denyega por un motivo que
+    no existe.
     """
     if isinstance(nodo, ast.Call) and nodo.args:
-        # ``require_role(UserRole.ADMIN)`` → miramos su primer argumento.
-        return _roles_de(nodo.args[0], constantes)
+        # ``require_role(A, B, C)`` → se leen TODOS sus argumentos.
+        roles: list[str] = []
+        for argumento in nodo.args:
+            roles.extend(_roles_de(argumento, constantes))
+        return roles
     if isinstance(nodo, ast.Starred):
         nombre = nodo.value.id if isinstance(nodo.value, ast.Name) else None
         return list(constantes.get(nombre, [])) if nombre else []

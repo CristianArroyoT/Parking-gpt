@@ -178,6 +178,39 @@ jobs:
         # registradas dos veces).
         run: python ../tools/verificar_api_doc.py
 
+      - name: El frontend llama a endpoints que existen
+        # POR QUÉ (2026-10-22): el frontend tiene su propio cliente HTTP
+        # (``frontend/src/api/``) y la QA visual sólo recorre 21 pantallas.
+        # Un endpoint mal escrito, o una ruta que el backend renombró,
+        # se esconde hasta que un usuario llega a esa pantalla.
+        #
+        # Esta comprobación compara, de forma estática, cada ruta que el
+        # cliente pide con las rutas que el backend expone, y avisa también
+        # cuando la ruta existe pero con OTRO método.
+        #
+        # Sólo usa la biblioteca estándar (el extractor de la API parsea el
+        # código con ``ast``), así que este paso no depende de las
+        # dependencias del backend.
+        run: python ../tools/verificar_contrato_frontend.py
+
+      - name: El guard de rol del frontend coincide con el RBAC
+        # POR QUÉ (2026-10-22): el router protege cada pantalla con
+        # ``meta: { roles: [...] }`` y el backend protege cada endpoint
+        # con ``require_role(...)``. Nada comparaba las dos listas.
+        #
+        # El síntoma del desajuste es silencioso: el router deja entrar
+        # al gestor en una pantalla, la pantalla carga sus datos y el
+        # backend responde 403. Desde el frontend no parece un problema
+        # de permisos —la ruta existe y el método es el correcto—: sólo
+        # el rol no encaja.
+        #
+        # Esta comprobación recorre las 22 pantallas con guard de rol,
+        # sus componentes y sus llamadas (tanto las de los módulos de
+        # ``@/api/`` como las escritas a mano con ``http.get(...)``), y
+        # avisa si alguna llama a un endpoint que exige un rol que la
+        # pantalla no contempla.
+        run: python ../tools/verificar_roles_frontend.py
+
       - name: Las migraciones y los modelos coinciden
         # POR QUÉ (2026-10-21): los tests crean el esquema con
         # ``Base.metadata.create_all``, es decir, **NO ejecutan las

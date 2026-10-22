@@ -41,6 +41,22 @@ AUTOPRUEBAS: list[tuple[str, list[str]]] = [
         [sys.executable, "tools/escanear_secretos.py", "--autoprueba"],
     ),
     (
+        "La puerta de cobertura sigue distinguiendo",
+        [sys.executable, "tools/cobertura_api.py", "--autoprueba"],
+    ),
+    (
+        "El detector de asimetrias de esquemas sigue viendo",
+        [sys.executable, "tools/revisar_esquemas.py", "--autoprueba"],
+    ),
+    (
+        "El verificador de contrato frontend-backend sigue viendo",
+        [sys.executable, "tools/verificar_contrato_frontend.py", "--autoprueba"],
+    ),
+    (
+        "La puerta de roles del frontend sigue viendo",
+        [sys.executable, "tools/verificar_roles_frontend.py", "--autoprueba"],
+    ),
+    (
         "El detector de desbordes de la QA sigue viendo",
         [sys.executable, "frontend/scripts/qa_visual.py", "--autoprueba"],
     ),

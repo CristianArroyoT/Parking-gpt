@@ -80,6 +80,16 @@ def _comprobaciones() -> list[Comprobacion]:
             patron=r"(OK: los campos validados.*)",
         ),
         Comprobacion(
+            "El frontend llama a endpoints que existen",
+            [py, "tools/verificar_contrato_frontend.py"],
+            patron=r"(OK: el frontend llama a endpoints.*)",
+        ),
+        Comprobacion(
+            "El guard de rol del frontend coincide con el RBAC",
+            [py, "tools/verificar_roles_frontend.py"],
+            patron=r"(OK: ninguna pantalla llama a un endpoint.*)",
+        ),
+        Comprobacion(
             "Modelos y migraciones coinciden",
             [
                 "docker", "exec",

@@ -836,6 +836,114 @@ es el **CI completo** de facto. Lo que falta para cerrar el criterio es
 sólo que GitHub deje de rechazar los jobs.
 
 
+### 3-trigésima. El frontend y el backend no se hablaban (2026-10-22)
+
+El frontend habla con el backend a través de su propio cliente HTTP
+(`frontend/src/api/*.ts`) y el backend expone **101 rutas**. **Nada**
+comparaba las dos listas.
+
+La QA visual recorre 21 pantallas, pero sólo llega a los endpoints que
+esas pantallas tocan. Una ruta mal escrita en un cliente que nadie abre se
+queda escondida hasta que un usuario la encuentra. Y el caso inverso —un
+endpoint con el **método equivocado**— es el más caro: no da 404, da 405 en
+producción, y como la ruta existe, parece un problema de permisos.
+
+`tools/verificar_contrato_frontend.py` cierra el hueco comparando, de
+forma estática, **cada ruta que el cliente pide** con **las rutas que el
+backend expone**:
+
+| | |
+|---|---|
+| Rutas del backend | **101** |
+| Llamadas del cliente | **83** (39 en los módulos de `@/api/` + 44 escritas a mano en las vistas) |
+| Desajustes | **0** |
+
+Distingue dos fallos, porque se arreglan distinto:
+
+- la ruta **no existe** en el backend;
+- la ruta **existe pero con otro método**.
+
+El detalle que hace que la puerta sirva: **normaliza los dos lados**. El
+frontend escribe `${parkingId}` y el backend `{parking_id}`. Sin esa
+normalización, las 39 llamadas darían 39 falsos positivos y la puerta no
+serviría para nada —o, peor, se desactivaría por ruidosa.
+
+**Dónde vive**: en la meta-puerta (`tools/autopruebas.py`, que pasa de 5 a
+**8 autopruebas**), en `tools/verificar_repo.py` (la salud del repo en un
+comando) y en el CI, como paso del job `integration`. Sólo usa la
+biblioteca estándar —el extractor de la API parsea el código con `ast`—,
+así que no depende de las dependencias del backend.
+
+**La lección**: el hallazgo no fue un bug, sino una **ausencia**. En este
+repositorio los fallos caros se accumulan en la zona que nadie mira
+—las herramientas que describen y miden el código—, y una zona sin
+comprobaciones es indistinguible de una zona correcta.
+
+
+### 3-trigésimoprimera. El guard de rol del frontend no se comparaba con el RBAC del backend (2026-10-22)
+
+El router protege cada pantalla con `meta: { roles: [...] }` y el backend
+protege cada endpoint con `require_role(...)`. **Nada comparaba las dos
+listas.**
+
+Es el reverso exacto de T-35 (allí el inventario decía "Público" en 9
+endpoints de admin; aquí una pantalla promete un rol que el backend no
+concede). El síntoma es silencioso y confuso: el router deja entrar al
+gestor en una pantalla, la pantalla carga sus datos y el backend responde
+**403**. Desde el frontend no parece un problema de permisos —la ruta
+existe y el método es el correcto—: sólo el rol no encaja.
+
+`tools/verificar_roles_frontend.py` recorre las **22 pantallas con guard
+de rol**, sus componentes (cierre transitivo) y sus llamadas, y avisa si
+alguna llama a un endpoint que exige un rol que la pantalla no contempla.
+
+Cubre **las dos** formas de llamar, y esto es lo que casi se le escapa:
+
+| Forma | Llamadas |
+|---|---|
+| Funciones de los módulos de `@/api/` | 39 |
+| `http.get(...)` escrito a mano en las vistas | 44 |
+| **Total** | **83** (82 de las 22 pantallas con guard) |
+
+Mirar sólo los módulos habría dejado fuera casi la mitad del cliente.
+
+**La puerta tiene un guardia anti-puerta-zombie**: si no resuelve ni una
+sola llamada contra el backend, **falla** en vez de salir verde. Y su
+autoprueba es **extremo a extremo**: inyecta una ruta de mentira que
+abre la pantalla de usuarios al gestor y comprueba que la puerta canta
+el desajuste, y que una pantalla con el rol correcto **no** lo canta.
+
+#### Los 2 bugs que encontró
+
+1. **El extractor de la API leía sólo el primer rol.** En
+   `tools/extraer_api.py`, `_roles_de` hacía `return _roles_de(nodo.args[0], ...)`:
+   leía el **primer** argumento de `require_role(...)` y se olvidaba del
+   resto. Así documentaba `require_role('admin')` para endpoints cuyo
+   código pide **tres** roles.
+
+   Consecuencia: **`docs/API-INTERNAL.md` mentía sobre 5 endpoints** —
+   decía "sólo admin" donde el gestor y el operador sí pueden entrar
+   (`POST /incidents/parkings/{parking_id}`, `POST /incidents/{alert_id}/attachments`,
+   `GET /incidents/{alert_id}/attachments`, `DELETE /incidents/attachments/{attachment_id}`,
+   `POST /tickets/manual`).
+
+   Es el mismo tipo de deriva que T-35 y por el mismo motivo: una
+   herramienta que describe el código sin mirar el código entero.
+
+2. **La puerta de contrato no veía las llamadas directas.**
+   `verificar_contrato_frontend.py` (T-38) miraba sólo los módulos de
+   `@/api/`: las 44 llamadas escritas a mano en las vistas quedaban sin
+   comprobar. Ampliada a los `.vue`.
+
+#### La query string
+
+Las dos herramientas la quitan antes de comparar: `/alerts?type=x` y
+`/alerts` son la misma ruta para el backend. Sin esa normalización, las
+2 llamadas de `LiveView.vue` con query string salían como rutas
+inexistentes — un falso positivo que habría hecho que la puerta se
+desactivara por ruidosa.
+
+
 | Modelo | Tabla | Notas |
 |---|---|---|
 | `IncidentAttachment` | `incident_attachments` | `alert_id` con `ON DELETE CASCADE`; el binario **no** está en la BD, vive en el volumen `incident_attachments` |

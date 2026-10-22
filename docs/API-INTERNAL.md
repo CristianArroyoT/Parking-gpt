@@ -138,13 +138,13 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 
 | Método | Ruta | Quién |
 |---|---|---|
-| POST | `/incidents/parkings/{parking_id}` | `require_role('admin')` + Autenticado + `parking_context` |
-| DELETE | `/incidents/attachments/{attachment_id}` | `require_role('admin')` + Autenticado |
+| POST | `/incidents/parkings/{parking_id}` | `require_role('admin', 'gestor', 'operador')` + Autenticado + `parking_context` |
+| DELETE | `/incidents/attachments/{attachment_id}` | `require_role('admin', 'gestor')` + Autenticado |
 | GET | `/incidents/attachments/{attachment_id}/download` | `_gestor_o_admin` |
 | GET | `/incidents/attachments/{attachment_id}/thumbnail` | `_gestor_o_admin` |
 | GET | `/incidents/attachments/{attachment_id}` | `_gestor_o_admin` |
-| POST | `/incidents/{alert_id}/attachments` | `require_role('admin')` + Autenticado + `enforce_parking_membership` |
-| GET | `/incidents/{alert_id}/attachments` | `require_role('admin')` + Autenticado + `enforce_parking_membership` |
+| POST | `/incidents/{alert_id}/attachments` | `require_role('admin', 'gestor', 'operador')` + Autenticado + `enforce_parking_membership` |
+| GET | `/incidents/{alert_id}/attachments` | `require_role('admin', 'gestor')` + Autenticado + `enforce_parking_membership` |
 
 ### 3.13 Cierre de sesión global — `logout_all` (`logout_all.py`)
 
@@ -235,7 +235,7 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 |---|---|---|
 | GET | `/tickets` | Autenticado + ámbito: membresías de sucursal + ámbito: sus vehículos |
 | POST | `/tickets` | Autenticado |
-| POST | `/tickets/manual` | `require_role('admin')` + Autenticado + `parking_context` |
+| POST | `/tickets/manual` | `require_role('admin', 'gestor', 'operador')` + Autenticado + `parking_context` |
 | GET | `/tickets/{ticket_id}` | Autenticado + ámbito: membresías de sucursal + ámbito: sus vehículos |
 | POST | `/tickets/{ticket_id}/close` | Autenticado + ámbito: membresías de sucursal + ámbito: sus vehículos |
 

@@ -153,10 +153,62 @@ def cobertura() -> list[tuple[str, str, str, str]]:
     return filas
 
 
+def _autoprueba() -> int:
+    """Comprueba que la puerta de cobertura SIGUE distinguiendo.
+
+    La puerta dice "todo endpoint tiene algun test". Si el patrón que
+    empareja rutas dejara de casar **de más**, todos los endpoints
+    parecerían tener test y la puerta pasaría en vacío. Y si dejara de
+    casar **de menos**, daría falsas alarmas. Aquí se comprueban las dos
+    direcciones.
+    """
+    texto = _texto_de_tests()
+    fallos = 0
+
+    # 1. Una ruta que sí aparece en los tests tiene que casar.
+    filas = _filas_con_rbac()
+    explicitas = [f for f in filas if f[4] == "explicita"]
+    if not explicitas:
+        fallos += 1
+        print("  FALLO: no hay ningun endpoint con test explicito (no se puede probar)")
+    else:
+        metodo, ruta, _quien, _modulo, _estado = explicitas[0]
+        if not _forma(ruta).search(texto):
+            fallos += 1
+            print(f"  FALLO: {ruta} tiene test pero el patron no la encuentra")
+        else:
+            print(f"  OK: una ruta con test se encuentra ({ruta})")
+
+    # 2. Una ruta que NO aparece en ningún test NO tiene que casar.
+    inventada = "/api/v1/no-existe/xyz"
+    if _forma(inventada).search(texto):
+        fallos += 1
+        print(f"  FALLO: una ruta que no existe casa con el patron ({inventada})")
+    else:
+        print("  OK: una ruta que no esta en los tests no casa")
+
+    # 3. Y la puerta tiene que detectar un endpoint sin test.
+    if not any(f[4] == "ninguna" for f in filas):
+        print("  (sin endpoints sin test: no hay caso negativo que probar)")
+    else:
+        print("  OK: hay endpoints sin test y la puerta los marca")
+
+    if fallos:
+        print(f"Autoprueba FALLIDA: {fallos} caso(s).")
+        return 1
+    print("Autoprueba correcta: la puerta de cobertura sigue distinguiendo.")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--detalle", action="store_true")
+    ap.add_argument("--autoprueba", action="store_true",
+                    help="Comprueba que la puerta sigue distinguiendo")
     args = ap.parse_args()
+
+    if args.autoprueba:
+        return _autoprueba()
 
     filas = cobertura()
     explicitas = [f for f in filas if f[3] == "explicita"]

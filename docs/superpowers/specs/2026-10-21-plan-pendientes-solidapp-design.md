@@ -4,11 +4,11 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **230 de 231 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **240 de 241 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
-> | Suite completa | **562 passed** en SQLite · **571 passed** en PostgreSQL |
+> | Suite completa | **565 passed** en SQLite · **574 passed** en PostgreSQL |
 > | QA visual (Chromium) | 21 pantallas a **5 anchos** (414, 768, 1024, 1232, 1440 px): 0 desbordes, 0 errores de consola |
 > | PWA | verificado: instalable y **arranca sin red** |
 > | API | **101 rutas** inventariadas (coinciden con el código) y **99 de 99 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
@@ -628,7 +628,7 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] `mypy app` → **0 errores** en modo `strict`.
   - [x] Verde **en los dos entornos**: Python 3.11 (la del CI, con mypy 1.20.2) y Python 3.13 (el del host). El resultado de mypy **depende de la versión** (con 1.20.2 en 3.11 aparecía un error de `order_by` que el host no reportaba), así que se comprobó en los dos.
   - [x] `ruff check app tests` → sin errores.
-  - [x] La suite completa sigue en verde: **562 passed** en SQLite y **571** en PostgreSQL.
+  - [x] La suite completa sigue en verde: **565 passed** en SQLite y **574** en PostgreSQL.
   - [x] El paso del CI **deja de tolerar** los fallos de mypy (`continue-on-error` fuera), validado con el job replicado en local.
   - [x] `actionlint` exit 0.
 - **Qué NO se ha tocado**: la lógica. Todos los cambios son anotaciones, `cast` y dos correcciones de import. El único cambio de comportamiento posible (el `response_model` implícito de `api/v1/incidents.py` al anotar su retorno) lo cubre la suite.
@@ -796,6 +796,45 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] Los esquemas reales no tienen asimetrías.
   - [x] El test general pasa, y **se ha comprobado que falla** reintroduciendo el defecto (sólo en el lado Update: el test lo canta).
   - [x] La suite completa sigue en verde.
+
+### T-38 · P1 — el frontend y el backend no se hablaban
+
+- **Estado**: **completado** — verificador de contrato con autoprueba y paso en el CI
+- **Contexto**: el frontend habla con el backend a través de su propio cliente HTTP (`frontend/src/api/*.ts`) y el backend expone **101 rutas**. **Nada** comparaba las dos listas. La QA visual recorre 21 pantallas, pero sólo llega a los endpoints que esas pantallas tocan: una ruta mal escrita —o una ruta que el backend renombró— en un cliente que nadie abre se queda escondida hasta que un usuario la encuentra. Y el caso inverso, un endpoint con el **método equivocado**, es el más caro: no da 404, da 405 en producción.
+- **El verificador** (`tools/verificar_contrato_frontend.py`) compara, de forma estática, **cada ruta que el cliente pide** con **las rutas que el backend expone**. Distingue dos fallos, porque se arreglan distinto:
+  - la ruta **no existe** en el backend;
+  - la ruta **existe pero con otro método**.
+- **Cubre las dos formas de llamar**: las funciones de los módulos de `@/api/` (39) y las **44 llamadas escritas a mano** con `http.get(...)` dentro de las vistas. (Ampliado en T-39: la primera versión miraba sólo los módulos y dejaba fuera casi la mitad del cliente.)
+- **Normalización de los dos lados**: el frontend escribe `${parkingId}` y el backend `{parking_id}`, y la query string se quita (`/alerts?type=x` y `/alerts` son la misma ruta). Sin esa normalización, las 39 llamadas darían 39 falsos positivos y la puerta no serviría para nada.
+- **Criterios de aceptación**:
+  - [x] El verificador encuentra una ruta que el backend no tiene, y una ruta con el método equivocado (autoprueba en las dos direcciones).
+  - [x] La comparación real sale en verde: **83 llamadas** del cliente contra **101 rutas** del backend, 0 desajustes.
+  - [x] Está en la meta-puerta (`tools/autopruebas.py`), que pasa de 5 a **8 autopruebas**.
+  - [x] Está en `tools/verificar_repo.py` (la salud del repo en un comando) y en el CI, como paso del job `integration`.
+  - [x] El workflow sigue siendo válido (`actionlint` exit 0) y el job `integration` pasa **completo** en la réplica local.
+
+### T-39 · P1 — el guard de rol del frontend no se comparaba con el RBAC del backend
+
+- **Estado**: **completado** — puerta nueva con autoprueba, y **2 bugs reales** corregidos
+- **Contexto**: el router del frontend protege cada pantalla con `meta: { roles: [...] }` y el backend protege cada endpoint con `require_role(...)`. **Nada comparaba las dos listas.** Es el reverso exacto de T-35 (allí el inventario decía "Público" en endpoints de admin; aquí una pantalla promete un rol que el backend no concede).
+- **El síntoma es silencioso y confuso**: el router deja entrar al gestor en una pantalla, la pantalla carga sus datos y el backend responde **403**. Desde el frontend no parece un problema de permisos —la ruta existe y el método es el correcto—: sólo el rol no encaja.
+- **La puerta** (`tools/verificar_roles_frontend.py`) recorre las **22 pantallas con guard de rol**, sus componentes (cierre transitivo) y sus llamadas, y avisa si alguna llama a un endpoint que exige un rol que la pantalla no contempla. Cubre **las dos** formas de llamar: las funciones de los módulos de `@/api/` (39) y las **44 llamadas escritas a mano** con `http.get(...)` dentro de las vistas. Mirar sólo los módulos habría dejado fuera casi la mitad del cliente.
+- **Criterios de aceptación**:
+  - [x] La puerta recorre las 22 pantallas con guard y sus componentes, y resuelve **82 de 82** llamadas contra el backend.
+  - [x] La autoprueba es **extremo a extremo**: inyecta una ruta de mentira que abre la pantalla de usuarios al gestor y comprueba que la puerta canta el desajuste; y que una pantalla con el rol correcto **no** lo canta.
+  - [x] La puerta tiene un **guardia anti-puerta-zombie**: si no resuelve ninguna llamada, falla en vez de salir verde.
+  - [x] Está en la meta-puerta (`tools/autopruebas.py`, que pasa de 8 a **9 autopruebas**), en `tools/verificar_repo.py` y en el CI.
+  - [x] El repositorio real no tiene desajustes de rol.
+
+#### Los 2 bugs que encontró (o destapó)
+
+1. **El extractor de la API leía sólo el primer rol.** `tools/extraer_api.py` documentaba `require_role('admin')` para endpoints cuyo código pide **tres** roles (`require_role(UserRole.ADMIN.value, UserRole.GESTOR.value, UserRole.OPERADOR.value)`): leía `nodo.args[0]` y se olvidaba del resto. Consecuencia: **`docs/API-INTERNAL.md` mentía sobre 5 endpoints** — decía "sólo admin" donde el gestor y el operador sí pueden entrar. Es el mismo tipo de deriva que T-35, y por el mismo motivo (una herramienta que describe el código sin mirar el código entero).
+   - Corregido en `_roles_de` (lee **todos** los argumentos) y regenerado el documento. La puerta `verificar_api_doc.py` detectó solo el cambio: 5 líneas desalineadas → regeneradas → coincide.
+2. **La puerta de contrato no veía las llamadas directas.** `verificar_contrato_frontend.py` (T-38) miraba sólo los módulos de `@/api/`: las 44 llamadas escritas a mano en las vistas quedaban sin comprobar. Ampliada a los `.vue`; ahora cubre **83 llamadas** en vez de 39.
+
+#### Una nota sobre la query string
+
+Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` y `/alerts` son la misma ruta para el backend). Sin esa normalización, las 2 llamadas de `LiveView.vue` con query string salían como rutas inexistentes: un falso positivo que habría hecho que la puerta se desactivara por ruidosa.
 
 ### T-14 · I3 — OCR con GPU
 
@@ -1105,7 +1144,7 @@ T-22 (recuperación de contraseña) ──> T-24 (PWA, que necesita self-service
 
 - [x] `cd backend && ruff check app tests` → sin errores.
 - [x] `cd backend && mypy app` → **sin errores** (modo `strict`). Antes daba 77 y su paso iba con `continue-on-error: true`; ver T-28.
-- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **562 passed en SQLite y 571 en PostgreSQL**.
+- [x] `docker exec parking-backend-1 pytest -q` → 265 passed, 0 failed (o más, nunca menos). → **565 passed en SQLite y 574 en PostgreSQL**.
 - [x] `docker compose up -d` → todos los servicios *healthy* y `/health` responde 200.
 - [x] QA visual en el navegador de las pantallas tocadas (con la app real, no sólo tests).
       → **HECHA** con Chromium headless (Playwright) sobre la app real
