@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **272 de 273 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **277 de 278 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -972,6 +972,27 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] La autoprueba distingue los 8 casos: verde, job que falta (**no** verde), todos los esperados, rojo con pasos, rechazado por la cuenta, en curso, sin jobs, y que el workflow real define 4 jobs.
   - [x] Comprobado contra el CI real: el último run de `main` sigue clasificándose como **rechazado por la cuenta** (código 2), que es lo que es.
   - [x] `verificar_repo.py` distingue el estado "incompleto" del "en rojo".
+
+### T-47 · P1 — las credenciales de las cuentas demo estaban escritas en tres sitios sin que nada las comparara
+
+- **Estado**: **completado** — puerta nueva con autoprueba y paso en el CI
+- **Contexto**: las credenciales de las cuentas demo están escritas **tres veces**:
+  1. `backend/app/scripts/seed.py` → `DEMO_USERS`: lo que hay de verdad en la base de datos.
+  2. `frontend/src/views/LoginView.vue` → el mapa de `fillDemo()`: lo que el usuario ve en la pantalla de login y con lo que rellena el formulario al pulsar "Admin", "Gestor", "Operador" o "Cliente".
+  3. `frontend/scripts/qa_visual.py` → `CUENTAS`: con lo que la QA visual inicia sesión.
+- **El problema**: **nada las comparaba**, y el modo de fallo es de las peores. Si el seed cambia una contraseña, la pantalla de login sigue rellenando la vieja y **el usuario del demo no puede entrar**, con un "email o contraseña incorrectos" que no dice absolutamente nada; y la QA falla con un error de navegación que culpa al navegador. Nadie pensaría en mirar el seed.
+  - Y la puerta de "despliegue limpio" (que sí existe) comprueba que el seed cree **4 usuarios**, pero **no** que sus contraseñas sean las que la pantalla de login ofrece.
+- **La puerta** (`tools/verificar_cuentas_demo.py`) lee las tres listas (el seed y la QA con `ast`; el mapa del login con una expresión regular acotada, porque es TypeScript dentro de un `.vue`) y comprueba:
+  - cada cuenta que ofrece el login **existe en el seed con la misma contraseña** y con **ese rol**;
+  - lo mismo para las cuentas que usa la QA visual;
+  - los roles del seed existen en el enum `UserRole` (leído del código);
+  - el login ofrece **todas** las cuentas del seed (es un entorno de demostración: si hay una cuenta, tiene que ser alcanzable desde la pantalla).
+- **Criterios de aceptación**:
+  - [x] La puerta compara los tres sitios y dice exactamente dónde se descuadran (qué lado dice qué).
+  - [x] **Probado con el defecto reintroducido**: cambiando la contraseña del admin en el seed, la puerta canta las **2** discrepancias (la del login y la de la QA) y sale con código 1. Al restoring, vuelve a verde.
+  - [x] Es estática (no necesita base de datos ni dependencias) → puede ir en el CI.
+  - [x] Está en la meta-puerta, que pasa de 11 a **12 autopruebas**, y en `tools/verificar_repo.py` (14 comprobaciones).
+  - [x] Paso nuevo en el job `integration` del CI, y `actionlint` exit 0.
 
 ### T-14 · I3 — OCR con GPU
 

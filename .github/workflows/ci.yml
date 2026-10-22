@@ -231,6 +231,20 @@ jobs:
         # pantalla no contempla.
         run: python ../tools/verificar_roles_frontend.py
 
+      - name: El seed, el login y la QA usan las mismas cuentas demo
+        # POR QUÉ (2026-10-22): las credenciales de las cuentas demo están
+        # escritas en TRES sitios (el seed, el mapa de ``fillDemo()`` del
+        # login y las constantes de la QA visual) y nada las comparaba.
+        # Si el seed cambia una contraseña, el usuario del demo no puede
+        # entrar —con un "email o contraseña incorrectos" que no dice
+        # nada— y la QA falla con un error de navegador que culpa al
+        # navegador. Nadie pensaría mirar el seed.
+        #
+        # La puerta de "despliegue limpio" comprueba que el seed cree 4
+        # usuarios, pero NO que sus contraseñas sean las que la pantalla
+        # de login ofrece.
+        run: python ../tools/verificar_cuentas_demo.py
+
       - name: Las migraciones y los modelos coinciden
         # POR QUÉ (2026-10-21): los tests crean el esquema con
         # ``Base.metadata.create_all``, es decir, **NO ejecutan las

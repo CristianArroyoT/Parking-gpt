@@ -90,6 +90,11 @@ def _comprobaciones() -> list[Comprobacion]:
             patron=r"(OK: ninguna pantalla llama a un endpoint.*)",
         ),
         Comprobacion(
+            "El seed, el login y la QA usan las mismas cuentas demo",
+            [py, "tools/verificar_cuentas_demo.py"],
+            patron=r"(OK: el seed, la pantalla de login.*)",
+        ),
+        Comprobacion(
             "Modelos y migraciones coinciden",
             [
                 "docker", "exec",

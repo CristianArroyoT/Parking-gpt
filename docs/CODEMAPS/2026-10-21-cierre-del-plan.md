@@ -1256,6 +1256,47 @@ Comprobado contra el CI real: el último run de `main` sigue
 clasificándose como **rechazado por la cuenta** (código 2).
 
 
+### 3-trigésimonovena. Las credenciales de las cuentas demo estaban escritas tres veces sin que nada las comparara (2026-10-22)
+
+Las credenciales de las cuentas demo están escritas **tres veces**:
+
+| Sitio | Qué es |
+|---|---|
+| `backend/app/scripts/seed.py` → `DEMO_USERS` | lo que hay de verdad en la base de datos |
+| `frontend/src/views/LoginView.vue` → `fillDemo()` | lo que el usuario ve y con lo que rellena el formulario al pulsar "Admin", "Gestor", "Operador" o "Cliente" |
+| `frontend/scripts/qa_visual.py` → `CUENTAS` | con lo que la QA visual inicia sesión |
+
+**Nada las comparaba**, y el modo de fallo es de las peores: si el seed
+cambia una contraseña, la pantalla de login sigue rellenando la vieja y
+**el usuario del demo no puede entrar**, con un "email o contraseña
+incorrectos" que no dice absolutamente nada; y la QA falla con un error
+de navegación que culpa al navegador. Nadie pensaría en mirar el seed.
+
+Y la puerta de "despliegue limpio" (que sí existe) comprueba que el
+seed cree **4 usuarios**, pero **no** que sus contraseñas sean las que
+la pantalla de login ofrece.
+
+**La puerta** (`tools/verificar_cuentas_demo.py`) lee las tres listas
+(el seed y la QA con `ast`; el mapa del login con una expresión regular
+acotada, porque es TypeScript dentro de un `.vue`) y comprueba:
+
+- cada cuenta que ofrece el login **existe en el seed con la misma
+  contraseña** y con **ese rol**;
+- lo mismo para las cuentas que usa la QA visual;
+- los roles del seed existen en el enum `UserRole` (leído del código);
+- el login ofrece **todas** las cuentas del seed (si hay una cuenta,
+  tiene que ser alcanzable desde la pantalla).
+
+**Probado con el defecto reintroducido**: cambiando la contraseña del
+admin en el seed, la puerta canta las **2** discrepancias (la del login
+y la de la QA) y sale con código 1; al restoring, vuelve a verde.
+
+Es estática (no necesita base de datos ni dependencias), así que va en
+la meta-puerta (que pasa de 11 a **12 autopruebas**), en
+`tools/verificar_repo.py` (14 comprobaciones) y en el job `integration`
+del CI.
+
+
 | Modelo | Tabla | Notas |
 |---|---|---|
 | `IncidentAttachment` | `incident_attachments` | `alert_id` con `ON DELETE CASCADE`; el binario **no** está en la BD, vive en el volumen `incident_attachments` |
