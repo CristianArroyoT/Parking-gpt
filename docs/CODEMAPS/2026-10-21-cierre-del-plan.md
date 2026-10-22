@@ -2043,3 +2043,25 @@ secreto JWT por defecto (público)— y el `.env.example` no declaraba
 obligatorias, TLS y `TRUSTED_PROXIES`), las dos variables en el
 `.env.example`, y la puerta `tools/verificar_readme_despliegue.py`.
 
+### 3-sexagésimotercera. El secreto del `.env.example` se aceptaba en producción (2026-10-22)
+
+La lista de secretos prohibidos comparaba de forma **exacta**: el
+`.env.example` proponía `change-me-in-production-32-bytes-min` y pasaba el
+filtro. Como el README dice `cp .env.example .env`, quien montaba una
+sucursal arrancaba con un **secreto público** (tokens de administrador
+falsificables): el P0 del T-74 por la puerta del `.env`.
+
+**El arreglo**: el filtro pasa a ser por **prefijo** (`change-me`,
+`changeme`) y el `.env.example` deja el secreto **vacío**.
+
+### 3-sexagésimocuarta. El escáner de secretos marcaba una orden de shell (2026-10-22)
+
+`export JWT_SECRET="$(openssl rand -base64 48)"` (cómo se genera el
+secreto de firma de una sucursal) se marcaba como "JWT con valor real": el
+patrón no distinguía un literal de una sustitución de shell. El escáner
+del historial se ponía en rojo por una línea de documentación correcta.
+
+**El arreglo**: un valor entre comillas que empieza por `$(` o por un
+acento grave es una orden, no un literal. Tres casos nuevos en su
+autoprueba.
+

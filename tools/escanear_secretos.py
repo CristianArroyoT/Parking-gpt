@@ -52,6 +52,15 @@ MARCADORES = re.compile(
     re.IGNORECASE,
 )
 
+#: Un valor entre comillas que empieza por ``$(`` o por un acento grave es
+#: una **sustitucion de shell**: una orden que genera el valor, no un
+#: literal. No puede ser una credencial filtrada, asi que no se marca.
+#:
+#: (T-82, 2026-10-22): ``export JWT_SECRET="$(openssl rand -base64 48)"``
+#: (como se genera el secreto de firma de una sucursal) se marcaba como
+#: "JWT con valor real".
+ORDEN_DE_SHELL = re.compile(r"=\s*[\"']\s*(?:\$\(|`)")
+
 #: Ficheros donde un "secreto" es legitimo (plantillas, pruebas, seed).
 #: OJO: los directorios se buscan con ``(^|/)`` para que ALSO estén
 #: exentos en la raíz del repo ("tests/test_app.py"), no sólo anidados
@@ -89,6 +98,10 @@ def _secreto_en_linea(linea: str, ruta: str = "") -> str | None:
         return None
     # Una linea que sólo habla de como NO hacer las cosas no es un secreto.
     if linea.lstrip().startswith(("#", "//")):
+        return None
+    # Un valor que es una orden de shell genera el secreto: no es un
+    # literal filtrado (T-82).
+    if ORDEN_DE_SHELL.search(linea):
         return None
     for nombre, patron in PATRONES:
         if re.search(patron, linea):
@@ -181,6 +194,25 @@ def _autoprueba() -> int:
         ("documentacion", "docs/secreto.md", f'TOKEN = "{token_github}"', False),
         ("comentario", "app/api.py", f'# TOKEN = "{token_github}"', False),
         ("linea limpia", "app/api.py", "def ejecutar() -> None:\n    return None", False),
+        # T-82: una ORDEN de shell no es un literal filtrado.
+        (
+            "orden de shell (sustitucion)",
+            "app/config.py",
+            'export JWT_SECRET="$(openssl rand -base64 48)"',
+            False,
+        ),
+        (
+            "orden de shell (acentos graves)",
+            "app/config.py",
+            "export JWT_SECRET=`openssl rand -base64 48`",
+            False,
+        ),
+        (
+            "orden de shell con otro nombre",
+            "app/config.py",
+            'API_KEY="$(cat /run/secrets/api_key)"',
+            False,
+        ),
     ]
     fallos = 0
     for nombre, ruta, linea, debe_detectar in casos:

@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **449 de 450 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **461 de 462 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1576,6 +1576,37 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] El `.env.example` declara `FRONTEND_BASE_URL` y `TRUSTED_PROXIES`.
   - [x] La puerta lo vigila (8 casos de autoprueba) y está en la meta-puerta, en el CI y en `verificar_repo.py`.
   - [x] Escaneo de texto sin problemas.
+
+### T-81 · P0 (seguridad) — el `JWT_SECRET` que proponía el `.env.example` se aceptaba en producción
+
+- **Estado**: **completado** — el filtro es por prefijo y el `.env.example` ya no propone un secreto
+- **Contexto**: el T-74 cerró el P0 del compose de producción, pero quedaba **otra puerta al mismo desastre**: el `.env.example` (el fichero que el README dice copiar con `cp .env.example .env`) proponía `JWT_SECRET=change-me-in-production-32-bytes-min`, y la lista de secretos prohibidos comparaba de forma **exacta** (tenía `change-me-in-production`, no `change-me-in-production-32-bytes-min`).
+- **Medido**: `Settings(ENVIRONMENT="production", JWT_SECRET="change-me-in-production-32-bytes-min", FRONTEND_BASE_URL="https://app.ejemplo.es")` → **ACEPTADO**. O sea: quien copiara el `.env.example` a `.env` y montara una sucursal (con las otras variables puestas, que el README ya exige desde el T-80) arrancaba con un **secreto público** → **tokens de administrador falsificables**. El P0 del T-74, por la puerta del `.env`.
+- **El arreglo (dos cosas)**:
+  1. el filtro pasa a ser por **prefijo** (`change-me`, `changeme`): cualquier variante ("…-32-bytes-min", "…-lo-que-sea") se rechaza, sin tocar los secretos de verdad;
+  2. el `.env.example` **no propone** un secreto: lo deja vacío, con el comentario de que en producción es obligatorio (el compose pone su default **solo** para desarrollo).
+- **Criterios de aceptación**:
+  - [x] Medido: el secreto del `.env.example` se aceptaba en producción (con `FRONTEND_BASE_URL` puesto, que es lo que el README exige).
+  - [x] **Probado en el contenedor real**: con `ENVIRONMENT=production` y ese secreto, el backend **se niega a arrancar** con el mensaje que dice qué exportar.
+  - [x] El filtro es por prefijo: se rechazan `change-me`, `change-me-in-production`, `change-me-in-production-32-bytes-min`, `change-me-cualquier-cosa`, `changeme-esto-tampoco` y el vacío.
+  - [x] Un secreto real **sí** sirve en producción (el filtro no es tan laxo que lo rompa).
+  - [x] En `development` el valor de mentira sigue valiendo (el equipo de QA lo usa a propósito).
+  - [x] El `.env.example` deja `JWT_SECRET=` vacío, y la puerta del README de despliegue lo vigila.
+  - [x] `ruff` y `mypy` en verde.
+
+### T-82 · P2 — el escáner de secretos marcaba como secreto una orden de shell
+
+- **Estado**: **completado** — una orden que *genera* el valor no es una credencial filtrada
+- **Contexto**: la línea del README que dice cómo generar el secreto de firma de una sucursal,
+  `export JWT_SECRET="$(openssl rand -base64 48)"`, la marcaba como *"JWT con valor real"*: el patrón `JWT_SECRET\s*=\s*["']…["']` no distingue un **literal** de una **sustitución de shell** (una orden que genera el valor).
+- **Por qué salió a la luz**: en el árbol versionado el README está exento (los `.md` lo están), pero el escáner también mira el **historial**, y ahí no hay ruta que eximir. O sea: la puerta de secretos del repo se ponía en rojo por una línea de documentación correcta.
+- **El arreglo**: una regla específica — un valor entre comillas que empieza por `$(` o por un acento grave es una orden de shell, no un literal — con tres casos nuevos en la autoprueba del escáner (sustitución, acentos graves y otro nombre de variable).
+- **Criterios de aceptación**:
+  - [x] Medido: el escáner del historial marcaba la línea del README como "JWT con valor real" (y `verificar_repo.py` quedaba en rojo por eso).
+  - [x] La regla no exonera nada que deba exonerarse: un secreto real no empieza por `$(` ni por un acento grave.
+  - [x] Tres casos nuevos en la autoprueba del escáner (sustitución, acentos graves, otro nombre).
+  - [x] El escáner del historial vuelve a dar **"no hay secretos"**.
+  - [x] `verificar_repo.py` vuelve a estar entero en verde.
 
 ### T-14 · I3 — OCR con GPU
 
