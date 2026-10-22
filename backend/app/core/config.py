@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -42,6 +43,17 @@ class Settings(BaseSettings):
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")
     api_port: int = Field(default=8000, alias="API_PORT")
     cors_origins: str = Field(default="http://localhost:5173,http://localhost:3000", alias="CORS_ORIGINS")
+    # URL **publica** del frontend: la que ve el cliente final. Se usa para
+    # los enlaces de los correos (por ejemplo, el de recuperar contrasena).
+    #
+    # OJO (T-61): antes esta URL estaba hardcodeada en el servicio de
+    # correo como "http://localhost:5173/recuperar-contrasena", o sea que
+    # en produccion el correo de "restablece tu contrasena" llevaba un
+    # enlace a localhost: el cliente lo pulsaba y no llegaba a nada. El
+    # flujo de recuperacion de contrasena estaba roto de punta a punta.
+    frontend_base_url: str = Field(
+        default="http://localhost:5173", alias="FRONTEND_BASE_URL"
+    )
 
     # NO USADO (2026-10-22), los tres: el motor y el idioma los elige el
     # **servicio OCR** (docker/ocr), con sus propias variables
@@ -272,6 +284,70 @@ class Settings(BaseSettings):
                 "'change-me-in-production' está en el repositorio "
                 "público y permitiría firmar tokens de administrador. "
                 "Exporta JWT_SECRET antes de arrancar."
+            )
+        return self
+
+    @field_validator("trusted_proxies", "heartbeat_skip_url_prefixes", mode="before")
+    @classmethod
+    def _aceptar_lista_por_comas(cls, valor: object) -> object:
+        """Acepta una lista separada por comas, ademas de JSON.
+
+        POR QUÉ (T-64): ``pydantic-settings`` sólo entiende JSON para los
+        campos de tipo lista. O sea que
+        ``TRUSTED_PROXIES=172.16.0.0/12,10.0.0.0/8`` (el formato que
+        documenta el propio comentario del ajuste) **fallaba al
+        arrancar**. El ajuste parecia configurable y no lo era: sin él, el
+        backend no sabe qué IP es la del cliente, el rate-limit de login
+        se comparte para toda la sucursal y la auditoría guarda la IP del
+        proxy.
+
+        Se aceptan los dos formatos: JSON (``["a","b"]``) y comas
+        (``"a,b"``). Con JSON se parsea; si no es JSON válido, se parte
+        por comas.
+        """
+        if isinstance(valor, str):
+            try:
+                parseado = json.loads(valor)
+            except json.JSONDecodeError:
+                parseado = None
+            if isinstance(parseado, list):
+                return [str(item).strip() for item in parseado]
+            return [parte.strip() for parte in valor.split(",") if parte.strip()]
+        return valor
+
+    @model_validator(mode="after")
+    def _exigir_url_publica_real_fuera_de_desarrollo(self) -> "Settings":
+        """En staging/produccion, la URL del frontend tiene que ser real.
+
+        POR QUÉ (2026-10-22): es la URL que se pone en los correos (por
+        ejemplo, el de recuperar contrasena). Con el valor por defecto
+        (localhost:5173) el correo lleva un enlace que no lleva a ningun
+        sitio, y el cliente no puede recuperar su contrasena.
+
+        Y tiene que ser HTTPS: la PWA (decision D4) solo se registra en
+        contexto seguro, y el README ya lo dice. Un enlace http:// en un
+        correo es, ademas, un aviso del cliente de correo.
+
+        Mismo patron que el secreto JWT: que la aplicacion no levante y lo
+        diga claro en el log, en vez de fallar mas tarde con un enlace
+        roto que nadie sabe explicar.
+        """
+        if self.environment not in ("production", "staging"):
+            return self
+        url = self.frontend_base_url.strip()
+        if url in ("", "http://localhost:5173"):
+            raise ValueError(
+                "FRONTEND_BASE_URL debe definirse con la URL real del "
+                f"frontend cuando ENVIRONMENT={self.environment}: con el "
+                "valor por defecto los correos (por ejemplo, el de "
+                "recuperar contrasena) llevan un enlace a localhost. "
+                "Exporta FRONTEND_BASE_URL antes de arrancar."
+            )
+        if not url.startswith("https://"):
+            raise ValueError(
+                "FRONTEND_BASE_URL tiene que empezar por https:// cuando "
+                f"ENVIRONMENT={self.environment}: la PWA solo se registra en "
+                f"contexto seguro y '{url}' no lo es."
             )
         return self
 

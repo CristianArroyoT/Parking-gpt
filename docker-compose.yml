@@ -126,6 +126,16 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       ENVIRONMENT: development
+      # URL publica del frontend: la que va en los correos (el de recuperar
+      # contrasena). En staging/produccion tiene que ser una URL real por
+      # HTTPS: con el valor por defecto la API no arranca (T-61).
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:5173}
+      # IP de los proxies de confianza (los que pueden poner el
+      # X-Forwarded-For). Si el proxy de produccion esta fuera de los
+      # rangos por defecto, hay que anadirlo aqui: si no, el backend ve
+      # la IP del proxy y el rate-limit de login se comparte para toda la
+      # sucursal (T-62 y T-64).
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12,10.0.0.0/8}
       # Cliente OCR (Fase 2). Si el servicio 'ocr' no está levantado,
       # el cliente hace fallback silencioso y devuelve [] — NUNCA 500.
       OCR_SERVICE_URL: http://ocr:8800

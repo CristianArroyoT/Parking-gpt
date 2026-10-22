@@ -40,11 +40,20 @@ log = logging.getLogger(__name__)
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
-#: Frontend (aún no implementado): la página que consume el token del
-#: enlace. De momento el enlace apunta a la ruta prevista en la PWA del
-#: cliente (T-24); hasta que exista, el token se puede usar calling
-#: directamente a ``POST /api/v1/auth/reset-password``.
-_RESET_URL_BASE = "http://localhost:5173/recuperar-contrasena"
+#: La página que consume el token del enlace ya existe (la ruta
+#: ``/recuperar-contrasena`` del router). Lo que NO estaba bien era la
+#: URL de base: hardcodeada a localhost (T-61), o sea que en produccion el
+#: correo llevaba un enlace a localhost y el cliente no llegaba a nada.
+#: Ahora sale de ``FRONTEND_BASE_URL`` (ver ``app/core/config.py``), que en
+#: staging/produccion tiene que ser una URL real por HTTPS.
+RUTA_RESET = "/recuperar-contrasena"
+
+
+def _reset_url_base() -> str:
+    """URL publica del frontend + la ruta de recuperacion."""
+    base = get_settings().frontend_base_url.strip().rstrip("/")
+    return f"{base}{RUTA_RESET}"
+
 
 _env = Environment(
     loader=FileSystemLoader(str(_TEMPLATES_DIR)),
@@ -82,7 +91,7 @@ def render_password_reset_email(
     """Renderiza las plantillas y devuelve ``(texto, html)``."""
     ctx: dict[str, Any] = {
         "full_name": full_name or "cliente",
-        "reset_url": f"{_RESET_URL_BASE}?token={raw_token}",
+        "reset_url": f"{_reset_url_base()}?token={raw_token}",
         "expires_minutes": expires_minutes,
         "app_name": "solidAPP",
     }

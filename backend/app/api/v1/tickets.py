@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.audit import audited
 from app.core.db import get_db
 from app.core.deps import get_current_user, parking_context, require_role
+from app.core.ip import get_real_ip
 from app.models.enums import TicketStatus, UserRole
 from app.models.ticket import Ticket
 from app.models.user import ParkingMembership, User
@@ -113,7 +114,9 @@ def create_manual_ticket_endpoint(
     sucursal (validado con ``parking_context``).
     """
     parking_context(payload.parking_id, current=current_user, db=db)
-    ip = request.client.host if request.client else None
+    # OJO (T-62): con ``request.client.host`` se auditaba la IP del
+    # PROXY (nginx), no la del cliente.
+    ip = get_real_ip(request) if request.client else None
     return _create_manual_ticket(payload, current_user=current_user, ip=ip)
 
 

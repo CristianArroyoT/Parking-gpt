@@ -543,3 +543,24 @@ def test_correo_sin_configurar_devuelve_503(
     assert r_existe.status_code == r_no_existe.status_code == 503
     assert r_existe.json() == r_no_existe.json()
     assert correos == []
+
+
+def test_el_enlace_del_correo_usa_la_url_configurada(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """El enlace del correo sale de FRONTEND_BASE_URL (T-61).
+
+    Antes era una constante a localhost:5173, o sea que en produccion el
+    cliente recibia un enlace a su propio localhost.
+    """
+    from app.core.config import Settings
+
+    ajustes = Settings(FRONTEND_BASE_URL="https://app.solidapp.es/")  # type: ignore[call-arg]
+    monkeypatch.setattr(email_module, "get_settings", lambda: ajustes)
+
+    texto, html = email_module.render_password_reset_email(
+        full_name="Ana Ruiz", raw_token="TOKEN-DE-PRUEBA", expires_minutes=30,
+    )
+    assert "https://app.solidapp.es/recuperar-contrasena?token=TOKEN-DE-PRUEBA" in texto
+    assert "https://app.solidapp.es/recuperar-contrasena?token=TOKEN-DE-PRUEBA" in html
+    assert "localhost" not in texto

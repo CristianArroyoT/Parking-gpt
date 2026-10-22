@@ -243,3 +243,46 @@ def test_incident_cross_parking_422(client: TestClient, db_session) -> None:
         },
     )
     assert r.status_code == 422
+
+
+def test_el_audit_guarda_la_ip_del_cliente_y_no_la_del_proxy(
+    client: TestClient, db_session, monkeypatch
+) -> None:
+    """T-62: el incidente se auditaba con ``request.client.host``.
+
+    En produccion eso es la IP del PROXY (nginx), no la del tecnico que
+    creo el incidente: la trazabilidad de la accion era falsa.
+    """
+    from app.api.v1 import incidents as incidents_mod
+
+    parking, space, admin, _operador, _cliente = _seed(db_session)
+    token = _login(client, admin.email, "admin12345")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # La IP real del cliente (la que daria el proxy de confianza).
+    monkeypatch.setattr(
+        incidents_mod, "get_real_ip", lambda request: "203.0.113.77"
+    )
+
+    r = client.post(
+        f"/api/v1/incidents/parkings/{parking.id}",
+        headers=headers,
+        json={
+            "kind": "space_broken",
+            "parking_space_id": space.id,
+            "reason": "physical_damage",
+            "notes": "hueco en el suelo",
+        },
+    )
+    assert r.status_code == 201, r.text
+
+    db_session.expire_all()
+    audits = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.action == "incident_space_broken")
+        .all()
+    )
+    assert len(audits) == 1, [a.action for a in db_session.query(AuditLog).all()]
+    assert audits[0].ip == "203.0.113.77", (
+        f"la auditoria guarda la IP {audits[0].ip!r} en vez de la del cliente"
+    )

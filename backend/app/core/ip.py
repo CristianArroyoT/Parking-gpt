@@ -12,10 +12,19 @@ Reglas:
 
 1. Sin ``X-Forwarded-For`` → ``request.client.host`` (sin cambios).
 2. Con XFF y ``client.host`` en ``settings.trusted_proxies`` (CIDR) →
-   primer elemento de XFF (cliente real en cadena estándar).
+   **último** elemento de XFF.
 3. Con XFF pero ``client.host`` NO trusted → ``request.client.host``
    (defensa contra spoofing: un atacante no puede inyectar XFF si
    no pasa por un proxy en el que confiamos).
+
+OJO (2026-10-22, T-62): antes se tomaba el **primer** elemento. Ese es el
+que escribe el cliente (un atacante puede mandar ``X-Forwarded-For: 1.2.3.4``
+y quedarse con la IP que quiera), mientras que el **último** lo anade el
+proxy de confianza, que es el mas cercano al backend. Con el primero, un
+atacante que rotaba un XFF distinto en cada intento esquivaba el
+rate-limit de login (cada intento caia en un bucket distinto). El nginx de
+produccion ademas ahora SOBREESCRIBE el XFF con ``$remote_addr``, de modo
+que llega una sola IP.
 """
 from __future__ import annotations
 
@@ -43,7 +52,12 @@ def get_real_ip(request: Request) -> str:
     for cidr in settings.trusted_proxies or ():
         try:
             if client_ip in ipaddress.ip_network(cidr, strict=False):
-                return xff.split(",")[0].strip()
+                # El ULTIMO elemento es el que anade el proxy de confianza
+                # (T-62): el cliente no puede elegirlo.
+                for elemento in reversed(xff.split(",")):
+                    elemento = elemento.strip()
+                    if elemento:
+                        return elemento
         except ValueError:
             continue
     return client_host

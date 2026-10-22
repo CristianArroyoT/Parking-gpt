@@ -86,11 +86,32 @@ server {
 
     # ── La API: siempre a la red, nunca al caché del SW ────────────────
     location /api/ {
+        # OJO (T-60): SIN esta directiva nginx acepta **1 MB** por
+        # peticion (su default), y el backend acepta 3 ficheros de 10 MB
+        # (``incident_attachment_max_bytes`` x
+        # ``incident_attachment_max_files``). Medido: una foto de 2 MB
+        # devolvia un 413 de nginx (HTML) y el backend no llegaba a verla.
+        # En desarrollo (Vite) no habia limite, asi que el fallo solo
+        # aparecia en produccion.
+        #
+        # El valor lo vigila ``tools/verificar_nginx_body_size.py``: si el
+        # backend sube su tope, esta puerta avisa.
+        client_max_body_size 32m;
         proxy_pass ${API_UPSTREAM};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # OJO (T-62): esto SOBREESCRIBE el XFF del cliente con la IP que
+        # nginx ve de verdad. Con ``$proxy_add_x_forwarded_for`` (que
+        # concatena) el cliente podia inyectar su propia IP delante de la
+        # real, y el backend leia justo esa: el rate-limit de login se
+        # esquivaba mandando un XFF distinto en cada intento.
+        #
+        # OJO: si delante de nginx hay un CDN (Cloudflare), hay que activar
+        # el modulo ``realip`` de nginx (``set_real_ip_from`` + ``real_ip``
+        # + ``real_ip_recursive on``) para que ``$remote_addr`` sea la IP
+        # real del visitante y no la del CDN.
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         # Los tickets de SSE (eventos del parking) no deben bufferizarse.
         proxy_buffering off;

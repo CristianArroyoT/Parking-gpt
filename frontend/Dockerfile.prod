@@ -15,6 +15,12 @@
 #  3. Proxy de `/api` al backend, porque el bundle usa rutas relativas
 #     a propósito (el navegador no tiene que saber dónde está la API).
 #
+# OJO: esta imagen sirve **HTTP plano** en el puerto 80. El TLS lo pone
+# lo que haya delante (un Ingress, un Caddy, un nginx del host), y hace
+# falta: los navegadores no registran *service workers* en HTTP sin
+# cifrar, así que sin HTTPS la PWA no es instalable ni arranca sin red.
+# Ver "Requisitos del despliegue" en frontend/README.md.
+#
 # Construir:
 #     docker build -f frontend/Dockerfile.prod -t solidapp-frontend:prod frontend/
 #

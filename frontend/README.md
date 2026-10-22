@@ -339,6 +339,28 @@ python scripts/verificar_servidor_produccion.py --url http://127.0.0.1:8091
 python scripts/verificar_servidor_produccion.py --autoprueba
 ```
 
+### Requisitos del despliegue (los pone lo que hay delante de la imagen)
+
+La imagen sirve **HTTP plano** en el puerto 80: el TLS lo tiene que poner
+lo que haya delante. Y hay tres cosas más que la imagen **no** puede
+cumplir sola. Ninguna la ve la QA, porque la QA corre en `localhost`:
+
+1. **La PWA exige HTTPS** (o `localhost`): los navegadores no registran
+   *service workers* en HTTP sin cifrar. Sin un TLS delante, la app
+   funciona pero **no es instalable ni arranca sin red**, y el modo PWA
+   nunca se activa. Por eso `frontend/Dockerfile.prod` sirve HTTP: el TLS
+   es del despliegue (un Ingress, un Caddy, un nginx del host).
+2. **`FRONTEND_BASE_URL`**: en staging/producción la API **no arranca** si
+   no está puesta. Es la URL que va en los correos (el de recuperar
+   contraseña), y tiene que ser `https://`.
+3. **`TRUSTED_PROXIES`**: las IP del proxy (nginx) tienen que estar en la
+   lista. Si no, el backend no sabe qué IP es la del cliente y **el
+   rate-limit de login salta para toda la sucursal** (10 intentos / 5 min
+   contados como si fueran todos la misma persona).
+4. **Si hay un CDN delante** (Cloudflare), hay que activar el módulo
+   `realip` de nginx (`set_real_ip_from` + `real_ip_recursive on`), o la
+   IP que se registra es la del CDN.
+
 ### Modo "sólo cliente" (pendiente en layout y router)
 
 `src/pwa/mode.ts` exporta `isPwaMode()`, que avisa de que la app está

@@ -62,6 +62,7 @@ from app.core.deps import (
     parking_context,
     require_role,
 )
+from app.core.ip import get_real_ip
 from app.models.audit import Alert
 from app.models.enums import UserRole
 from app.models.incident import IncidentAttachment
@@ -102,7 +103,9 @@ def create_incident_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any] | IncidentRead:
     parking_context(parking_id, current=current_user, db=db)
-    ip = request.client.host if request.client else None
+    # OJO (T-62): con ``request.client.host`` se auditaba la IP del
+    # PROXY (nginx), no la del cliente.
+    ip = get_real_ip(request) if request.client else None
     alert = create_incident(
         payload,
         parking_id=parking_id,
@@ -367,7 +370,9 @@ async def subir_adjuntos_incidente(
     for adjunto in creados:
         db.refresh(adjunto)
 
-    ip = request.client.host if request.client else None
+    # OJO (T-62): con ``request.client.host`` se auditaba la IP del
+    # PROXY (nginx), no la del cliente.
+    ip = get_real_ip(request) if request.client else None
     record_audit(
         db,
         action="incident_attachment_uploaded",
