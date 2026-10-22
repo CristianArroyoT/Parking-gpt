@@ -111,8 +111,8 @@ def _comprobaciones() -> list[Comprobacion]:
         ),
         Comprobacion(
             "Las puertas se prueban a si mismas",
-            [py, "tools/autopruebas.py"],
-            patron=r"(Las \d+ autopruebas pasan.*)",
+            [py, "tools/autopruebas.py", "--estricto"],
+            patron=r"(\d+ autopruebas? pasan.*)",
             timeout=600,
         ),
         Comprobacion(

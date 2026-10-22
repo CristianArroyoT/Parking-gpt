@@ -15,11 +15,21 @@ Este script ejecuta la autoprueba de cada detector que la tenga y falla
 si alguna no detecta su propia clase de defecto. Añadir una puerta
 nueva es añadirla a la lista de aquí.
 
+Los códigos de salida de cada autoprueba tienen un significado:
+
+* ``0`` — pasa.
+* ``1`` — falla: la puerta ya no detecta.
+* ``3`` — **no se ha podido comprobar** (falta un navegador, por
+  ejemplo). No es un verde: la meta-puerta lo cuenta aparte y lo dice.
+  Con ``--estricto`` (lo que usa el CI) es un fallo.
+
 Uso:
     python tools/autopruebas.py
+    python tools/autopruebas.py --estricto
 """
 from __future__ import annotations
 
+import argparse
 import subprocess
 import sys
 from pathlib import Path
@@ -76,16 +86,37 @@ AUTOPRUEBAS: list[tuple[str, list[str]]] = [
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "--estricto", action="store_true",
+        help=(
+            "Falla tambien si alguna autoprueba NO se ha podido comprobar "
+            "(por ejemplo, por falta de un navegador). El CI lo usa: ahi "
+            "todas tienen que comprobarse."
+        ),
+    )
+    args = ap.parse_args()
+
     print("AUTOPRUEBAS DE LAS PUERTAS", flush=True)
     print("=" * 74, flush=True)
     fallos = 0
+    no_verificadas: list[str] = []
     for nombre, comando in AUTOPRUEBAS:
         print(f"\n--- {nombre}", flush=True)
         resultado = subprocess.run(
             comando, cwd=str(RAIZ), check=False, text=True,
             encoding="utf-8", errors="replace", timeout=300,
         )
-        if resultado.returncode != 0:
+        if resultado.returncode == 3:
+            # No se ha podido comprobar: NO es un verde. Se cuenta aparte
+            # para que no se confunda con "pasa".
+            no_verificadas.append(nombre)
+            print(f"  NO VERIFICADA: {nombre}", flush=True)
+            # OJO: este subprocess NO captura la salida (el hijo escribe
+            # directamente en la consola), asi que ``stdout`` es None.
+            for linea in (resultado.stdout or "").splitlines():
+                print(f"    {linea}", flush=True)
+        elif resultado.returncode != 0:
             fallos += 1
             print(f"  FALLO: {nombre} (codigo {resultado.returncode})", flush=True)
     print("\n" + "=" * 74, flush=True)
@@ -95,6 +126,19 @@ def main() -> int:
             flush=True,
         )
         return 1
+    if no_verificadas:
+        print(
+            f"{len(AUTOPRUEBAS) - len(no_verificadas)} autopruebas pasan y "
+            f"{len(no_verificadas)} NO se han podido comprobar:",
+            flush=True,
+        )
+        for nombre in no_verificadas:
+            print(f"  - {nombre}", flush=True)
+        if args.estricto:
+            print("\nEn modo --estricto eso es un FALLO.", flush=True)
+            return 1
+        print("\nSin --estricto no es un fallo, pero no lo tomes por un verde.", flush=True)
+        return 0
     print(
         f"Las {len(AUTOPRUEBAS)} autopruebas pasan: las puertas siguen detectando.",
         flush=True,

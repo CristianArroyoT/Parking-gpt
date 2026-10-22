@@ -20,8 +20,30 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from playwright.sync_api import Page, sync_playwright
-from playwright.sync_api import TimeoutError as PlaywrightTimeout
+#: Playwright sólo hace falta para manejar el navegador. La autoprueba del
+#: detector de desbordes **también** lo necesita (evalúa el JS en un
+#: Chromium real), pero el MÓDULO tiene que poder importarse sin él: la
+#: meta-puerta de las puertas corre este script en entornos donde
+#: playwright no está instalado (el job "backend" del CI corre las
+#: autopruebas antes del ``pip install``), y reventar con un
+#: ``ModuleNotFoundError`` en la importacion seria un fallo de puerta
+#: disfrazado de problema de codigo.
+try:
+    from playwright.sync_api import Page, sync_playwright
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    HAY_PLAYWRIGHT = True
+except ImportError:  # pragma: no cover - depende del entorno
+    HAY_PLAYWRIGHT = False
+
+    class PlaywrightTimeout(Exception):  # type: ignore[no-redef]
+        """Sustituto: sin playwright no hay navegador al que esperar."""
+
+    Page = object  # type: ignore[assignment,misc]
+    sync_playwright = None  # type: ignore[assignment]
+
+#: Código de salida de la autoprueba cuando no se puede comprobar.
+SIN_NAVEGADOR = 3
 
 BASE = "http://localhost:5173"
 
@@ -189,7 +211,19 @@ def _autoprueba() -> int:
     Una puerta que no se puede ver fallar no es una puerta. Este
     detector es el que destapo los 26 desbordes del movil: si dejara de
     verlos, la QA pasara todas las pantallas y nadie se enterara.
+
+    OJO: esta autoprueba necesita un navegador de verdad (el JS mide
+    anchos de elementos, y eso sólo lo sabe un motor de layout). Si
+    playwright no está instalado, **no se puede comprobar**: se devuelve
+    el código 3 ("no verificado") en vez de un verde que no significa
+    nada. La meta-puerta lo distingue del "pasa".
     """
+    if not HAY_PLAYWRIGHT:
+        print("NO VERIFICADO: falta playwright (y su Chromium).")
+        print("  Se puede comprobar con:")
+        print("    pip install playwright && python -m playwright install chromium")
+        return SIN_NAVEGADOR
+
     fallos = 0
     with sync_playwright() as p:
         navegador = p.chromium.launch(headless=True)
@@ -357,6 +391,10 @@ def main() -> int:
     args = ap.parse_args()
     if args.autoprueba:
         return _autoprueba()
+    if not HAY_PLAYWRIGHT:
+        print("FALTA playwright: la QA visual necesita el navegador.")
+        print("  pip install playwright && python -m playwright install chromium")
+        return SIN_NAVEGADOR
 
     if args.anchos:
         anchos = [int(a.strip()) for a in args.anchos.split(",") if a.strip()]

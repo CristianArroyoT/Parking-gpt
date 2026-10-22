@@ -67,6 +67,28 @@ jobs:
         # exactamente lo versionado: ni ``node_modules``, ni ``dist``.
         run: python ../tools/escanear_texto.py --tracked --salida ../tools/_informe_texto.txt
 
+      - name: El navegador para la autoprueba de la QA visual
+        # POR QUÉ (2026-10-22): la autoprueba del detector de desbordes
+        # evalúa el JavaScript en un Chromium de verdad (el JS mide
+        # anchos de elementos, y eso sólo lo sabe un motor de layout).
+        # Sin playwright, esa autoprueba no se puede comprobar, y el
+        # paso siguiente fallaría con un ModuleNotFoundError.
+        #
+        # Se instala AQUÍ, antes de las autopruebas, y no en el
+        # ``pip install -e ".[dev]"`` del backend, porque el job corre
+        # las autopruebas ANTES de instalar el backend (para que fallen
+        # en segundos y no después de un install largo).
+        #
+        # ``--with-deps`` sólo existe en Linux (instala las librerías
+        # del sistema con apt). En Windows y macOS no hace falta.
+        run: |
+          pip install playwright
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            python -m playwright install --with-deps chromium
+          else
+            python -m playwright install chromium
+          fi
+
       - name: Las puertas se prueban a sí mismas
         # POR QUÉ (2026-10-22): los bugs más caros de este repositorio no
         # estaban en la aplicación, sino en las herramientas que la
@@ -80,7 +102,11 @@ jobs:
         # Esta autoprueba comprueba que cada detector sigue detectando
         # su propia clase de defecto (y que NO dispara con los casos
         # legítimos). Si un detector deja de ver, el CI se pone rojo.
-        run: python ../tools/autopruebas.py
+        #
+        # ``--estricto``: si alguna autoprueba no se ha podido comprobar
+        # (por falta de navegador), también es un fallo. Aquí todas
+        # tienen que comprobarse de verdad.
+        run: python ../tools/autopruebas.py --estricto
 
       - name: Instalar dependencias
         run: |

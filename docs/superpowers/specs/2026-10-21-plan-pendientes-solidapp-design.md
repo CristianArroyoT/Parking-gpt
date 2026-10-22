@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **257 de 258 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **262 de 263 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -908,6 +908,25 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] La autoprueba detecta las **5** caras de la deriva.
   - [x] La autoprueba **no** depende de la app instalada (sigue funcionando en el job `backend`, que corre antes del `pip install`).
   - [x] El inventario sigue coincidiendo con el código.
+
+### T-44 · P0 — el CI remoto habría salido ROJO en cuanto se arreglase la facturación
+
+- **Estado**: **completado** — el CI puede comprobar **todas** las autopruebas, y "no comprobado" ya no se confunde con "pasa"
+- **Contexto**: el job `backend` del workflow corre `tools/autopruebas.py` **antes** del `pip install` (a propósito: así las autopruebas fallan en segundos en vez de después de un install largo). De las 11 autopruebas, **10 sólo usan la biblioteca estándar**. La undécima —la del detector de desbordes de la QA visual— necesita **playwright**, porque evalúa el JavaScript en un Chromium de verdad (el JS mide anchos de elementos, y eso sólo lo sabe un motor de layout).
+- **El problema**: `playwright` **no es dependencia del backend** (ni de `.[dev]`), y el `import` de `qa_visual.py` estaba en la cabecera del módulo. En un runner limpio, el paso "Las puertas se prueban a sí mismas" moría con `ModuleNotFoundError: No module named 'playwright'` → **la meta-puerta fallaba** → **el job `backend` salía rojo**.
+  - **La réplica local no lo detectaba**: el host ya tenía playwright instalado, y la réplica ejecuta los pasos del YAML en esta máquina, no en un runner limpio. Es decir: **la réplica local daba un verde que el CI real no daría**. Justo el tipo de puerta que este repo lleva toda la sesión desmontando.
+  - **Probado, no supuesto**: se creó un venv vacío (`python -m venv`, sin playwright) y se ejecutó la meta-puerta dentro: `ModuleNotFoundError` y salida 1. El fallo es real, no una hipótesis.
+- **El arreglo (3 cosas)**:
+  1. **`qa_visual.py` se importa sin playwright**: el `import` pasa a ser opcional y, si falta, la autoprueba devuelve un código nuevo, **3 = "no se ha podido comprobar"**, con el mensaje de cómo instalarlo. Nada de reventar con un `ModuleNotFoundError` disfrazado de problema de código.
+  2. **La meta-puerta distingue los tres estados**: `0` pasa, `1` falla, **`3` no se ha podido comprobar**. Con la opción **`--estricto`** (la que usa el CI y `verificar_repo.py`), lo no comprobado **es un fallo**; sin ella, se avisa con claridad y **no** se dice "las autopruebas pasan". El resumen distingue "10 pasan y 1 no se ha podido comprobar" de "las 11 pasan".
+  3. **El CI instala el navegador antes de las autopruebas**: un paso nuevo en el job `backend` (`pip install playwright` + `playwright install chromium`, con `--with-deps` sólo en Linux, que es donde hace falta instalar las librerías del sistema). Así, en el CI, **las 11 autopruebas se comprueban de verdad**.
+- **Por qué esto era P0**: el último criterio del plan pide que los 4 checks del CI sobre `main` terminen en SUCCESS. Con el CI roto por este `ModuleNotFoundError`, arreglar la facturación no habría servido de nada: el job `backend` habría seguido en rojo, y el criterio seguía sin poder marcarse. La causa no era la cuenta: era del repo.
+- **Criterios de aceptación**:
+  - [x] En un entorno limpio (venv sin playwright), la autoprueba de la QA **no revienta**: dice "NO VERIFICADO" y sale con código 3.
+  - [x] La meta-puerta en ese entorno: "10 autopruebas pasan y 1 NO se han podido comprobar", y con `--estricto` sale con código 1.
+  - [x] En el host (con playwright): "Las 11 autopruebas pasan", código 0, también con `--estricto`.
+  - [x] El workflow instala el navegador antes de las autopruebas, y las autopruebas del CI van con `--estricto`.
+  - [x] `actionlint` exit 0 y el job `backend` replicado en local con el paso nuevo.
 
 ### T-14 · I3 — OCR con GPU
 

@@ -45,8 +45,9 @@ Hace falta una **tercera** fuente: el caso de mentira escrito a mano.
 python tools/verificar_repo.py
 python tools/verificar_repo.py --completo      # + CI local y QA en 5 anchos (~40 min)
 
-# Las 10 autopruebas de las puertas
+# Las 11 autopruebas de las puertas
 python tools/autopruebas.py
+python tools/autopruebas.py --estricto          # lo "no comprobado" tambien falla
 
 # Suite (contenedor Docker)
 docker exec parking-backend-1 pytest -q                                   # SQLite
@@ -127,6 +128,20 @@ docker run --rm -v "D:\Parking:/repo" -w /repo rhysd/actionlint:latest .github/w
   que ve el CI), y **565/574** en el contenedor de desarrollo: allí sólo
   se monta `backend/`, así que el test que comprueba la nota del README
   sobre el reconocimiento facial se salta. No es una deriva.
+- **Ojo con qué ejecución se parece al CI**: el CI corre en **Linux con
+  Python 3.11**, y el host es **Windows con 3.13**. El contenedor
+  (`python:3.11-slim`, el mismo Python que el `Dockerfile`) es Linux y
+  3.11: la ejecución del contenedor es la que más se parece al CI, y
+  la del host la que menos. `docker exec parking-backend-1 pytest -q`
+  (3.11 + Linux) es la referencia; `ejecutar_ci_local.py` replica los
+  pasos del workflow **en el host**, así que no cubre ni la versión de
+  Python ni el sistema operativo.
+- **La réplica local no reproduce un runner limpio**: el host ya tiene
+  instaladas muchas cosas que un runner de GitHub no tiene. Pasó: la
+  autoprueba de la QA visual pedía `playwright`, que no es dependencia
+  del backend, y en el CI el job `backend` habría muerto con
+  `ModuleNotFoundError` (T-44). Para comprobar el arranque en frío de
+  un paso, usa un venv vacío.
 
 ## El bloqueo conocido
 
