@@ -705,6 +705,24 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] `git ls-files -s` muestra los tres scripts con modo `100755`.
   - [x] No hay más scripts `.sh` en el repo con el modo equivocado (comprobado: son los tres).
 
+### T-33 · P2 — cuatro servicios sin healthcheck: el stack nunca aparecía "todo healthy"
+
+- **Estado**: **completado** — los **11 servicios** del stack aparecen `(healthy)`
+- **Contexto**: la definición de hecho del plan dice *"docker compose up -d → **todos los servicios healthy**"*, pero `docker compose ps` mostraba el frontend, Loki, promtail y Grafana **sin** estado de salud: esos cuatro servicios **no tenían healthcheck**. O sea que el criterio se daba por cumplido sin que nada lo comprobara.
+- **Qué se ha añadido** (y por qué cada probe es el que es):
+
+  | Servicio | Probe | Motivo |
+  |---|---|---|
+  | `frontend` | `wget http://127.0.0.1:5173/` | El dev-server de Vite *es* la app. La imagen es `node:20-alpine`: `wget` de busybox, no `curl` |
+  | `loki` | `wget http://127.0.0.1:3100/metrics` | **El `/ready` de Loki devuelve 503 aunque esté perfectamente en pie**, así que no sirve. `/metrics` responde 200 mientras el servidor HTTP esté vivo, que es lo que debe comprobar un healthcheck |
+  | `promtail` | `grep -q promtail /proc/1/comm` | Promtail no expone endpoint HTTP (empuja logs) y su imagen **no trae `wget` ni `pgrep`**. Lo comprobable es que el proceso del contenedor siga siendo el promtail |
+  | `grafana` | `wget http://127.0.0.1:3000/api/health` | Responde 200 con el estado de su base de datos |
+
+- **Criterios de aceptación**:
+  - [x] `docker compose config` sigue siendo válido.
+  - [x] `docker compose up -d` levanta el stack y **los 11 servicios aparecen `(healthy)`**.
+  - [x] La app sigue funcionando tras recrear los contenedores (QA visual en verde).
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.

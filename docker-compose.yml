@@ -190,6 +190,18 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
+    healthcheck:
+      # El dev-server de Vite es el que sirve la app: si responde, el
+      # frontend está en pie. Sin este healthcheck, `docker compose ps`
+      # no lo marcaba como healthy y el stack entero nunca aparecía
+      # "todo healthy" (que es lo que exige la definición de hecho del
+      # plan). La imagen es node:20-alpine, así que el probe es `wget` de
+      # busybox, no `curl`.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:5173/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   # ── Celery worker ────────────────────────────────────────────────────
   # El healthcheck del Dockerfile del backend (curl :8000) se sobreescribe
@@ -283,6 +295,17 @@ services:
       # SÓLO loopback (2026-10-21): los logs de la sucursal no se
       # exponen a la red local.
       - "127.0.0.1:3100:3100"
+    healthcheck:
+      # OJO: el endpoint /ready de Loki devuelve 503 aunque el servicio
+      # esté perfectamente en pie (por eso no se usa). /metrics responde
+      # 200 mientras el servidor HTTP de Loki esté vivo, que es lo que
+      # un healthcheck debe comprobar. La imagen es alpine: `wget` de
+      # busybox, sin `curl`.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3100/metrics || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
 
   promtail:
@@ -293,6 +316,17 @@ services:
       - app_logs:/var/log/solidapp:ro
     depends_on:
       - loki
+    healthcheck:
+      # Promtail no expone ningún endpoint HTTP (es un proceso que
+      # empuja logs), y su imagen no trae `wget` ni `pgrep`. Lo que sí se
+      # puede comprobar en la imagen es que el proceso que ejecuta el
+      # contenedor es el promtail: si semuriera, el PID 1 dejaría de
+      # ser promtail.
+      test: ["CMD-SHELL", "grep -q promtail /proc/1/comm || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
 
   grafana:
@@ -310,6 +344,13 @@ services:
       - "127.0.0.1:3000:3000"
     depends_on:
       - loki
+    healthcheck:
+      # /api/health responde 200 y trae el estado de su base de datos.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
 
 volumes:

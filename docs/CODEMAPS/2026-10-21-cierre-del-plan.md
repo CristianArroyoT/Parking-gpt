@@ -706,6 +706,23 @@ Lo que encontró al activarlo (5 errores + 1 aviso, todos reales):
 Con esto: `npm run lint` → **0 problemas**, `vue-tsc` → 0 errores, y el
 job `frontend` replicado en local pasa entero.
 
+### 3-vigésimoquinta. Los cuatro servicios sin healthcheck (2026-10-22)
+
+La definición de hecho del plan dice *"docker compose up -d → **todos los
+servicios healthy**"*, pero `docker compose ps` mostraba el frontend,
+Loki, promtail y Grafana **sin** estado de salud: **no tenían
+healthcheck**. El criterio se daba por cumplido sin que nada lo
+comprobara.
+
+| Servicio | Probe | Por qué ese |
+|---|---|---|
+| `frontend` | `wget :5173/` | El dev-server de Vite *es* la app; la imagen es alpine (busybox `wget`, no `curl`) |
+| `loki` | `wget :3100/metrics` | El `/ready` de Loki devuelve **503 aunque esté en pie**: no sirve. `/metrics` responde 200 mientras el servidor HTTP esté vivo |
+| `promtail` | `grep -q promtail /proc/1/comm` | No expone endpoint HTTP (empuja logs) y su imagen **no trae `wget` ni `pgrep`** |
+| `grafana` | `wget :3000/api/health` | Responde 200 con el estado de su base de datos |
+
+Ahora `docker compose ps` muestra los **11 servicios** como `(healthy)`.
+
 Y con el IPv4 arreglado, la réplica local pasó a poder ejecutar **el CI
 completo**, incluidos los dos pasos de test que antes se saltaban
 porque el host no resolvía los nombres de servicio de Docker:
