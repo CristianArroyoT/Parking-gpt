@@ -160,6 +160,11 @@ def _comprobaciones() -> list[Comprobacion]:
             patron=r"(OK: el package-lock.json.*)",
         ),
         Comprobacion(
+            "El compose de produccion es seguro y sus valores cargan",
+            [py, "tools/verificar_compose_produccion.py"],
+            patron=r"(OK: el compose de produccion.*)",
+        ),
+        Comprobacion(
             "Las puertas se prueban a si mismas",
             [py, "tools/autopruebas.py", "--estricto"],
             patron=r"(\d+ autopruebas? pasan.*)",

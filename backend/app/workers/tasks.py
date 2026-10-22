@@ -424,7 +424,7 @@ def probe_heartbeats() -> dict[str, Any]:
     cid = make_worker_correlation_id()
     settings = get_settings()
     skip_prefixes: tuple[str, ...] = tuple(
-        settings.heartbeat_skip_url_prefixes or ()
+        settings.heartbeat_skip_url_prefixes_list
     )
 
     db = SessionLocal()

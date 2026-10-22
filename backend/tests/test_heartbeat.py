@@ -213,7 +213,8 @@ def heartbeat_env(monkeypatch, motor_de_test):
     class _StubSettings:
         ocr_frames_before_fail = 3
         heartbeat_failures_before_alert = 3
-        heartbeat_skip_url_prefixes = ["rtsp://demo.invalid"]
+        # T-75: ``tasks.py`` usa la property del ajuste real.
+        heartbeat_skip_url_prefixes_list = ("rtsp://demo.invalid",)
         redis_url = "redis://stub"
 
     monkeypatch.setattr(

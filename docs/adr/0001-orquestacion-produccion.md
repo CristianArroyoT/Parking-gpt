@@ -157,13 +157,35 @@ Ver [`infra/backup/README.md`](../../../infra/backup/README.md).
   `JWT_SECRET` sigue siendo el valor por defecto (`change-me-in-production`),
   que está escrito en este repositorio público. Es un fallo temprano y
   explícito, en vez de un 401 sin explicación a mitad de una sesión.
+  **Hecho (2026-10-22, T-74)**: el fichero existe y es
+  `docker-compose.prod.yml` (un *override* del de desarrollo). El
+  despliegue de una sucursal es:
+
+  ```bash
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+  ```
+
+  Con él: `ENVIRONMENT=production`, el **secreto, la URL pública y los
+  orígenes son obligatorios** (si faltan, `docker compose` falla al
+  arrancar, con un mensaje que dice qué falta), y el frontend se sirve
+  con la imagen de producción (nginx), no con el dev-server de Vite.
+  El `docker-compose.yml` de la raíz sigue siendo el de **desarrollo**
+  (para el portátil de QA). La puerta `tools/verificar_compose_produccion.py`
+  lo vigila.
 - Alertas de "la sucursal lleva X horas sin conectar al central".
 
 ### La superficie de red de una sucursal (2026-10-21)
 
-Este `docker-compose.yml` **es** el fichero que se copia a una sucursal
+El `docker-compose.yml` **es** el fichero que se copia a una sucursal
 (`rsync` + `docker compose up -d`), así que su configuración de puertos
-es configuración de producción, no del portátil de QA. Lo que se publica
+es configuración de producción, no del portátil de QA.
+
+> **Ojo (2026-10-22, T-74)**: a la sucursal se copia el fichero **con el
+> override de producción**: `docker compose -f docker-compose.yml
+> -f docker-compose.prod.yml up -d`. Con el `docker-compose.yml` a
+> secas, el backend arrancaría en `development` (sin exigir el secreto
+> JWT real, que es público en este repositorio) y el frontend lo
+> serviría el dev-server de Vite. Lo que se publica
 en la red de la sucursal es sólo lo que la sucursal tiene que atender:
 
 | Servicio | Puerto | ¿Quién lo necesita? |
@@ -181,6 +203,20 @@ Comprobado: desde la IP de la red local los puertos 5432, 6379 y 3000 ya
 **no responden**; desde el propio host, sí. Los servicios se siguen
 hablando por la red de Docker (`db:5432`, `redis:6379`…), que es
 privada por definición.
+
+### Los requisitos de despliegue (2026-10-22)
+
+Lo que el código exige y hay que cumplir al desplegar. Están escritos
+también en `frontend/README.md` ("Requisitos del despliegue") y los vigila
+`tools/verificar_compose_produccion.py`:
+
+| Requisito | Por qué | Qué pasa si falta |
+|---|---|---|
+| **Un TLS delante** (https) | Los navegadores no registran *service workers* en HTTP sin cifrar | La app funciona, pero **no es instalable ni arranca sin red**: es exactamente lo que hace la PWA |
+| `FRONTEND_BASE_URL` con la URL real | Es la URL que va en los correos (el de recuperar contraseña) | La aplicación **no arranca** en `staging`/`production` (fallo temprano y explícito) |
+| `TRUSTED_PROXIES` con la IP del proxy | El backend tiene que saber qué IP es la del cliente | El rate-limit de login se comparte para **toda la sucursal** (10 intentos / 5 min contados como si fueran la misma persona) y la auditoría guarda la IP del proxy |
+| `JWT_SECRET` real | Está en un repositorio público | Tokens de administrador falsificables |
+| Módulo `realip` de nginx si hay un CDN delante | Para que `$remote_addr` sea la IP real del visitante | Se registra la IP del CDN |
 
 ## Alternativas descartadas (y por qué)
 

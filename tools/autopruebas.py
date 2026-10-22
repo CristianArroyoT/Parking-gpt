@@ -119,6 +119,10 @@ AUTOPRUEBAS: list[tuple[str, list[str]]] = [
         [sys.executable, "tools/verificar_lockfile.py", "--autoprueba"],
     ),
     (
+        "La puerta del compose de produccion sigue viendo",
+        [sys.executable, "tools/verificar_compose_produccion.py", "--autoprueba"],
+    ),
+    (
         "La puerta del repo detecta los fallos",
         [sys.executable, "tools/verificar_repo.py", "--autoprueba"],
     ),

@@ -110,20 +110,22 @@ def test_las_listas_se_configuran_con_comas() -> None:
         TRUSTED_PROXIES="172.16.0.0/12,10.0.0.0/8",
         HEARTBEAT_SKIP_URL_PREFIXES="rtsp://demo.invalid,rtsp://test.local",
     )
-    assert ajustes.trusted_proxies == ["172.16.0.0/12", "10.0.0.0/8"]
-    assert ajustes.heartbeat_skip_url_prefixes == [
+    assert ajustes.trusted_proxies_list == ["172.16.0.0/12", "10.0.0.0/8"]
+    assert ajustes.heartbeat_skip_url_prefixes_list == [
         "rtsp://demo.invalid",
         "rtsp://test.local",
     ]
 
 
-def test_las_listas_tambien_aceptan_json() -> None:
+def test_las_listas_son_strings_y_no_se_parsean() -> None:
+    """T-75: con una ``list[str]``, pydantic-settings parseaba el valor
+    del entorno como JSON y hacia fallar el ARRANQUE del backend."""
     ajustes = Settings(  # type: ignore[call-arg]
-        TRUSTED_PROXIES='["10.0.0.0/8"]',
+        TRUSTED_PROXIES="172.16.0.0/12,10.0.0.0/8",
     )
-    assert ajustes.trusted_proxies == ["10.0.0.0/8"]
+    assert ajustes.trusted_proxies == "172.16.0.0/12,10.0.0.0/8"
 
 
 def test_una_lista_vacia_se_queda_vacia() -> None:
     ajustes = Settings(TRUSTED_PROXIES="")  # type: ignore[call-arg]
-    assert ajustes.trusted_proxies == []
+    assert ajustes.trusted_proxies_list == []

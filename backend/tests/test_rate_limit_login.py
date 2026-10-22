@@ -461,7 +461,9 @@ def _patched_settings(
     if window_seconds is not None:
         data["login_rate_limit_window_seconds"] = window_seconds
     if trusted_proxies is not None:
-        data["trusted_proxies"] = list(trusted_proxies)
+        # T-75: el campo real es un string; ``ip.py`` usa la property.
+        data["trusted_proxies"] = ",".join(trusted_proxies)
+        data["trusted_proxies_list"] = list(trusted_proxies)
     return SimpleNamespace(**data)
 
 

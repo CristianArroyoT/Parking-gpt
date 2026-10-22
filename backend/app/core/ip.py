@@ -11,7 +11,7 @@ Sprint Fase 3C (2026-07-01). Usado por:
 Reglas:
 
 1. Sin ``X-Forwarded-For`` → ``request.client.host`` (sin cambios).
-2. Con XFF y ``client.host`` en ``settings.trusted_proxies`` (CIDR) →
+2. Con XFF y ``client.host`` en ``settings.trusted_proxies_list`` (CIDR) →
    **último** elemento de XFF.
 3. Con XFF pero ``client.host`` NO trusted → ``request.client.host``
    (defensa contra spoofing: un atacante no puede inyectar XFF si
@@ -49,7 +49,7 @@ def get_real_ip(request: Request) -> str:
         return client_host
 
     settings = get_settings()
-    for cidr in settings.trusted_proxies or ():
+    for cidr in settings.trusted_proxies_list:
         try:
             if client_ip in ipaddress.ip_network(cidr, strict=False):
                 # El ULTIMO elemento es el que anade el proxy de confianza

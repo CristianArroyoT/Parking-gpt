@@ -1,0 +1,84 @@
+# ── Valores de PRODUCCIÓN (sucursal y central) ────────────────────────────
+#
+# Uso:
+#     docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# POR QUÉ este fichero existe (T-74, 2026-10-22): el ADR-0001 dice que
+# "este ``docker-compose.yml`` **es** el fichero que se copia a una
+# sucursal" (``rsync`` + ``docker compose up -d``). Pero ese fichero es
+# el de DESARROLLO, y en una sucursal eso es un problema de seguridad:
+#
+#   - ``ENVIRONMENT: development`` -> la validación del secreto JWT **no
+#     se aplica**, así que el backend arranca con
+#     ``change-me-in-production``, que está escrito en este repositorio
+#     público: cualquiera podría firmar un token de administrador.
+#   - El frontend es el dev-server de Vite (código fuente montado, HMR),
+#     no la imagen de producción con nginx.
+#   - ``CORS_ORIGINS`` apunta a localhost, así que la app servida desde la
+#     IP de la sucursal no cargaría.
+#
+# Con este override, la sucursal arranca en producción de verdad: el
+# secreto, la URL pública y los orígenes son **obligatorios** (si faltan,
+# ``docker compose`` falla al arrancar: un fallo temprano y explícito, en
+# vez de un despliegue inseguro que parece funcionar) y el frontend se
+# sirve con la imagen de producción (nginx), que es la que cumple los
+# requisitos del PWA.
+#
+# Antes de usarlo, ver "Requisitos de despliegue" en frontend/README.md:
+# hace falta un **TLS delante** (sin HTTPS la PWA no se registra).
+
+services:
+  backend:
+    environment:
+      ENVIRONMENT: production
+      # Sin valor por defecto a proposito: si no se definen, `docker
+      # compose` falla al arrancar. Un default aqui seria un secreto
+      # publico (el repositorio es publico).
+      JWT_SECRET: "${JWT_SECRET:?falta JWT_SECRET: genera uno con `openssl rand -hex 32`}"
+      # URL publica del frontend: la que va en los correos (el de recuperar
+      # contrasena). Tiene que ser https (la PWA exige contexto seguro).
+      FRONTEND_BASE_URL: "${FRONTEND_BASE_URL:?falta FRONTEND_BASE_URL: la URL publica del frontend, por https}"
+      # Orígenes del navegador: los que ven la app (el frontend y, si
+      # aplica, los dominios de la sucursal).
+      CORS_ORIGINS: "${CORS_ORIGINS:?falta CORS_ORIGINS: los origenes del frontend, separados por comas}"
+      # IP de los proxies de confianza (los que ponen el X-Forwarded-For).
+      # Si el proxy de produccion esta fuera de los rangos por defecto,
+      # hay que anadirlo aqui: si no, el backend ve la IP del proxy y el
+      # rate-limit de login se comparte para toda la sucursal (T-62).
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12,10.0.0.0/8}
+
+  # El worker y el beat tambien firman tokens: si se les deja el secreto
+  # por defecto, el despliegue sigue siendo inseguro por el backdoor.
+  celery-worker:
+    environment:
+      JWT_SECRET: "${JWT_SECRET:?falta JWT_SECRET: mismo valor que el backend}"
+
+  celery-beat:
+    environment:
+      JWT_SECRET: "${JWT_SECRET:?falta JWT_SECRET: mismo valor que el backend}"
+
+  frontend:
+    # La imagen de PRODUCCION (nginx con el bundle construido), no el
+    # dev-server de Vite del compose de desarrollo.
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    image: solidapp-frontend:prod
+    environment:
+      # A donde proxya nginx el /api. La imagen lo resuelve AL ARRANCAR:
+      # si este nombre no resuelve, el contenedor no levanta.
+      API_UPSTREAM: http://backend:8000
+    # Sin el codigo fuente montado ni el node_modules: la imagen ya trae
+    # el bundle. (override: la lista del compose de desarrollo se
+    # REEMPLAZA, no se anade).
+    volumes: !override []
+    # El nginx de la imagen escucha en el 80. Mismo puerto publicado que
+    # en desarrollo, para no cambiar la superficie de red de la sucursal.
+    ports: !override
+      - "5173:80"
+    healthcheck: !override
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

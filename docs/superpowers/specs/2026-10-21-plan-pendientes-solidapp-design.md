@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **408 de 409 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **420 de 421 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1458,6 +1458,39 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] El build sale en Node 20 (la versión del CI), no en el Node 24 del host: la réplica local pasa a ser más fiel al CI, no menos.
   - [x] La puerta del lockfile se ejecuta en el host (no es un comando de npm) y pasa.
   - [x] `actionlint` exit 0.
+
+### T-74 · P0 (seguridad) — el compose que se copia a la sucursal arrancaba con el secreto JWT público
+
+- **Estado**: **completado** — `docker-compose.prod.yml` + puerta, y probado arrancando de verdad
+- **Contexto**: el ADR-0001 dice, sin rodeos, que *"este `docker-compose.yml` **es** el fichero que se copia a una sucursal (`rsync` + `docker compose up -d`)"*. Pero ese fichero es el de **desarrollo**:
+  - `ENVIRONMENT: development` → la validación del secreto JWT **no se aplica** → el backend arranca con `change-me-in-production`, que está escrito en este **repositorio público**: cualquiera podría firmar un token de **administrador**;
+  - el frontend es el **dev-server de Vite** (código fuente montado, HMR), no la imagen de producción con nginx;
+  - `CORS_ORIGINS` apunta a `localhost`, así que la app servida desde la IP de la sucursal no cargaría.
+- **El arreglo**: `docker-compose.prod.yml` (un *override* del de desarrollo) con `ENVIRONMENT: production`, el **secreto, la URL pública y los orígenes obligatorios** (si faltan, `docker compose` falla al arrancar diciendo qué falta) y el frontend con el `Dockerfile.prod`. Y el ADR-0001 actualizado: a la sucursal se copia con `-f docker-compose.yml -f docker-compose.prod.yml`.
+- **Probado de verdad** (no "debería funcionar"): se paró el stack de QA y se arrancó con el compose de producción → backend **healthy** con `ENVIRONMENT=production`, frontend servido por **nginx** (`Server: nginx/1.27.5`), **login 200** por las dos vías (JSON y OAuth2) a través del proxy, y la puerta del servidor de producción **5/5**. Después se volvió al stack de QA.
+- **La puerta**: `tools/verificar_compose_produccion.py` exige que el compose de producción exista, arranque en `production`, no tenga el secreto por defecto en ningún valor, tenga las tres variables obligatorias, use el `Dockerfile.prod` y que **todos** los valores de `environment` de los dos compose **se puedan cargar en `Settings`**. Con `--autoprueba` (9 casos de mentira) y paso en el CI.
+- **Criterios de aceptación**:
+  - [x] Medido: con el compose de la raíz el backend acepta el secreto JWT por defecto (público) y sirve el dev-server.
+  - [x] `docker-compose.prod.yml` con `ENVIRONMENT: production`, las tres variables obligatorias y el frontend con el `Dockerfile.prod`.
+  - [x] **Stack arrancado de verdad** en modo producción: backend healthy, frontend con nginx, login 200 por las dos vías, 5/5 requisitos del PWA.
+  - [x] Sin las variables, `docker compose` falla con un mensaje que dice qué falta.
+  - [x] La puerta lo vigila (9 casos de autoprueba) y está en la meta-puerta, en el CI y en `verificar_repo.py`.
+  - [x] El ADR-0001 actualizado: el follow-up, la superficie de red y una tabla con los requisitos de despliegue.
+
+### T-75 · P0 — `TRUSTED_PROXIES` con el formato documentado impedía arrancar el backend
+
+- **Estado**: **completado** — las dos listas son strings con su property
+- **Contexto**: `TRUSTED_PROXIES` y `HEARTBEAT_SKIP_URL_PREFIXES` estaban declarados como `list[str]`. `pydantic-settings` parsea los campos de tipo lista **antes** de los validadores y para eso solo entiende **JSON**: un valor de entorno como `"172.16.0.0/12,10.0.0.0/8"` —justo el que documentaba el propio comentario del ajuste— hace fallar el arranque con `SettingsError: error parsing value for field "trusted_proxies"`.
+- **Por qué no se había visto**: el `docker-compose.yml` no definía esas variables (se usaba el default de la clase), así que solo aparecía al desplegar. Y al añadir `TRUSTED_PROXIES` al compose (T-64) el compose pasó a llevar el valor inválido: **el despliegue de producción no arrancaba**. Se vio al arrancar el stack en modo producción (T-74): el backend se caía y el frontend devolvía 502.
+- **El arreglo**: los dos campos pasan a ser **string** (que es lo que el entorno puede dar) y la lista se expone en una property (`trusted_proxies_list`, `heartbeat_skip_url_prefixes_list`), **igual que ya se hace** con `cors_origins` y `incident_attachment_allowed_mime_types`. El validador "before" de T-64 se quita: no llegaba al entorno.
+- **La puerta**: la del compose de producción (T-74) carga **todos** los valores de `environment` de los dos compose en `Settings`: eso habría cazado este defecto antes de que seiese en producción.
+- **Criterios de aceptación**:
+  - [x] Medido: el backend **no arrancaba** con `TRUSTED_PROXIES="a,b"` (`SettingsError`), y el compose lleva ese valor.
+  - [x] Los dos campos son strings y las listas se sacan en properties (el patrón de `cors_origins`).
+  - [x] `ip.py` y `tasks.py` usan las properties.
+  - [x] Tests actualizados (config, IP, heartbeat y rate-limit).
+  - [x] La puerta del compose carga los valores de los 12 servicios en `Settings` sin errores.
+  - [x] `ruff` y `mypy` en verde.
 
 ### T-14 · I3 — OCR con GPU
 

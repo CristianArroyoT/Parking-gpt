@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -78,9 +77,17 @@ class Settings(BaseSettings):
         default=3, alias="HEARTBEAT_FAILURES_BEFORE_ALERT"
     )
     # URLs que el heartbeat skipea (seed local, entornos de prueba).
-    # Lista separada por comas en env, e.g. HEARTBEAT_SKIP_URL_PREFIXES="rtsp://demo.invalid,rtsp://test.local".
-    heartbeat_skip_url_prefixes: list[str] = Field(
-        default=["rtsp://demo.invalid"], alias="HEARTBEAT_SKIP_URL_PREFIXES"
+    #
+    # OJO (T-75, 2026-10-22): esto es un **string**, no una ``list[str]``,
+    # a propósito. ``pydantic-settings`` parsea los campos de tipo lista
+    # ANTES de los validadores y para eso solo entiende JSON: un valor de
+    # entorno como ``"rtsp://demo.invalid,rtsp://test.local"`` (justo el
+    # que documenta este comentario) hacia fallar el arranque con
+    # ``SettingsError``. La lista se saca en
+    # ``heartbeat_skip_url_prefixes_list`` (mismo patrón que
+    # ``cors_origins``).
+    heartbeat_skip_url_prefixes: str = Field(
+        default="rtsp://demo.invalid", alias="HEARTBEAT_SKIP_URL_PREFIXES"
     )
     # Sprint Camera Health: ventana máxima (segundos) entre probe y "now"
     # para que el estado sea "healthy". Si ``now - last_heartbeat_at``
@@ -158,9 +165,15 @@ class Settings(BaseSettings):
     # explícitamente vía env (TRUSTED_PROXIES="172.16.0.0/12,10.0.0.0/8,...").
     # Si el ``client.host`` NO está en esta lista, el helper ignora XFF
     # (defensa contra spoofing).
-    trusted_proxies: list[str] = Field(
-        default_factory=lambda: ["172.16.0.0/12", "10.0.0.0/8"],
-        alias="TRUSTED_PROXIES",
+    #
+    # OJO (T-75, 2026-10-22): un **string**, no una ``list[str]``. Con la
+    # lista, un valor de entorno con comas (el formato que documenta este
+    # comentario) hacia fallar el arranque del backend con
+    # ``SettingsError``: el compose que se copia a las sucursales lleva
+    # ese valor y **el despliegue no arrancaba**. La lista se saca en
+    # ``trusted_proxies_list``.
+    trusted_proxies: str = Field(
+        default="172.16.0.0/12,10.0.0.0/8", alias="TRUSTED_PROXIES"
     )
 
     # Sprint Fase 3D (2026-07-01): token blacklist (logout invalida JWT).
@@ -287,34 +300,6 @@ class Settings(BaseSettings):
             )
         return self
 
-    @field_validator("trusted_proxies", "heartbeat_skip_url_prefixes", mode="before")
-    @classmethod
-    def _aceptar_lista_por_comas(cls, valor: object) -> object:
-        """Acepta una lista separada por comas, ademas de JSON.
-
-        POR QUÉ (T-64): ``pydantic-settings`` sólo entiende JSON para los
-        campos de tipo lista. O sea que
-        ``TRUSTED_PROXIES=172.16.0.0/12,10.0.0.0/8`` (el formato que
-        documenta el propio comentario del ajuste) **fallaba al
-        arrancar**. El ajuste parecia configurable y no lo era: sin él, el
-        backend no sabe qué IP es la del cliente, el rate-limit de login
-        se comparte para toda la sucursal y la auditoría guarda la IP del
-        proxy.
-
-        Se aceptan los dos formatos: JSON (``["a","b"]``) y comas
-        (``"a,b"``). Con JSON se parsea; si no es JSON válido, se parte
-        por comas.
-        """
-        if isinstance(valor, str):
-            try:
-                parseado = json.loads(valor)
-            except json.JSONDecodeError:
-                parseado = None
-            if isinstance(parseado, list):
-                return [str(item).strip() for item in parseado]
-            return [parte.strip() for parte in valor.split(",") if parte.strip()]
-        return valor
-
     @model_validator(mode="after")
     def _exigir_url_publica_real_fuera_de_desarrollo(self) -> "Settings":
         """En staging/produccion, la URL del frontend tiene que ser real.
@@ -350,6 +335,18 @@ class Settings(BaseSettings):
                 f"contexto seguro y '{url}' no lo es."
             )
         return self
+
+    @property
+    def trusted_proxies_list(self) -> list[str]:
+        """Los CIDR de los proxies de confianza, ya separados (T-75)."""
+        return [p.strip() for p in self.trusted_proxies.split(",") if p.strip()]
+
+    @property
+    def heartbeat_skip_url_prefixes_list(self) -> list[str]:
+        """Los prefijos de URL que el heartbeat skipea (T-75)."""
+        return [
+            p.strip() for p in self.heartbeat_skip_url_prefixes.split(",") if p.strip()
+        ]
 
     @property
     def cors_origins_list(self) -> list[str]:

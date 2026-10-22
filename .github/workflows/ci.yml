@@ -373,6 +373,18 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: El compose de produccion es seguro y sus valores cargan
+        # POR QUE (2026-10-22, T-74/T-75): el ADR-0001 dice que el
+        # docker-compose.yml es el fichero que se copia a una sucursal, pero
+        # ese es el de DESARROLLO: el backend arrancaba en 'development'
+        # (sin exigir el secreto JWT real, que es publico en este
+        # repositorio) y el frontend lo servia el dev-server de Vite. Y
+        # ningun valor de 'environment' se comprobaba contra la
+        # configuracion del backend: un TRUSTED_PROXIES con el formato que
+        # documentaba el propio codigo hacia que el backend NO ARRANCARA
+        # (SettingsError), y el compose lleva ese valor.
+        run: python tools/verificar_compose_produccion.py
+
       - name: El contexto de build de la imagen de produccion esta limpio
         # POR QUÉ (2026-10-22): el contexto de esa imagen es 'frontend/', y
         # Docker busca el .dockerignore en la raiz del CONTEXTO: el de la

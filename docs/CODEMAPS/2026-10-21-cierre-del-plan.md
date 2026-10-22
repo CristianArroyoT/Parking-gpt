@@ -147,7 +147,7 @@ ejecutado contra el código viejo (HEAD `817a51c`) y contra el nuevo:
 El 5 ticks frente a ~100 es la medida del congelamiento: con el código
 viejo, el teardown bloqueaba el event loop del backend entero.
 
-### 3-ter. El SLO atado al P2: la regla `mjpeg_sin_409`
+### 3-primera. El SLO atado al P2: la regla `mjpeg_sin_409`
 
 Al revalidar la carga con el código nuevo salieron dos cosas del
 instrumental, ambas corregidas:
@@ -162,7 +162,7 @@ cámaras): **491 peticiones, 0 fallos, 0 cortes, 0 reinicios del worker, 0
 previews omitidos con un 409** → **SLO 14 de 14 reglas OK** (antes 13 de
 13; la nueva es la que ata el P2).
 
-### 3-quater. Maquetación: contenido que no cabía en su tarjeta (2026-10-21)
+### 3-segunda. Maquetación: contenido que no cabía en su tarjeta (2026-10-21)
 
 Encontrado en la **QA visual en el navegador integrado** (ventana de
 1232 px), no en la headless (que recorre a 1440 px, donde no se nota).
@@ -202,7 +202,7 @@ haría que la comprobación dejara de servir como puerta.
 El barrido responsive queda cerrado en cuatro anchos (768, 1024, 1232 y
 1440 px), todos con **0 desbordes y 0 errores de consola**.
 
-### 3-seis. El contrato de la API, revisado por el código (2026-10-21)
+### 3-tercera. El contrato de la API, revisado por el código (2026-10-21)
 
 El inventario de `docs/API-INTERNAL.md` se había quedado en **61 de los
 100 endpoints** que exponía la aplicación (no se tocaba desde T-25, antes
@@ -239,7 +239,7 @@ Tres cosas salieron de ahí:
    determinista (venía de un `set`) y la sección podía cambiar entre
    ejecuciones. Corregido.
 
-### 3-nueve. Dos fallos que sólo aparecían fuera del contenedor (2026-10-21)
+### 3-cuarta. Dos fallos que sólo aparecían fuera del contenedor (2026-10-21)
 
 Salieron al **ejecutar el job de integración del CI en local**, leyendo el
 workflow (`tools/ejecutar_ci_local.py`). La QA y la suite se habían hecho
@@ -258,7 +258,7 @@ Herramientas que lo destaparon y que se quedan:
 | `tools/ejecutar_ci_local.py` | Ejecuta un job del workflow **leyendo el YAML** (no duplicando los pasos), con su `working-directory` y sus variables → comprueba el cableado real |
 | `tools/revisar_esquemas.py` | Busca asimetrías de validación entre los esquemas `Create` y `Update` (ahora no hay ninguna) |
 
-### 3-octies. Un despliegue limpio, probado de verdad (2026-10-21)
+### 3-quinta. Un despliegue limpio, probado de verdad (2026-10-21)
 
 Las migraciones se ejecutaban sobre la base de QA (ya sembrada) y el seed
 por separado, pero **nunca los tres juntos sobre una base vacía**. Un
@@ -279,7 +279,7 @@ primer cliente.
 Y el seed resultó ser **idempotente** (ejecutarlo dos veces da los mismos
 recuentos). El CI lo ejecuta en el job de integración.
 
-### 3-septies. Los modelos y las migraciones contaban dos historias (2026-10-21)
+### 3-sexta. Los modelos y las migraciones contaban dos historias (2026-10-21)
 
 Salió al ejecutar `alembic check`, la herramienta estándar para comparar los
 modelos con el esquema. Antes de eso, `alembic check` no servía para nada:
@@ -305,7 +305,7 @@ visto en producción. El job de integración ahora levanta una base vacía,
 migra de cero y comprueba con `alembic check` que el esquema resultante
 coincide con los modelos.
 
-### 3-quinquies. El PWA, verificado de verdad (2026-10-21)
+### 3-séptima. El PWA, verificado de verdad (2026-10-21)
 
 Nadie comprobaba lo que hace que una PWA sea instalable. Nueva
 `frontend/scripts/qa_pwa.py`, que verifica:
@@ -324,7 +324,7 @@ resuelta **no se puede validar un cambio del workflow** (los jobs no
 arrancan), así que meter algo sin probar dejaría el CI en rojo sin
 querer. Queda como T-24+1 para cuando el CI vuelva a estar en marcha.
 
-### 3-novies. El móvil (414 px) desplazaba la página entera de lado a lado (2026-10-21)
+### 3-octava. El móvil (414 px) desplazaba la página entera de lado a lado (2026-10-21)
 
 La QA visual recorría cuatro anchos (768, 1024, 1232 y 1440 px), pero
 **ninguno era de móvil**: el más estrecho era una tablet vertical. Al
@@ -365,7 +365,7 @@ Resultado medido: **0 desbordes** en las 26 pantallas a los **cinco**
 anchos (414, 768, 1024, 1232, 1440 px), 0 errores de consola y 0
 peticiones fallidas.
 
-### 3-decies. El texto corrupto era una puerta abierta (2026-10-21)
+### 3-novena. El texto corrupto era una puerta abierta (2026-10-21)
 
 Al modelo de lenguaje se le cuelan caracteres de otros alfabetos (CJK,
 cirílico, coreano) al escribir en español. **Pasó dos veces en esta misma
@@ -394,7 +394,7 @@ no está en verde** (78 errores en 33 ficheros, en modo `strict`). No es
 una regresión: el paso del CI lleva `continue-on-error: true` desde el
 primer commit. La cabecera del plan lo daba por bueno sin serlo.
 
-### 3-undecies. El CI llevaba más de tres meses sin validar nada (2026-10-21)
+### 3-décima. El CI llevaba más de tres meses sin validar nada (2026-10-21)
 
 El último criterio del plan pedía `gh pr checks 14`. Al comprobarlo con
 la API de GitHub, el **PR #14 está fusionado desde el 2026-07-07** y no
@@ -428,7 +428,7 @@ Sale con 0 / 1 / 2 para poder encadenarlo en un script, y escribe el
 informe en `tools/_informe_ci.txt` (UTF-8) porque la consola de Windows
 se come los acentos.
 
-### 3-duodecies. La alerta de "cámara caída" nunca enviaba el correo (2026-10-21)
+### 3-undécima. La alerta de "cámara caída" nunca enviaba el correo (2026-10-21)
 
 Como el CI no ejecuta `mypy` de verdad desde hace meses, su salida **no se
 miraba**. Al leerla, apareceu esto:
@@ -460,7 +460,7 @@ El test **demuestra el defecto**: ejecutado contra el código anterior
 fallan 3 de los 6; con la corrección pasan los 6. `mypy app` baja de 78 a
 77 errores y el `NameError` desaparece.
 
-### 3-terdecies. `/health` decía "ok" con todo caído (2026-10-21)
+### 3-duodécima. `/health` decía "ok" con todo caído (2026-10-21)
 
 Al usar `tools/verificar_despliegue_limpio.py` saltó esto: la aplicación
 arrancaba, `/health` respondía 200, y a continuación el login y
@@ -498,7 +498,7 @@ puntos que fallaban:
 Verificado con Redis caído: `{"database":"ok","redis":"TimeoutError"}` a
 la primera, sin esperar.
 
-### 3-quattuordecima. El CI local se colgaba: `localhost` es IPv6 en Windows (2026-10-21)
+### 3-decimotercera. El CI local se colgaba: `localhost` es IPv6 en Windows (2026-10-21)
 
 El job "integration" de la réplica local se quedaba **minutos** en el paso
 "Las migraciones y los modelos coinciden", sin error visible. La causa no
@@ -541,7 +541,7 @@ antes de relanzar.
 integration, docker-build y frontend), con el único `mypy` tolerado por
 `continue-on-error`.
 
-### 3-vicesima. Por qué el CI remoto sigue sin poder arrancar (2026-10-21)
+### 3-decimocuarta. Por qué el CI remoto sigue sin poder arrancar (2026-10-21)
 
 El repositorio es **privado** (`gh api repos/… → "private": true`). En un
 repo privado, los runners de GitHub Actions son de pago, y la cuenta de
@@ -562,7 +562,7 @@ La tercera vía se descartó a propósito: el propio plan avisa de que
 de dejar el CI en rojo sin querer". Y con la factura arreglada, el
 workflow actual pasa entero (probado en local, paso a paso).
 
-### 3-quadragesima. La red de seguridad del repo, en un comando (2026-10-21)
+### 3-decimoquinta. La red de seguridad del repo, en un comando (2026-10-21)
 
 Con el CI remoto muerto, el repo no tenía forma de saber si estaba
 sano: cada comprobación era un comando aparte, con su recordatorio, y
@@ -592,7 +592,7 @@ comprobación tiene su propio límite de tiempo, y antes de las pesadas
 comprueba que el stack esté en marcha y avisa (`docker compose up -d`)
 en vez de fallar con errores confusos de navegador o de backend.
 
-### 3-vigésimoprimera. `mypy` en verde (de 77 errores a 0) y la puerta del CI deja de tolerarlo (2026-10-21)
+### 3-decimosexta. `mypy` en verde (de 77 errores a 0) y la puerta del CI deja de tolerarlo (2026-10-21)
 
 El backend estaba en modo `strict` y el paso de mypy en el CI llevaba
 `continue-on-error: true` **desde el primer commit**: 77 errores que
@@ -628,7 +628,7 @@ avisa:**
 (`continue-on-error` fuera), validado con el job replicado en local
 ("El job 'backend' pasa entero en local").
 
-### 3-vigésimosegunda. La suite ya aguanta dos ejecuciones en paralelo (2026-10-21)
+### 3-decimoséptima. La suite ya aguanta dos ejecuciones en paralelo (2026-10-21)
 
 Al revalidar en paralelo (la réplica local del CI y la suite contra
 PostgreSQL a la vez) falló
@@ -644,7 +644,7 @@ Esto no era un fallo del CI (allí los jobs van de uno en uno), pero era
 un problema real: cualquier dos ejecuciones simultáneas de la suite se
 contaminaban.
 
-### 3-vigésimotercera. El simulacro de restauración de backups, automatizado (2026-10-22)
+### 3-decimoctava. El simulacro de restauración de backups, automatizado (2026-10-22)
 
 T-12 entregó el `backup.sh` y el `restore.sh` y probó la restauración a
 mano, pero la decisión **D3** pide probarla **cada trimestre**, y eso era
@@ -680,7 +680,7 @@ cadena funciona, el manual comprueba lo que la cadena no puede (destino
 S3 remoto, passphrase real en el gestor de secretos, responsable). Las
 dos conviven en `infra/backup/README.md`.
 
-### 3-vigésimocuarta. El linter del frontend no existía (2026-10-22)
+### 3-decimonovena. El linter del frontend no existía (2026-10-22)
 
 El `package.json` del frontend definía un script `lint` que **nunca
 funcionó**: ESLint 9 exige un `eslint.config.js` (config plano) y en el
@@ -706,7 +706,7 @@ Lo que encontró al activarlo (5 errores + 1 aviso, todos reales):
 Con esto: `npm run lint` → **0 problemas**, `vue-tsc` → 0 errores, y el
 job `frontend` replicado en local pasa entero.
 
-### 3-vigésimoquinta. Los cuatro servicios sin healthcheck (2026-10-22)
+### 3-vigésima. Los cuatro servicios sin healthcheck (2026-10-22)
 
 La definición de hecho del plan dice *"docker compose up -d → **todos los
 servicios healthy**"*, pero `docker compose ps` mostraba el frontend,
@@ -723,7 +723,7 @@ comprobara.
 
 Ahora `docker compose ps` muestra los **11 servicios** como `(healthy)`.
 
-### 3-vigésimoseptima. El inventario de la API decía "Público" en 9 endpoints de admin (2026-10-22)
+### 3-vigésimoprimera. El inventario de la API decía "Público" en 9 endpoints de admin (2026-10-22)
 
 Auditando la columna **"Quién"** de `docs/API-INTERNAL.md` (el contrato que
 lee quien integra la API) contra el código, los **9 endpoints de
@@ -754,7 +754,7 @@ Verificado: los 9 endpoints de `/plans` documentan su RBAC real, y los
 reset-password y los dos de salud) siguen marcándose como públicos,
 comprobado contra el código.
 
-### 3-vigésimooctava. Las puertas, a prueba de sí mismas (2026-10-22)
+### 3-vigésimosegunda. Las puertas, a prueba de sí mismas (2026-10-22)
 
 El patrón de los últimos hallazgos: los bugs más caros **no estaban en
 la aplicación**, sino en las **herramientas que la describen o la
@@ -775,7 +775,7 @@ escriben literales en el source. Si estuvieran literales, el propio
 escaner los encontraría — y con razón: el repositorio es público y un
 token real en un literal es una credencial filtrada.
 
-### 3-vigésimonovena. La puerta de asimetrías no comparaba nada (2026-10-22)
+### 3-vigésimotercera. La puerta de asimetrías no comparaba nada (2026-10-22)
 
 `tools/revisar_esquemas.py` es la puerta que el plan cita como la que
 encontró el hueco del `CameraUpdate.rtsp_url`. Al añadirle su autoprueba
@@ -836,7 +836,7 @@ es el **CI completo** de facto. Lo que falta para cerrar el criterio es
 sólo que GitHub deje de rechazar los jobs.
 
 
-### 3-trigésima. El frontend y el backend no se hablaban (2026-10-22)
+### 3-vigésimocuarta. El frontend y el backend no se hablaban (2026-10-22)
 
 El frontend habla con el backend a través de su propio cliente HTTP
 (`frontend/src/api/*.ts`) y el backend expone **101 rutas**. **Nada**
@@ -881,7 +881,7 @@ repositorio los fallos caros se accumulan en la zona que nadie mira
 comprobaciones es indistinguible de una zona correcta.
 
 
-### 3-trigésimoprimera. El guard de rol del frontend no se comparaba con el RBAC del backend (2026-10-22)
+### 3-vigésimoquinta. El guard de rol del frontend no se comparaba con el RBAC del backend (2026-10-22)
 
 El router protege cada pantalla con `meta: { roles: [...] }` y el backend
 protege cada endpoint con `require_role(...)`. **Nada comparaba las dos
@@ -945,7 +945,7 @@ inexistentes — un falso positivo que habría hecho que la puerta se
 desactivara por ruidosa.
 
 
-### 3-trigésimosegunda. La puerta del inventario comparaba el documento contra el extractor, y los dos mentían (2026-10-22)
+### 3-vigésimosexta. La puerta del inventario comparaba el documento contra el extractor, y los dos mentían (2026-10-22)
 
 El bug de T-39 (el extractor leía sólo el primer rol) vivió **sin que
 ninguna comprobación se enterara**, y el motivo es estructural:
@@ -981,7 +981,7 @@ roles se queda con sólo el primero.
 pasa de 9 a **10 autopruebas**.
 
 
-### 3-trigésimotercera. La QA visual se bloqueaba a sí misma con el rate-limit de login (2026-10-22)
+### 3-vigésimoséptima. La QA visual se bloqueaba a sí misma con el rate-limit de login (2026-10-22)
 
 Al ir a medir las cifras de la documentación, la QA falló en 2 de los 5
 anchos con "no se pudo iniciar sesión". El mensaje no decía por qué, así
@@ -1029,7 +1029,7 @@ mensaje no decía "429", el diagnóstico empezaba por el sitio equivocado.
 | Avisos | 10 (2 por ancho: `/mapa` y `/vivo`, que nunca dejan la red en reposo) |
 
 
-### 3-trigésimocuarta. La herramienta que decide si el CI está verde tenía un falso verde (2026-10-22)
+### 3-vigésimoctava. La herramienta que decide si el CI está verde tenía un falso verde (2026-10-22)
 
 `tools/estado_ci.py` es la herramienta que decide si el **último criterio
 del plan** está cumplido (los 4 checks del CI sobre `main` en SUCCESS). Si
@@ -1074,7 +1074,7 @@ real: el último run de `main` (4 jobs, 0 pasos) se clasifica como
 **rechazado por la cuenta** (código 2).
 
 
-### 3-trigésimoquinta. La cadena del inventario de la API tenía un eslabón sin comprobar (2026-10-22)
+### 3-vigésimonovena. La cadena del inventario de la API tenía un eslabón sin comprobar (2026-10-22)
 
 T-40 arregló el extractor de la API (leía un solo rol de `require_role`)
 y le añadió su autoprueba como tercera fuente. Pero quedaba un hueco por
@@ -1114,7 +1114,7 @@ y cada eslabón se comprueba contra el anterior:
   no ve** y **una ruta que el extractor inventa**.
 
 
-### 3-trigésimosexta. El CI habría salido rojo en cuanto se arreglase la facturación (2026-10-22)
+### 3-trigésima. El CI habría salido rojo en cuanto se arreglase la facturación (2026-10-22)
 
 El job `backend` del workflow corre `tools/autopruebas.py` **antes** del
 `pip install` (a propósito: así las autopruebas fallan en segundos en
@@ -1166,7 +1166,7 @@ nada: el job `backend` habría seguido en rojo y el criterio seguía sin
 poder marcarse. La causa no era la cuenta: era del repo.
 
 
-### 3-trigésimoséptima. Las acciones del workflow iban 3 versiones por detrás y dependían de un workaround sin validar (2026-10-22)
+### 3-trigésimoprimera. Las acciones del workflow iban 3 versiones por detrás y dependían de un workaround sin validar (2026-10-22)
 
 T-44 destapó que la réplica local del CI no reproduce un runner limpio.
 Aplicando esa misma mirada al **workflow en sí**, salió otra cosa.
@@ -1227,7 +1227,7 @@ Python 3.13 y el CI 3.11. Las dos simulaciones de arriba son las que
 verifican de verdad esos jobs.
 
 
-### 3-trigésimoctava. La puerta del CI daba por bueno un run al que le faltara un job (2026-10-22)
+### 3-trigésimosegunda. La puerta del CI daba por bueno un run al que le faltara un job (2026-10-22)
 
 El último criterio del plan dice, literalmente, "los **4 checks** del CI
 sobre `main` en SUCCESS (Backend, Integration, Build de imágenes Docker y
@@ -1256,7 +1256,7 @@ Comprobado contra el CI real: el último run de `main` sigue
 clasificándose como **rechazado por la cuenta** (código 2).
 
 
-### 3-trigésimonovena. Las credenciales de las cuentas demo estaban escritas tres veces sin que nada las comparara (2026-10-22)
+### 3-trigésimotercera. Las credenciales de las cuentas demo estaban escritas tres veces sin que nada las comparara (2026-10-22)
 
 Las credenciales de las cuentas demo están escritas **tres veces**:
 
@@ -1297,7 +1297,7 @@ la meta-puerta (que pasa de 11 a **12 autopruebas**), en
 del CI.
 
 
-### 3-trigésimotercera. La QA visual no cubría 6 pantallas del router y nada lo decía (2026-10-22)
+### 3-trigésimocuarta. La QA visual no cubría 6 pantallas del router y nada lo decía (2026-10-22)
 
 La QA visual recorre una lista de pantallas escrita a mano (`PANTALLAS`
 en `frontend/scripts/qa_visual.py`) que es una **copia** de las rutas del
@@ -1342,7 +1342,7 @@ mismo código, los dos pueden quedarse ciegos a la vez).
 la puerta la canta y sale con código 1; al quitarla, vuelve a verde.
 
 
-### 3-trigésimocuarta. El frontend replica a mano los enums del backend y nada lo comparaba (2026-10-22)
+### 3-trigésimoquinta. El frontend replica a mano los enums del backend y nada lo comparaba (2026-10-22)
 
 El frontend replica las enumeraciones del backend **a mano, en muchos
 sitios**:
@@ -1386,7 +1386,7 @@ y dice que se usa en `MapView.vue`, `MovementsView.vue` y
 `TicketsView.vue`; al quitarlo, vuelve a verde.
 
 
-### 3-trigésimoquinta. La lectura automática de matrículas no estaba conectada a nada (2026-10-22)
+### 3-trigésimosexta. La lectura automática de matrículas no estaba conectada a nada (2026-10-22)
 
 `solidapp.ping_camera` es la tarea que agarra el frame de la cámara, se lo
 manda al servicio OCR y **crea el ticket**. Es el corazón del producto.
@@ -1448,7 +1448,7 @@ confiar en el lock de 1 h, que ya está implementado y testeado pero nunca
 se ha ejercido en producción).
 
 
-### 3-trigésimoseptima. Siete ajustes del backend que nadie leía (2026-10-22)
+### 3-trigésimoséptima. Siete ajustes del backend que nadie leía (2026-10-22)
 
 Un ajuste **muerto** (declarado, configurable por entorno y que **nadie
 lee**) es una trampa silenciosa: parece configurable y no hace nada.
@@ -1480,7 +1480,7 @@ estaría haciendo.
    motivo y **cualquier otro es un fallo del CI**.
 
 
-### 3-trigésimooctava. El OCR aceptaba cualquier texto como matrícula (2026-10-22)
+### 3-trigésimoctava. El OCR aceptaba cualquier texto como matrícula (2026-10-22)
 
 T-50 dejó al descubierto que `ping_camera` no se despacha. Al ejecutarla
 **a mano, una vez, como diagnóstico**, se vio que la cadena sí funciona
@@ -1585,7 +1585,7 @@ igual (585 en SQLite; 595 contra PostgreSQL). El CI no cambia de
 comportamiento: allí `REDIS_URL` viene en el entorno.
 
 
-### 3-trigésimotercera. La QA recogía los errores de red y de consola, los imprimía y no fallaba (2026-10-22)
+### 3-cuadragésima. La QA recogía los errores de red y de consola, los imprimía y no fallaba (2026-10-22)
 
 La QA visual ya recogía **dos** cosas que no llegaban al veredicto: las
 **peticiones fallidas (4xx/5xx)** y los **errores de consola**. Los
@@ -1633,7 +1633,7 @@ anchos), así que la puerta "funcionaba" por casualidad. El fallo era
   aviso de consola** y **una petición cancelada** no la rompen.
 
 
-### 3-trigésimocuarta. La caché del service worker nunca se purga, y el build se rompía en silencio (2026-10-22)
+### 3-cuadragésimoprimera. La caché del service worker nunca se purga, y el build se rompía en silencio (2026-10-22)
 
 **La caché**: `frontend/public/sw.js` usaba `const VERSION = 'v1'` **fijo**.
 El plugin de Vite inyecta la lista de assets del build en `dist/sw.js`, así
@@ -1671,7 +1671,7 @@ mismo contenido, y **renombrando el marcador el build falla** con
 marcador…` y código 1 (antes: build verde y PWA rota).
 
 
-### 3-trigésimonovena. No había imagen de producción del frontend, y los requisitos del servidor no los cumplía nadie (2026-10-22)
+### 3-cuadragésimosegunda. No había imagen de producción del frontend, y los requisitos del servidor no los cumplía nadie (2026-10-22)
 
 El único `frontend/Dockerfile` era el de **desarrollo** (Vite con HMR), con
 un comentario que lo reconocía: *"para producción usaríamos `npm run build`
@@ -1716,7 +1716,7 @@ tres requisitos se cumplen **medidos**, el bundle se sirve como
 el shell en `/mis-tickets`, y el proxy de `/api` responde (login a través
 del proxy → 200 con token).
 
-### 3-trigésimotrigésima. La puerta del servidor de producción no podía fallar, y el paso del CI tapaba su fallo (2026-10-22)
+### 3-cuadragésimotercera. La puerta del servidor de producción no podía fallar, y el paso del CI tapaba su fallo (2026-10-22)
 
 Dos defectos en lo que se había añadido el día antes (T-56):
 
@@ -1746,7 +1746,7 @@ detectados contra el **mismo contenedor con la config de nginx mutada**;
 5 mutaciones de la puerta detectadas por su autoprueba; y el job
 `docker-build` en **rojo** cuando la puerta falla.
 
-### 3-trigésimocuarta. La QA del PWA verificaba la PWA sobre un servidor que no cumplía los requisitos (2026-10-22)
+### 3-cuadragésimocuarta. La QA del PWA verificaba la PWA sobre un servidor que no cumplía los requisitos (2026-10-22)
 
 Con la puerta de T-57 (que mide los requisitos del servidor **por HTTP**)
 se pudieron medir los servidores que el repo usa de verdad:
@@ -1770,7 +1770,7 @@ CI** en vez de reimplementarlos.
 **Verificado**: la QA sigue en verde con 5/5, y se pone en **rojo** (código 1,
 3 requisitos señalados) contra un servidor que incumple.
 
-### 3-trigésimocuarta. El rate-limit de login se esquivaba cambiando el `Content-Type` (2026-10-22)
+### 3-cuadragésimoquinta. El rate-limit de login se esquivaba cambiando el `Content-Type` (2026-10-22)
 
 `POST /auth/login` (JSON) limitaba por IP y email (10 intentos / 5 min);
 `POST /auth/login/oauth` (form-urlencoded) hacía el mismo `verify_password`
@@ -1788,7 +1788,7 @@ las dos vías, más dos tests (la vía OAuth2 da 429; alternar las vías no
 esquiva el límite). Probado que los tests detectan el defecto
 reintroducido.
 
-### 3-trigésimoquinta. nginx rechazaba con 413 las fotos de los incidentes (2026-10-22)
+### 3-cuadragésimosexta. nginx rechazaba con 413 las fotos de los incidentes (2026-10-22)
 
 nginx limita el tamaño de la petición a **1 MB** si no se dice nada; el
 backend acepta 3 × 10 MB. Medido: una petición de 2 MB devolvía el 413 de
@@ -1798,7 +1798,7 @@ nginx (HTML) y el backend no la veía. En desarrollo (Vite) no hay límite.
 que compara el límite de nginx con el tope real del backend (leído del
 `config.py`) para que los dos no se desincronicen en silencio.
 
-### 3-trigésimosexta. El correo de recuperación apuntaba a localhost:5173 (2026-10-22)
+### 3-cuadragésimoséptima. El correo de recuperación apuntaba a localhost:5173 (2026-10-22)
 
 El enlace del correo de "restablece tu contraseña" era una constante a
 `http://localhost:5173`: en producción el cliente pulsaba el enlace y no
@@ -1808,7 +1808,7 @@ llegaba a nada.
 aplicación **no arranca** si no es una URL real por HTTPS (mismo patrón
 que el secreto JWT).
 
-### 3-trigésimoséptima. La IP del cliente la elegía el atacante (2026-10-22)
+### 3-cuadragésimoctava. La IP del cliente la elegía el atacante (2026-10-22)
 
 `get_real_ip` tomaba el **primer** elemento del `X-Forwarded-For` (el que
 escribe el cliente) y nginx **concatenaba** el XFF del cliente: mandando un
@@ -1820,7 +1820,7 @@ confianza), nginx **sobreescribe** el XFF con `$remote_addr`, y los tres
 endpoints usan `get_real_ip`. Con `backend/tests/test_ip.py` y un test
 funcional de la auditoría.
 
-### 3-trigésimoctava. La imagen de producción arrastraba el `node_modules` del host (2026-10-22)
+### 3-cuadragésimonovena. La imagen de producción arrastraba el `node_modules` del host (2026-10-22)
 
 El contexto de build de `frontend/Dockerfile.prod` es `frontend/`, y Docker
 busca el `.dockerignore` en la raíz del **contexto**: el de la raíz del
@@ -1829,7 +1829,7 @@ host (el de Windows) dentro de la imagen.
 
 **El arreglo**: `frontend/.dockerignore` + `tools/verificar_contexto_build.py`.
 
-### 3-trigésimonovena. Dos ajustes de lista no se podían configurar (2026-10-22)
+### 3-quincuagésima. Dos ajustes de lista no se podían configurar (2026-10-22)
 
 `pydantic-settings` sólo entiende JSON para los campos `list`, así que
 `TRUSTED_PROXIES="172.16.0.0/12,10.0.0.0/8"` (el formato que documenta el
@@ -1841,7 +1841,7 @@ toda la sucursal y la auditoría guarda la IP del proxy.
 `trusted_proxies` y `heartbeat_skip_url_prefixes`, y la variable visible
 en el `docker-compose.yml`.
 
-### 3-trigésimotrigésima. Dos suites en paralelo se rompían mutuamente (2026-10-22)
+### 3-quincuagésimoprimera. Dos suites en paralelo se rompían mutuamente (2026-10-22)
 
 La base de Redis de la suite se elegía con `8 + (pid % 8)`: dos PIDs que
 difieren en un múltiplo de 8 compartían base, y cada suite borraba los
@@ -1854,7 +1854,7 @@ Medido: las dos suites del host en paralelo (SQLite y PostgreSQL) →
 **El arreglo**: cada ejecución reclama su base con un lock `SET NX` (con
 caducidad de una hora) y, si está ocupada, prueba la siguiente.
 
-### 3-trigésimotrigésimoprimera. El modo PWA se quedaba pegado en el navegador (2026-10-22)
+### 3-quincuagésimosegunda. El modo PWA se quedaba pegado en el navegador (2026-10-22)
 
 `frontend/src/pwa/mode.ts` guardaba el flag del modo PWA en `localStorage`
 y lo leía **antes** que la señal real (`display-mode: standalone`): un
@@ -1867,7 +1867,7 @@ admin redirige a "Mis tickets", y en **otra pestaña** (donde el
 `localStorage` se comparte pero el `sessionStorage` no) la ruta de admin
 se respeta.
 
-### 3-trigésimotrigésimosegunda. Las regex de nginx ganaban al prefijo `/api/` (2026-10-22)
+### 3-quincuagésimotercera. Las regex de nginx ganaban al prefijo `/api/` (2026-10-22)
 
 En nginx las locations de regex se comprueban antes que las de prefijo:
 una petición a `/api/v1/algo.png` se servía desde el disco en vez de ir
@@ -1875,7 +1875,7 @@ a la API. Hoy no afecta a ningún endpoint, pero es una trampa.
 
 **El arreglo**: `location ^~ /api/`.
 
-### 3-trigésimotrigésimotercera. El flag `no_rate_limit` no hacía nada, y el rate-limit estaba en seis copias (2026-10-22)
+### 3-quincuagésimocuarta. El flag `no_rate_limit` no hacía nada, y el rate-limit estaba en seis copias (2026-10-22)
 
 - El campo `User.no_rate_limit` prometía que las cuentas de servicio se
   saltan el rate-limit, y el mecanismo (`check(skip=True)`) existía con su
@@ -1890,7 +1890,7 @@ a la API. Hoy no afecta a ningún endpoint, pero es una trampa.
 los seis routers delegan. La puerta `tools/verificar_rate_limit_unico.py`
 vigila que no vuelva a haber copias y que el flag se lea.
 
-### 3-trigésimotrigésimocuarta. La puerta del repo se caía en Windows (2026-10-22)
+### 3-quincuagésimoquinta. La puerta del repo se caía en Windows (2026-10-22)
 
 `tools/verificar_repo.py` decodificaba a ciegas la salida de los
 subprocesos como UTF-8. Si el hijo escribía en cp1252 (la consola de
@@ -1903,7 +1903,7 @@ bytes y se decodifica con fallback (UTF-8 y, si no, cp1252), el `print`
 pasa por `_consola()` (que ya existía y no se usaba) y el script fuerza
 UTF-8 en su salida.
 
-### 3-trigésimotrigésimoquinta. El build de producción no era reproducible (2026-10-22)
+### 3-quincuagésimosexta. El build de producción no era reproducible (2026-10-22)
 
 `npm ci || npm install` (en el `Dockerfile.prod` y en el job `frontend` del
 CI): si el lockfile estaba desincronizado, la imagen se construía con las
@@ -1915,13 +1915,13 @@ fallaba y **el fallback era el que se usaba**.
 `tools/verificar_lockfile.py` (compara el `package.json` con el
 `package-lock.json` y avisa antes de instalar).
 
-### 3-trigésimotrigésimosexto. El comando del AGENTS.md para probar el frontend no funcionaba (2026-10-22)
+### 3-quincuagésimoséptima. El comando del AGENTS.md para probar el frontend no funcionaba (2026-10-22)
 
 Montar `frontend/` en un contenedor también montaba el `node_modules`
 **del host** (de Windows), y `npm ci` falla al borrarlo con `EIO`. El
 volumen anónimo `-v /app/node_modules` lo arregla.
 
-### 3-trigésimotrigésimosexto. La réplica local del job `frontend` se caía en Windows (2026-10-22)
+### 3-quincuagésimoctava. La réplica local del job `frontend` se caía en Windows (2026-10-22)
 
 `npm ci` en el host (Windows) no puede borrar `node_modules` ("the file
 was already in use"), así que la réplica local del job `frontend` se caía
@@ -1962,3 +1962,26 @@ Migraciones: `0012_reset_and_face_templates` (T-22 + T-23) y `0013_incident_atta
 - `backend/locust/README.md` — escenarios de carga y SLO.
 - `docker/vehicle-detector/README.md` — el modelo real y el bug de canales BGR/RGB.
 - `frontend/README.md` — PWA, QA visual y la trampa del HMR en Docker Desktop/Windows.
+
+### 3-quincuagésimonovena. El compose de la sucursal arrancaba con el secreto público (2026-10-22)
+
+El ADR-0001 dice que el `docker-compose.yml` **es** el fichero que se copia
+a una sucursal. Pero es el de desarrollo: `ENVIRONMENT=development` (sin
+exigir el secreto JWT real, que es público en este repositorio), el
+frontend servido por el dev-server de Vite y los `CORS_ORIGINS` a
+`localhost`.
+
+**El arreglo**: `docker-compose.prod.yml` (override) con `ENVIRONMENT:
+production`, el secreto, la URL pública y los orígenes **obligatorios**, y
+el frontend con el `Dockerfile.prod`. Probado arrancando el stack entero
+en modo producción (login 200, nginx, 5/5 requisitos del PWA).
+
+### 3-sexagésima. `TRUSTED_PROXIES` impedía arrancar el backend (2026-10-22)
+
+`pydantic-settings` parsea los campos `list` antes de los validadores y
+solo entiende JSON: un `TRUSTED_PROXIES="a,b"` (el formato que documentaba
+el propio código) hacía fallar el arranque con `SettingsError`. Y el
+compose lleva ese valor: **el despliegue de producción no arrancaba**.
+
+**El arreglo**: los dos campos pasan a ser **string** con su property
+(`trusted_proxies_list`), igual que `cors_origins`.
