@@ -2032,3 +2032,14 @@ podía crear incidentes y subir fotos sin límite de peticiones.
 función única de T-69) con sus scopes, y el `conftest.py` limpia también
 sus buckets.
 
+### 3-sexagésimosegunda. El README no decía cómo desplegar en una sucursal (2026-10-22)
+
+El compose de producción existía (T-74), pero el README seguía diciendo
+solo `docker compose up -d --build` —el stack de **desarrollo**, con el
+secreto JWT por defecto (público)— y el `.env.example` no declaraba
+`FRONTEND_BASE_URL` ni `TRUSTED_PROXIES`.
+
+**El arreglo**: sección de producción en el README (comando, variables
+obligatorias, TLS y `TRUSTED_PROXIES`), las dos variables en el
+`.env.example`, y la puerta `tools/verificar_readme_despliegue.py`.
+

@@ -373,6 +373,15 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: La documentacion dice como desplegar en produccion
+        # POR QUE (2026-10-22, T-80): el compose de produccion existe
+        # (T-74), pero el README seguia diciendo solo `docker compose up
+        # -d --build` (el stack de DESARROLLO, con el secreto JWT
+        # publico) y el .env.example no declaraba FRONTEND_BASE_URL ni
+        # TRUSTED_PROXIES. Quien montase una sucursal siguiendo el README
+        # desplegaba con un secreto publico.
+        run: python tools/verificar_readme_despliegue.py
+
       - name: El compose de produccion es seguro y sus valores cargan
         # POR QUE (2026-10-22, T-74/T-75): el ADR-0001 dice que el
         # docker-compose.yml es el fichero que se copia a una sucursal, pero

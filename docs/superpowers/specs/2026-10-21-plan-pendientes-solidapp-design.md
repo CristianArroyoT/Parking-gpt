@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **443 de 444 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **449 de 450 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1559,6 +1559,23 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] **Probado que el test detecta el defecto** reintroduciéndolo (sin limitador, el test falla).
   - [x] La fixture de limpieza borra los buckets nuevos.
   - [x] `ruff` y `mypy` en verde.
+
+### T-80 · P2 (documentación con consecuencia de seguridad) — el README no decía cómo desplegar en una sucursal
+
+- **Estado**: **completado** — el README tiene su sección de producción y el `.env.example` declara las variables nuevas
+- **Contexto**: el T-74 arregló el compose de producción, pero la **documentación seguía diciendo solo `docker compose up -d --build`**: el stack de **desarrollo**, que acepta el secreto JWT por defecto (`change-me-in-production`, público en este repositorio) y sirve HTTP plano sin TLS. Es decir: quien montara una sucursal siguiendo el README desplegaba con un **secreto público**, sin saber que existía `docker-compose.prod.yml`.
+- **Y el `.env.example`** (el fichero que se copia para configurar) no declaraba `FRONTEND_BASE_URL` ni `TRUSTED_PROXIES`: las variables que el código ya exigía eran invisibles para quien configuraba el entorno.
+- **El arreglo**:
+  1. el README tiene una sección **"Despliegue en una sucursal (producción)"** con el comando `-f docker-compose.yml -f docker-compose.prod.yml`, las tres variables obligatorias (con por qué), el aviso del **TLS** y el de `TRUSTED_PROXIES`;
+  2. el arranque rápido avisa de que ese es el stack de **desarrollo**;
+  3. el `.env.example` declara `FRONTEND_BASE_URL` y `TRUSTED_PROXIES`, con su comentario.
+  4. **`tools/verificar_readme_despliegue.py`**: una puerta que exige que el README mencione el compose de producción y las tres variables (y que diga que el stack por defecto es de desarrollo) y que el `.env.example` declare las dos variables nuevas. Con `--autoprueba` (8 casos de mentira) y paso en el CI.
+- **Criterios de aceptación**:
+  - [x] Medido: el README no mencionaba `docker-compose.prod.yml` ni las variables obligatorias, y el `.env.example` no declaraba las dos nuevas (la puerta lo detectó: 6 problemas).
+  - [x] El README tiene su sección de producción y el aviso de desarrollo.
+  - [x] El `.env.example` declara `FRONTEND_BASE_URL` y `TRUSTED_PROXIES`.
+  - [x] La puerta lo vigila (8 casos de autoprueba) y está en la meta-puerta, en el CI y en `verificar_repo.py`.
+  - [x] Escaneo de texto sin problemas.
 
 ### T-14 · I3 — OCR con GPU
 

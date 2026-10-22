@@ -62,6 +62,41 @@ docker compose exec backend python -m app.scripts.seed
 #    http://localhost:8000   → Swagger UI (OpenAPI)
 ```
 
+> Esto es el stack de **desarrollo**. Para una **sucursal** en producción,
+> ver más abajo.
+
+### Despliegue en una sucursal (producción)
+
+El comando anterior levanta el stack de **desarrollo**: acepta el secreto
+JWT por defecto (`change-me-in-production`), que está escrito en este
+repositorio público, y no tiene TLS. Para una sucursal hay que usar el
+override de producción:
+
+```bash
+# Las tres variables son OBLIGATORIAS: si falta alguna, `docker compose`
+# falla al arrancar, con un mensaje que dice cuál falta.
+export JWT_SECRET="$(openssl rand -base64 48)"   # el secreto de firma
+export FRONTEND_BASE_URL="https://parking.ejemplo.es"  # URL publica (correos)
+export CORS_ORIGINS="https://parking.ejemplo.es"       # origenes del navegador
+
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+| Variable | Por qué es obligatoria |
+|---|---|
+| `JWT_SECRET` | Con el valor por defecto se pueden **firmar tokens de administrador** (el repositorio es público) |
+| `FRONTEND_BASE_URL` | La URL que va en los correos (el de recuperar contraseña). Sin ella la API **no arranca** en `staging`/`production` |
+| `CORS_ORIGINS` | Los orígenes desde los que el navegador carga la app |
+
+Además, y **sin esto la PWA no funciona**: la imagen sirve **HTTP plano**
+y los navegadores no registran *service workers* sin cifrar. Hay que poner
+un **TLS delante** (Caddy, nginx o el Ingress del cluster) y añadir la IP
+del proxy a `TRUSTED_PROXIES`, o el backend verá la IP del proxy y el
+rate-limit de login se compartirá para toda la sucursal.
+
+Ver [`docs/adr/0001-orquestacion-produccion.md`](docs/adr/0001-orquestacion-produccion.md)
+(requisitos de despliegue) y [`frontend/README.md`](frontend/README.md).
+
 ## Cuentas demo (Fase 1)
 
 | Rol       | Email                          | Contraseña    |

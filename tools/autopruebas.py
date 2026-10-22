@@ -123,6 +123,10 @@ AUTOPRUEBAS: list[tuple[str, list[str]]] = [
         [sys.executable, "tools/verificar_compose_produccion.py", "--autoprueba"],
     ),
     (
+        "La puerta del README de despliegue sigue viendo",
+        [sys.executable, "tools/verificar_readme_despliegue.py", "--autoprueba"],
+    ),
+    (
         "La puerta del repo detecta los fallos",
         [sys.executable, "tools/verificar_repo.py", "--autoprueba"],
     ),

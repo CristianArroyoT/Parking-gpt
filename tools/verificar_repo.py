@@ -165,6 +165,11 @@ def _comprobaciones() -> list[Comprobacion]:
             patron=r"(OK: el compose de produccion.*)",
         ),
         Comprobacion(
+            "La documentacion dice como desplegar en produccion",
+            [py, "tools/verificar_readme_despliegue.py"],
+            patron=r"(OK: el README dice como desplegar.*)",
+        ),
+        Comprobacion(
             "Las puertas se prueban a si mismas",
             [py, "tools/autopruebas.py", "--estricto"],
             patron=r"(\d+ autopruebas? pasan.*)",
