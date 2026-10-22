@@ -108,6 +108,31 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      - name: Las dependencias de produccion no tienen vulnerabilidades
+        # POR QUE (2026-10-23, T-89): el repo no miraba NUNCA las
+        # vulnerabilidades de sus dependencias, y asi se beatieron dos
+        # cosas de verdad:
+        #
+        # 1. El backend tenia **68 avisos de OSV** en Pillow 10.4.0, y el
+        #    codigo **abre las imagenes que suben los usuarios**
+        #    (``app/services/incident_attachments.py``): una foto
+        #    manipulada podia tumbar el servicio.
+        # 2. El frontend tenia **7 avisos "high"** en el arbol que se envia
+        #    al navegador (``npm audit --omit=dev``): vue, axios, postcss,
+        #    nanoid, follow-redirects, source-map-js y @vue/server-renderer.
+        #
+        # Esta puerta consulta OSV (la base que alimenta ``pip-audit`` y
+        # ``npm audit``) y falla si alguna dependencia DIRECTA del backend
+        # o del arbol de PRODUCCION del frontend tiene un aviso sin
+        # justificar. Las excepciones van en
+        # ``tools/dependencias_aceptadas.json`` y cada una necesita un
+        # motivo y una prueba.
+        #
+        # Si OSV no responde, la puerta devuelve el codigo 3 ("no
+        # comprobado"), que NO es verde: se prefiero un CI rojo por un
+        # fallo de la red a un verde que no ha mirado nada.
+        run: python ../tools/verificar_dependencias.py
+
       - name: Linter (ruff)
         # ``../tools`` entra también: las herramientas de ``tools/`` son
         # puertas del pipeline (inventario de la API, migraciones,

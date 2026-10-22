@@ -127,6 +127,10 @@ AUTOPRUEBAS: list[tuple[str, list[str]]] = [
         [sys.executable, "tools/verificar_readme_despliegue.py", "--autoprueba"],
     ),
     (
+        "La puerta de dependencias vulnerables sigue viendo",
+        [sys.executable, "tools/verificar_dependencias.py", "--autoprueba"],
+    ),
+    (
         "La puerta del repo detecta los fallos",
         [sys.executable, "tools/verificar_repo.py", "--autoprueba"],
     ),

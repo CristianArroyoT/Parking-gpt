@@ -1,0 +1,15 @@
+{
+  "_comentario": [
+    "Excepciones de la puerta tools/verificar_dependencias.py.",
+    "Cada entrada necesita un 'motivo' (por que no se puede arreglar o por que no da igual) y una 'prueba' (el fichero que demuestra el motivo). Una excepcion sin motivo o sin prueba hace FALLAR la puerta.",
+    "El 'aviso' es el identificador canonico del problema (el GHSA cuando lo hay): el mismo problema aparece en OSV con dos identificadores (GHSA-... y PYSEC-...) y la puerta los agrupa."
+  ],
+  "aceptadas": [
+    {
+      "paquete": "python-jose",
+      "aviso": "GHSA-3qf3-8w2g-rqmx",
+      "motivo": "No es alcanzable y no hay version arreglada. El aviso (CVE-2026-85394) dice: 'al inicializar una clave HMAC acepta claves publicas DER sin armadura PEM; un atacante con la clave publica del servicio puede falsificar tokens HS256 cuando no se restringen los algoritmos'. Aqui se dan las tres condiciones para que NO llegue a pasar: (1) el despliegue es de clave compartida (HS256 con JWT_SECRET): no hay clave publica que un atacante pueda usar; (2) decode_token restringe los algoritmos de forma explicita (algorithms=[jwt_algorithm]); (3) la configuracion RECHAZA cualquier algoritmo que no sea HS256, asi que el codigo vulnerable no se puede ni activar por un error de despliegue. Sustituir la libreria (PyJWT) se deja para mas adelante: el cambio es pequeno pero no es gratis, y aqui no compra nada mientras el algoritmo este fijado.",
+      "prueba": "backend/tests/test_jwt_algoritmos.py (6 tests: la configuracion rechaza RS256, un token con 'alg: none' no vale, uno firmado con HS512 no vale, uno firmado con otra clave no vale)"
+    }
+  ]
+}

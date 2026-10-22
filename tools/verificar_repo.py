@@ -155,6 +155,11 @@ def _comprobaciones() -> list[Comprobacion]:
             patron=r"(OK: el rate-limit por endpoint.*)",
         ),
         Comprobacion(
+            "Las dependencias de produccion no tienen vulnerabilidades",
+            [py, "tools/verificar_dependencias.py"],
+            patron=r"(problemas con vulnerabilidad en el alcance fatal: 0)",
+        ),
+        Comprobacion(
             "El lockfile esta sincronizado con el package.json",
             [py, "tools/verificar_lockfile.py"],
             patron=r"(OK: el package-lock.json.*)",

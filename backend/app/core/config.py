@@ -265,6 +265,38 @@ class Settings(BaseSettings):
     environment: Literal["development", "staging", "production", "test"] = Field(default="development", alias="ENVIRONMENT")
 
     @model_validator(mode="after")
+    def _exigir_algoritmo_hs256(self) -> "Settings":
+        """El backend firma con HS256 (clave compartida) y con nada mas.
+
+        POR QUE (2026-10-23, T-89): ``python-jose`` 3.5.0 tiene un aviso
+        abierto **sin version arreglada** (GHSA-3qf3-8w2g-rqmx /
+        CVE-2026-85394): al inicializar una clave HMAC acepta una clave
+        publica DER sin armadura PEM, y si no se restringen los
+        algoritmos, un atacante con la clave publica del servicio puede
+        falsificar un token HS256.
+
+        Aqui se cierra por configuracion, no por suerte:
+
+        - el despliegue es de **clave compartida** (HS256): no hay clave
+          publica que un atacante pueda usar;
+        - ``decode_token`` restringe los algoritmos de forma explicita;
+        - y ahora ``JWT_ALGORITHM`` **solo** admite HS256: si alguien
+          pone RS256 (que necesitaria una clave asimetrica), la
+          aplicacion no levanta y lo dice, en vez de firmar con un
+          algoritmo que nadie ha auditado.
+
+        La prueba que acompaña a esta regla esta en
+        ``backend/tests/test_jwt_algoritmos.py`` y la excepcion, con su
+        justificacion, en ``tools/dependencias_aceptadas.json``.
+        """
+        if self.jwt_algorithm.strip().upper() != "HS256":
+            raise ValueError(
+                "JWT_ALGORITHM debe ser HS256: el backend firma con clave "
+                f"compartida y no admite {self.jwt_algorithm!r}."
+            )
+        return self
+
+    @model_validator(mode="after")
     def _exigir_secreto_real_fuera_de_desarrollo(self) -> "Settings":
         """En staging/producción, el secreto JWT tiene que ser real.
 
