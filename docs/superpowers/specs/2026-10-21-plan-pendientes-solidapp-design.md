@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **213 de 214 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **217 de 218 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -723,6 +723,20 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
   - [x] `docker compose config` sigue siendo válido.
   - [x] `docker compose up -d` levanta el stack y **los 11 servicios aparecen `(healthy)`**.
   - [x] La app sigue funcionando tras recrear los contenedores (QA visual en verde).
+
+### T-34 · P2 — auditoría de la "definición de hecho": cifras obsoletas y una deriva silenciosa
+
+- **Estado**: **completado** — todas las cifras contrastadas con comandos reales
+- **Contexto**: la definición de hecho del plan es el contrato del trabajo, y varios de sus números se habían quedado obsoletos (o no se habían comprobado nunca con el rigor que la propia definición exigía).
+- **Lo que salió al auditarla, criterio por criterio**:
+  - **Deriva silenciosa**: `docs/API-INTERNAL.md` decía *"100 endpoints"* cuando ya eran **101**. La causa: el número de endpoints de salud estaba **duplicado** en dos herramientas (`verificar_api_doc.py` los sumaba a mano; `generar_seccion_api.py` sumaba `+1` por `/health`), así que al añadir `/health/ready` (T-27) el generador siguió contando uno. **Ahora la lista vive en un solo sitio** (`extraer_api.RUTAS_FUERA_DE_ROUTER`) y las dos herramientas la importan. Comprobado que el aviso funciona: con el generador arreglado, el verificador detectó la deriva (documento=100, código=101) y falló con código 1; tras regenerar, vuelve a pasar, y la autoprueba sigue detectando las dos caras.
+  - **Cifras obsoletas**: "530 tests" y "100 endpoints" en el README, "22 routers" en el CODEMAP (son 24), "548/557 passed" en la definición de hecho (ahora 562/571) y un "10 pantallas" que ya se había corregido a 6 en otro sitio del mismo documento.
+  - **Criterios que se daban por cumplidos sin comprobar**: *"todos los servicios healthy"* → **faltaban cuatro healthcheck** (T-33) y *"sin 4xx/5xx en el log del backend"* → comprobado ahora contra el log real (145 líneas en 30 min, cero 4xx/5xx).
+- **Criterios de aceptación**:
+  - [x] Todas las cifras de la documentación contrastadas con comandos reales: **101 endpoints** (en 24 routers), **19 modelos**, **562 tests**, **11 servicios healthy**.
+  - [x] La lista de rutas fuera de los routers tiene **una sola fuente** (`extraer_api.RUTAS_FUERA_DE_ROUTER`).
+  - [x] El verificador de la API **detecta** la deriva en la prosa (probado: falla con código 1 si el documento no se regenera).
+  - [x] La autoprueba del verificador sigue en verde.
 
 ### T-14 · I3 — OCR con GPU
 
