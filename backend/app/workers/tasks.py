@@ -316,7 +316,12 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
         db.close()
 
 
-@celery_app.task(name="solidapp.send_password_reset_email")  # type: ignore[untyped-decorator]
+#: ``ignore_result=True`` por lo mismo que ``send_alert_email``: el
+#: que encola el correo de reset no mira el resultado, y abrir el
+#: result store en la publicacion puede bloquearlo (T-103).
+@celery_app.task(  # type: ignore[untyped-decorator]
+    name="solidapp.send_password_reset_email", ignore_result=True,
+)
 def enviar_correo_reset(
     to_email: str,
     full_name: str,
@@ -357,6 +362,59 @@ def enviar_correo_reset(
             to_email, token_id,
         )
     return {"enviado": enviado, "token_id": token_id}
+
+
+#: ``ignore_result=True``: estas tareas son de "dispara y olvida" (el
+#: que encola no mira el resultado). Sin esto, al publicar el mensaje
+#: Celery abre conexion con el **result store** para reserving sitio
+#: para el resultado: si ese Redis no responde, la llamada se queda
+#: reintentando (medido el 2026-10-23: **23 s** por envio, que es
+#: PEOR que el SMTP que queria quitar) y el que encola (la ronda de
+#: heartbeat) se queda bloqueado.
+@celery_app.task(  # type: ignore[untyped-decorator]
+    name="solidapp.send_alert_email", ignore_result=True,
+)
+def enviar_correo_alerta(
+    alert_id: int,
+    destinatario: str | None,
+    template_kind: str = "ocr_failed",
+    parking_name: str = "",
+    camera_code: str = "",
+    count: int = 0,
+    threshold: int = 0,
+    frame_path: str | None = None,
+) -> dict[str, Any]:
+    """Envia el correo de una alerta FUERA de la ronda (T-103).
+
+    La ronda de heartbeat mandaba el correo en linea: con el SMTP lento,
+    cada alerta caida costaba **2,42 s** (medido el 2026-10-23) y con 50
+    camaras caidas la ronda tardaba mas de dos minutos, con el beat
+    lanzandola cada 60 s (se solapaba sola).
+
+    Aqui el SMTP lo toca el worker, que es quien puede tardar sin que
+    nadie se entere.
+    """
+    from app.models.audit import Alert
+    from app.services.email import send_alert_email
+
+    with SessionLocal() as db:
+        alert = db.get(Alert, alert_id)
+        if alert is None:
+            log.warning(
+                "enviar_correo_alerta: la alerta %s ya no existe", alert_id,
+            )
+            return {"enviado": False, "motivo": "alerta_no_existe"}
+        enviado = send_alert_email(
+            alert,
+            destinatario,
+            template_kind=template_kind,  # type: ignore[arg-type]
+            parking_name=parking_name,
+            camera_code=camera_code,
+            count=count,
+            threshold=threshold,
+            frame_path=frame_path,
+        )
+    return {"enviado": enviado, "alert_id": alert_id}
 
 
 @celery_app.task(name="solidapp.purge_incident_attachments")  # type: ignore[untyped-decorator]

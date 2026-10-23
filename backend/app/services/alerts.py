@@ -231,9 +231,12 @@ def record_ocr_failure(camera: Camera, frame_bytes: bytes | None = None) -> Aler
             threshold,
         )
 
-        email_module.send_alert_email(
-            alert,
-            manager_email,
+        # T-103: el correo sale en una tarea de Celery (la ronda no
+        # toca la red: con el SMTP lento costaba 2,42 s por alerta).
+        email_module.encolar_correo_alerta(
+            alert_id=alert.id,
+            destinatario=manager_email,
+            template_kind="ocr_failed",
             camera_code=camera.code,
             parking_name=parking_name,
             count=count,
@@ -379,9 +382,10 @@ def record_camera_offline(camera: Camera, *, kind: str = "frame") -> Alert | Non
             threshold,
         )
 
-        email_module.send_alert_email(
-            alert,
-            admin_email,
+        # T-103: idem, el correo de camara caida no se manda aqui.
+        email_module.encolar_correo_alerta(
+            alert_id=alert.id,
+            destinatario=admin_email,
             template_kind="camera_offline",
             camera_code=camera.code,
             parking_name=parking_name,

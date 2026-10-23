@@ -207,8 +207,10 @@ def heartbeat_env(monkeypatch, motor_de_test):
         sent.append({"args": args, "kwargs": kwargs})
         return True
 
+    # T-103: el correo ya no se manda en linea, se ENCOLA (lo hace el
+    # worker). El seam que se intercepta es el encolado.
     import app.services.email as email_mod
-    monkeypatch.setattr(email_mod, "send_alert_email", _stub_send)
+    monkeypatch.setattr(email_mod, "encolar_correo_alerta", _stub_send)
 
     class _StubSettings:
         ocr_frames_before_fail = 3
@@ -312,7 +314,7 @@ def test_probe_heartbeats_creates_alert_after_threshold(heartbeat_env) -> None:
     # Email al admin
     assert len(sent) == 1
     assert sent[0]["kwargs"]["template_kind"] == "camera_offline"
-    assert sent[0]["args"][1] == "admin@solidapp.es"
+    assert sent[0]["kwargs"]["destinatario"] == "admin@solidapp.es"
 
 
 def test_probe_heartbeats_resets_counter_on_success(heartbeat_env) -> None:

@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **563 de 564 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **569 de 570 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1978,6 +1978,29 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] El lock es `SET NX` (dos rondas no lo toman las dos) y **caduca** (para que un worker muerto no bloquee las rondas siguientes).
   - [x] 4 tests nuevos; prueba inversa: sin el lock, el test **falla**.
   - [x] El lock **se suelta** al terminar la ronda: si no, se perdía una de cada tres (lo cazaron los tests de `probe_heartbeats`).
+
+
+### T-103 · P1 (disponibilidad) — el SMTP estaba dentro de la ronda de heartbeat y de los requests
+
+- **Estado**: **completado** — el correo de alerta lo manda el worker, no quien lo encola
+- **Contexto** (auditoría del 2026-10-23): el envío del correo de alerta era **síncrono** y estaba en dos sitios dentro de un camino que no puede esperar:
+  1. dentro de la **ronda de heartbeat** (una alerta por cámara caída);
+  2. dentro del **request** que crea un incidente (`POST /incidents`).
+  El SMTP tiene un timeout de 5 s: con el SMTP lento o caído, cada alerta costaba el tiempo de espera.
+- **Medido** (2026-10-23, con un SMTP de mentira que acepta la conexión y no contesta nunca):
+  | | antes | después |
+  |---|---|---|
+  | 3 alertas CAMERA_OFFLINE | **7,25 s** (2,42 s por alerta) | **0,01 s** |
+  Con 50 cámaras caídas, la ronda tardaba más de dos minutos (y el beat la lanza cada 60 s: se solapaba sola).
+- **El arreglo**: el correo se **encola** en una tarea de Celery (`solidapp.send_alert_email`) y lo manda el worker, que es quien puede tardar sin que nadie se entere. Si el broker está caído, se manda en línea (camino de emergencia, más lento pero llega).
+- **Y un detalle que salió al medir**: al publicar el mensaje, Celery abría conexión con el **result store** (Redis) para reservar sitio para el resultado. Si ese Redis no responde, la llamada se quedaba reintentando: **23 s** por envío (peor que el SMTP que se quería quitar) y el que encolaba se quedaba bloqueado. Por eso las tareas de «dispara y olvida» (`send_alert_email`, `send_password_reset_email`) van con `ignore_result=True`.
+- **Criterios de aceptación**:
+  - [x] Medido: 7,25 s por tres alertas antes, **0,01 s** después (la ronda no toca la red).
+  - [x] La alerta **encola** el correo y **no** lo manda en línea (con el SMTP sustituido por un espía que falla si se llama).
+  - [x] La tarea manda el correo de verdad, con la alerta leída de la base de datos.
+  - [x] Si la alerta ya no existe, la tarea no rompe nada.
+  - [x] Las tareas de fire-and-forget tienen `ignore_result=True` (sin result store al publicar).
+  - [x] 4 tests nuevos; prueba inversa: si el correo se vuelve a mandar en línea, el test **falla**.
 
 ### T-14 · I3 — OCR con GPU
 

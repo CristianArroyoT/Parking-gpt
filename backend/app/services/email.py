@@ -288,4 +288,49 @@ def send_alert_email(
         return False
 
 
-__all__ = ["send_alert_email", "TemplateKind"]
+def encolar_correo_alerta(
+    *,
+    alert_id: int,
+    destinatario: str | None,
+    template_kind: str,
+    parking_name: str = "",
+    camera_code: str = "",
+    count: int = 0,
+    threshold: int = 0,
+    frame_path: str | None = None,
+) -> bool:
+    """Encola el correo de una alerta para que lo mande Celery (T-103).
+
+    POR QUE: el envio estaba **dentro** de la ronda de heartbeat, con el
+    SMTP en medio. Medido el 2026-10-23 con un SMTP de mentira (que
+    acepta la conexion y no contesta): **2,42 s por alerta** y, con 50
+    camaras caidas, la ronda tardaba mas de dos minutos (y el beat la
+    lanza cada 60 s: se solapaba sola).
+
+    Ahora la ronda **no toca la red**: encola el correo y sigue. El
+    destinatario y el contexto viajan en la tarea (la alerta se vuelve
+    a leer de la base de datos, que ya esta confirmada).
+
+    Devuelve ``False`` si no se pudo encolar (el broker esta caido): el
+    llamante envia el correo en linea (mas lento, pero llega).
+    """
+    try:
+        from app.workers.tasks import enviar_correo_alerta
+
+        enviar_correo_alerta.delay(
+            alert_id=alert_id,
+            destinatario=destinatario,
+            template_kind=template_kind,
+            parking_name=parking_name,
+            camera_code=camera_code,
+            count=count,
+            threshold=threshold,
+            frame_path=frame_path,
+        )
+    except Exception:  # noqa: BLE001 -- el broker puede estar caido
+        log.exception("encolar_correo_alerta: no se pudo encolar el correo")
+        return False
+    return True
+
+
+__all__ = ["encolar_correo_alerta", "send_alert_email", "TemplateKind"]

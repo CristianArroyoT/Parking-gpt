@@ -79,8 +79,10 @@ def alert_env(monkeypatch, motor_de_test):
         sent.append({"args": args, "kwargs": kwargs})
         return True
 
+    # T-103: el correo ya no se manda en linea, se ENCOLA (lo hace el
+    # worker). El seam que se intercepta es el encolado.
     import app.services.email as email_mod
-    monkeypatch.setattr(email_mod, "send_alert_email", _stub_send)
+    monkeypatch.setattr(email_mod, "encolar_correo_alerta", _stub_send)
 
     # Forzar threshold=3 para no depender de Settings en estos tests.
     class _StubSettings:

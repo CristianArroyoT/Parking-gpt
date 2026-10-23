@@ -63,7 +63,8 @@ def test_space_broken_ok(client: TestClient, db_session, monkeypatch) -> None:
     headers = {"Authorization": f"Bearer {token}"}
 
     sent: list[dict] = []
-    monkeypatch.setattr(email_mod, "send_alert_email", lambda *a, **k: sent.append({}) or True)
+    # T-103: el correo se encola (lo manda el worker), no se envia aqui.
+    monkeypatch.setattr(email_mod, "encolar_correo_alerta", lambda *a, **k: sent.append({}) or True)
 
     r = client.post(
         f"/api/v1/incidents/parkings/{parking.id}",
@@ -152,7 +153,8 @@ def test_robery_reported_without_plate(client: TestClient, db_session, monkeypat
     headers = {"Authorization": f"Bearer {token}"}
 
     sent: list[dict] = []
-    monkeypatch.setattr(email_mod, "send_alert_email", lambda *a, **k: sent.append({"args": a, "kwargs": k}) or True)
+    # T-103: el correo se encola (lo manda el worker), no se envia aqui.
+    monkeypatch.setattr(email_mod, "encolar_correo_alerta", lambda *a, **k: sent.append({"args": a, "kwargs": k}) or True)
 
     r = client.post(
         f"/api/v1/incidents/parkings/{parking.id}",

@@ -76,8 +76,10 @@ def offline_env(monkeypatch, motor_de_test):
         sent.append({"args": args, "kwargs": kwargs})
         return True
 
+    # T-103: el correo ya no se manda en linea, se ENCOLA (lo hace el
+    # worker). El seam que se intercepta es el encolado.
     import app.services.email as email_mod
-    monkeypatch.setattr(email_mod, "send_alert_email", _stub_send)
+    monkeypatch.setattr(email_mod, "encolar_correo_alerta", _stub_send)
 
     class _StubSettings:
         ocr_frames_before_fail = 3
@@ -160,7 +162,7 @@ def test_alert_critical_at_threshold(offline_env) -> None:
     assert kwargs["count"] == 3
     assert kwargs["threshold"] == 3
     # El destinatario debe ser el admin (no el gestor).
-    to_addr = sent[0]["args"][1]
+    to_addr = sent[0]["kwargs"]["destinatario"]
     assert to_addr == "admin@solidapp.es"
 
 
@@ -254,6 +256,6 @@ def test_admin_email_not_manager(offline_env) -> None:
         alerts_mod.record_camera_offline(cam_a)
 
     assert len(sent) == 1
-    to_addr = sent[0]["args"][1]
+    to_addr = sent[0]["kwargs"]["destinatario"]
     # El admin (no el gestor) debe recibir la alerta crítica.
     assert to_addr == "admin@solidapp.es"

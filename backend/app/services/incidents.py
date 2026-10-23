@@ -198,9 +198,12 @@ def create_incident(
                 park = db.get(Parking, parking_id)
                 parking_name = park.name if park else f"parking-{parking_id}"
                 manager_email = _resolve_manager_email(db, parking_id)
-                email_module.send_alert_email(
-                    alert,
-                    manager_email,
+                # T-103: el correo sale en una tarea de Celery. Mandarlo
+                # aqui bloqueaba el request (con el SMTP lento, hasta
+                # 5 s por incidente creado).
+                email_module.encolar_correo_alerta(
+                    alert_id=alert.id,
+                    destinatario=manager_email,
                     template_kind="robery_reported",
                     parking_name=parking_name,
                 )

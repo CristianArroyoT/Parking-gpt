@@ -2143,6 +2143,19 @@ terminar (si no, con el beat cada 60 s se perdía una ronda de cada
 tres).
 
 
+### 3-octogésimoctava. El correo de alerta lo manda el worker (2026-10-23)
+
+El envío estaba **en línea** dentro de la ronda de heartbeat y dentro del
+request que crea un incidente. Con el SMTP lento, cada alerta costaba
+**2,42 s** (medido) y la ronda se solapaba sola.
+
+**El arreglo**: el correo se encola en una tarea de Celery
+(`solidapp.send_alert_email`) y lo manda el worker. Las tareas de
+«dispara y olvida» van con `ignore_result=True`: sin eso, al publicar se
+abría el result store y, si no respondía, el que encolaba se quedaba
+**23 s** bloqueado (peor que el SMTP).
+
+
 ## 5. Variables de entorno nuevas
 
 | Variable | Default | Para qué |
