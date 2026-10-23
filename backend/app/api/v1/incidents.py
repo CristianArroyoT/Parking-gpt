@@ -191,6 +191,42 @@ def _adjunto_de_sucursal(
     return adjunto
 
 
+def _auditar_lectura(
+    request: Request,
+    db: Session,
+    current_user: User,
+    adjunto: IncidentAttachment,
+    accion: str,
+) -> None:
+    """Deja constancia de la lectura de una foto de incidente (T-96).
+
+    Se audita la **lectura** igual que la subida y el borrado. Sin esto,
+    la auditoría solo decía quién subió y quién borró fotos, pero no
+    quién las vio: y en un incidente por una matrícula, esa es
+    justamente la pregunta que se hace.
+
+    OJO (T-62): la IP es la **real** del cliente, no la del proxy
+    (nginx), que es lo que pasaria con ``request.client.host``.
+    """
+    ip = get_real_ip(request) if request.client else None
+    record_audit(
+        db,
+        action=accion,
+        user_id=current_user.id,
+        ip=ip,
+        resource=f"incident_attachment:{adjunto.id}",
+        payload={
+            "attachment_id": adjunto.id,
+            "alert_id": adjunto.alert_id,
+            "mime_type": adjunto.mime_type,
+            "size_bytes": adjunto.size_bytes,
+        },
+        parking_id=adjunto.parking_id,
+        result="success",
+    )
+    db.commit()
+
+
 def _exigir_no_caducado(adjunto: IncidentAttachment) -> None:
     """Si el adjunto ha caducado por la retencion, no se sirve (410 Gone).
 
@@ -258,6 +294,7 @@ def borrar_adjunto_incidente(
 @router.get("/attachments/{attachment_id}/download")
 def descargar_adjunto_incidente(
     attachment_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(_gestor_o_admin),
 ) -> Response:
@@ -266,9 +303,16 @@ def descargar_adjunto_incidente(
     Se sirve como **descarga** (``Content-Disposition: attachment``) con el
     mime **verificado por los bytes** al subirlo y ``nosniff``: el
     navegador nunca lo interpreta como HTML.
+
+    T-96: la lectura **deja rastro**. Una foto de un incidente es dato
+    personal (matrícula, y a veces personas), asi que el acceso se
+    audita igual que la subida y el borrado: sin eso, no hay forma de
+    responder a "quién ha visto esta foto" (LOPDGDD, y la pregunta que
+    se hace en cualquier revision).
     """
     adjunto = _adjunto_de_sucursal(attachment_id, db, current_user)
     _exigir_no_caducado(adjunto)
+    _auditar_lectura(request, db, current_user, adjunto, "incident_attachment_downloaded")
     ruta = adjuntos.directorio_base() / adjunto.storage_path
     if not ruta.exists():
         raise HTTPException(
@@ -286,6 +330,7 @@ def descargar_adjunto_incidente(
 @router.get("/attachments/{attachment_id}/thumbnail")
 def ver_miniatura_incidente(
     attachment_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(_gestor_o_admin),
 ) -> FileResponse:
@@ -294,9 +339,13 @@ def ver_miniatura_incidente(
     Es lo que muestra el listado: **no** la imagen completa. La miniatura
     se re-codificó al subirla (sin EXIF), así que su mime es
     ``image/jpeg`` siempre y se puede servir en línea con ``nosniff``.
+
+    T-96: también se audita. La miniatura **es** la foto (reducida): si
+    la lectura del original deja rastro, la de la miniatura también.
     """
     adjunto = _adjunto_de_sucursal(attachment_id, db, current_user)
     _exigir_no_caducado(adjunto)
+    _auditar_lectura(request, db, current_user, adjunto, "incident_attachment_thumbnail_viewed")
     if not adjunto.thumbnail_path:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
