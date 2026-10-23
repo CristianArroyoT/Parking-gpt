@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **627 de 628 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **641 de 642 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2271,6 +2271,67 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Prueba inversa: los cuatro casos reintroducidos los detecta (incluido el de la prosa).
   - [x] Verde sobre el código real: **97 endpoints analizados, 0 problemas**.
   - [x] Registrada en `tools/autopruebas.py` (meta-puerta) y en `tools/verificar_repo.py`.
+
+### T-119 · P1 (privacidad) — la caché del service worker no la vigilaba nadie
+
+- **Estado**: **completado** — la QA de la PWA mira *cuáles* son las entradas y hay una puerta estática que vigila la política
+- **Contexto**: la PWA cachea el *shell* (HTML, JS, CSS, iconos) para arrancar sin red. La API **no** se cachea nunca, y eso está escrito en `frontend/public/sw.js` (la exclusión de `/api/` está antes de cualquier `event.respondWith`). El problema no era el comportamiento: era que **nadie lo vigilaba**:
+  - la QA de la PWA (`frontend/scripts/qa_pwa.py`) contaba las entradas de la caché (`entradasCache > 0`) pero **no miraba cuáles eran**: si alguien añadía una regla de cacheo para `/api/`, seguiría en verde con tickets, matrículas y fotos de incidentes en la caché del navegador.
+  - no existía ninguna puerta sobre el service worker.
+- **Medido** (auditoría del 2026-10-23, sobre el código): hoy **no** hay fuga: el SW excluye `/api/` (`sw.js:160-162`), el cliente HTTP usa siempre `baseURL = '/api/v1'` (`client.ts:17`, ruta relativa ⇒ mismo origen ⇒ bajo `/api/`), no hay IndexedDB ni caché de axios, y los tokens viven en `sessionStorage` (se borran al cerrar sesión). Sin conexión, la app devuelve un 503 honesto en vez de enseñar datos viejos.
+- **Lo que sí quedaba abierto**: (a) la exclusión depende de que el prefijo `/api/` coincida en **tres** sitios (cliente, SW y nginx) y nada lo comprobaba; (b) `ignoreVary: true` está activo, que es exactamente el mecanismo que convertiría un futuro «cachear la API» en una fuga **entre usuarios**; (c) el SW no purga la caché al cerrar sesión (hoy es inocuo, porque la API nunca se cacheó: la defensa real es «la API no se cachea», no «el logout limpia»).
+- **El arreglo**:
+  1. La QA de la PWA ahora **reúne las URLs** de todas las cachés y **falla si alguna está bajo `/api/`**. Es la comprobación empírica: ocurre en un navegador de verdad, con la app en marcha.
+  2. Puerta nueva `tools/verificar_cache_service_worker.py` (estática, va en el CI): **S1** la exclusión de `/api/` tiene que estar antes del primer `event.respondWith`; **S2** los tres prefijos (cliente, SW, nginx) tienen que coincidir; **S3** la lista de precache no puede traer la API.
+- **Criterios de aceptación**:
+  - [x] La QA de la PWA falla si aparece una entrada de caché bajo `/api/` (comprobación en el navegador real).
+  - [x] La puerta detecta los tres casos de mentira: exclusión después del `respondWith`, precache con la API, prefijos divergentes.
+  - [x] La puerta **no** grita con el código correcto (autoprueba con el caso bueno).
+  - [x] Registrada en `tools/autopruebas.py`, `tools/verificar_repo.py` y en el workflow del CI (con `actionlint` en verde).
+  - [x] Verde sobre el código real: «el service worker no cachea la API».
+
+### T-120 · P0 (negocio) — un cliente podía cerrar su propio ticket y **fijarse el importe de su cobro**
+
+- **Estado**: **completado** — cerrar un ticket es una operación de personal
+- **Contexto**: `POST /tickets/{ticket_id}/close` (`backend/app/api/v1/tickets.py`) usaba `get_current_user` + `_scoped_query`, y `_scoped_query` incluye **los tickets del propio cliente**. O sea: el endpoint no distinguía «soy el personal que gestiona esta sucursal» de «soy el conductor de este coche». (El alta de tickets, `POST /tickets`, ya bloqueaba al cliente explícitamente: el cierre, no.)
+- **Medido** (2026-10-23, contra el sistema en marcha: el cliente demo con un ticket activo de su vehículo, abierto por el gestor de su sucursal):
+
+  | petición del cliente | antes | después |
+  |---|---|---|
+  | `POST /tickets/620/close` (su ticket activo) | **200** — ticket cerrado, 0,63 € | **403** |
+  | `POST /tickets/621/close` con `exit_at` = **ayer** (estancia de 10 días) | **200** — cobrado **22,50 €** como si fuera de 1 día | **403** |
+  | el ticket, después | `cerrado`, con importe | `activo`, sin importe |
+  | `POST /tickets/{id}/close` como gestor de la sucursal (control) | 200 | 200 |
+
+- **Por qué es grave**: el cliente no solo cerraba su estancia: **elegía la hora de salida**, y por tanto **el importe**. Con el tope diario de la tarifa, una estancia de 10 días se podía cobrar como un día. Es un agujero de ingresos **directo** y del lado del que paga.
+- **El arreglo**: `close_ticket` exige un rol de personal (`require_role(*ROLES_STAFF)`), como ya exigía el alta de tickets. Los tickets los cierra la cámara de salida (o el personal, a mano: para eso está el endpoint). `require_role` va **antes** de la consulta, así que un cliente recibe 403 sin que la respuesta revele si el ticket existe.
+- **Lo que NO se rompe**: el frontend no llama a este endpoint (es de uso interno del personal), así que la app no cambia.
+- **Pendiente de la misma familia** (medido en la misma auditoría, sin arreglar todavía): el cierre por cámara **no comprueba** que el ticket siga activo al commitear y no bloquea la fila (`SELECT ... FOR UPDATE`), así que un cierre manual y un cierre por cámara a la vez **ambos** tienen éxito y **el último que commite manda** sobre el importe: el cobro no es determinista. Ver T-121.
+- **Criterios de aceptación**:
+  - [x] Medido: el cliente recibe 403 al cerrar su ticket y al fijar la hora de salida; el ticket sigue activo y sin importe.
+  - [x] El personal de la sucursal sigue cerrando tickets (200).
+  - [x] Un gestor de otra sucursal tampoco puede cerrarlo (403/404).
+  - [x] 4 tests nuevos en `backend/tests/test_ticket_cierre.py`; prueba inversa: con `get_current_user` en vez de `require_role`, los dos tests de denegación **fallan**.
+  - [x] Inventario de la API regenerado (`require_role('admin', 'gestor', 'operador')`).
+
+### T-121 · P1 (negocio) — dos cierres del mismo ticket: el importe dependía del orden de commit
+
+- **Estado**: **completado** — el cierre es condicional (atómico) en los dos caminos
+- **Contexto**: tanto el cierre manual (`POST /tickets/{id}/close`) como el de la cámara de salida (`_close_ticket_for_exit`) comprobaban que el ticket estaba `ACTIVO` **al leerlo** y luego hacían `db.commit()` **a ciegas**. Es un TOCTOU: entre la lectura y el commit cabe otro cierre.
+- **Medido** (2026-10-23): con el defecto, al forzar la intercalación (otra sesión cierra el ticket en el punto en que el primero está calculando el importe) **los dos cierres tienen éxito** y el último que commitea manda sobre el importe:
+  ```
+  AssertionError: los dos cierres tuvieron exito (el ultimo que commite gana)
+  ```
+  Con el defecto de vuelta, la ingesta devolvía `ticket_closed` (es decir: **volvía a cerrar y a cobrar** una estancia ya cerrada).
+- **Por qué importa**: el cobro no era determinista. El ticket se cuenta una sola vez en los ingresos (una fila), pero se generaban **dos PDF** y **dos eventos SSE**, y el importe final dependía de qué commit llegara el último. En una carrera real entre la cámara de salida y un operador cerrando a mano, es un importe que puede ser cualquiera de los dos.
+- **El arreglo**: el cierre se hace con un **UPDATE condicional** (`WHERE id = ... AND status = 'activo'`). La comprobación y la escritura son la misma sentencia: no hay ventana.
+  - El cierre manual: si el UPDATE no actualiza ninguna fila → **409** («El ticket ya no está activo»).
+  - El cierre por cámara: si el UPDATE no actualiza ninguna fila → se lanza `TicketAlreadyClosedError` y la ingesta devuelve **`skipped_already_inside`** (el ticket ya está cerrado y con su importe: no se vuelve a cobrar).
+- **Criterios de aceptación**:
+  - [x] Test del cierre manual: con la intercalación forzada, el segundo cierre recibe **409** y el ticket conserva el importe del primero.
+  - [x] Test de la ingesta: con la intercalación forzada, la ingesta devuelve `skipped_already_inside` y el importe es el del primer cierre.
+  - [x] Prueba inversa de los dos: reintroduciendo el `commit()` a ciegas, **los dos tests fallan**.
+  - [x] El cierre normal (sin carrera) sigue funcionando: la ingesta devuelve `ticket_closed` y el manual 200.
 
 ### T-14 · I3 — OCR con GPU
 

@@ -244,7 +244,7 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 | POST | `/tickets/manual` | `require_role('admin', 'gestor', 'operador')` + Autenticado + `parking_context` |
 | GET | `/tickets/{ticket_id}` | Autenticado + ámbito: membresías de sucursal + ámbito: sus vehículos |
 | GET | `/tickets/{ticket_id}/pdf` | Autenticado + ámbito: membresías de sucursal + ámbito: sus vehículos |
-| POST | `/tickets/{ticket_id}/close` | Autenticado + ámbito: membresías de sucursal + ámbito: sus vehículos |
+| POST | `/tickets/{ticket_id}/close` | `require_role('admin', 'gestor', 'operador')` + ámbito: membresías de sucursal + ámbito: sus vehículos |
 
 ### 3.24 Usuarios y membresías — `users` (`users.py`)
 

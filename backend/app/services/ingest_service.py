@@ -295,6 +295,26 @@ def _process_in_tx(
             )
         try:
             closed = _close_ticket_for_exit(db, active_ticket, exit_at=now)
+        except TicketAlreadyClosedError:
+            # T-121: otro cierre se ha adelantado (p.ej. el manual de un
+            # operador). El ticket ya esta cerrado y con su importe: no
+            # se vuelve a cobrar.
+            log.info(
+                "ingest: SALIDA con el ticket ya cerrado plate=%s ticket=%s",
+                hit.plate,
+                active_ticket.id,
+            )
+            return IngestResult(
+                plate=hit.plate,
+                camera_id=camera.id,
+                parking_id=camera.parking_id,
+                status=IngestStatus.SKIPPED_ALREADY_INSIDE,
+                confidence=hit.confidence,
+                ticket_id=active_ticket.id,
+                vehicle_id=vehicle.id,
+                parking_space_id=matched.parking_space_id,
+                reason="El ticket ya estaba cerrado (lo cerró otro cierre antes)",
+            )
         except PricingError as exc:
             log.warning(
                 "ingest: SALIDA fallida plate=%s ticket=%s motivo=%s",
@@ -480,6 +500,20 @@ def _process_in_tx(
     )
 
 
+class TicketAlreadyClosedError(Exception):
+    """El ticket ya estaba cerrado cuando se iba a cerrar (T-121).
+
+    Lo lanza el cierre por camara cuando el UPDATE condicional no
+    actualiza ninguna fila: otro cierre (el manual de un operador) se ha
+    adelantado. No es un error: es una carrera legitima que se resuelve
+    sin que el importe se escriba dos veces.
+    """
+
+    def __init__(self, ticket_id: int) -> None:
+        super().__init__(f"el ticket {ticket_id} ya estaba cerrado")
+        self.ticket_id = ticket_id
+
+
 def _close_ticket_for_exit(
     db: Session, ticket: Ticket, *, exit_at: datetime
 ) -> Ticket:
@@ -492,7 +526,6 @@ def _close_ticket_for_exit(
     Lanza ``PricingError`` si no hay tarifa vigente (el caller decide
     qué hacer — típicamente devolver ``SKIPPED_CLOSE_FAILED``).
     """
-    ticket.exit_at = exit_at
     total = calculate_ticket_total(
         db,
         parking_id=ticket.parking_id,
@@ -500,10 +533,31 @@ def _close_ticket_for_exit(
         entry_at=ticket.entry_at,
         exit_at=exit_at,
     )
-    ticket.amount = total.amount
-    ticket.discount = total.discount
-    ticket.total = total.total
-    ticket.status = TicketStatus.CERRADO
+    # T-121 (2026-10-23): el cierre se hace con un UPDATE **condicional**.
+    # Antes se comprobaba el estado AL LEERLO y luego se commiteaba a
+    # ciegas: si otro cierre (el manual de un operador) se colaba entre
+    # la lectura y el commit, los dos tenian exito y **el ultimo que
+    # commite gana** (el importe dependia del orden de commit).
+    # Con el WHERE, la comprobacion y la escritura son la misma
+    # sentencia: no hay ventana.
+    actualizados = (
+        db.query(Ticket)
+        .filter(Ticket.id == ticket.id, Ticket.status == TicketStatus.ACTIVO)
+        .update(
+            {
+                "exit_at": exit_at,
+                "amount": total.amount,
+                "discount": total.discount,
+                "total": total.total,
+                "status": TicketStatus.CERRADO,
+            },
+            synchronize_session=False,
+        )
+    )
+    if not actualizados:
+        # Otro cierre se ha adelantado. No se toca el ticket.
+        db.rollback()
+        raise TicketAlreadyClosedError(ticket.id)
     db.commit()
     db.refresh(ticket)
     # Sprint O2 (2026-07-06): notificar al bus SSE para refresco live

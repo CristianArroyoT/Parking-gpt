@@ -71,6 +71,10 @@ AUTOPRUEBAS: list[tuple[str, list[str]]] = [
         [sys.executable, "tools/verificar_aislamiento_sucursal.py", "--autoprueba"],
     ),
     (
+        "La puerta de la cache del service worker sigue viendo",
+        [sys.executable, "tools/verificar_cache_service_worker.py", "--autoprueba"],
+    ),
+    (
         "La clasificacion del CI remoto sigue distinguiendo",
         [sys.executable, "tools/estado_ci.py", "--autoprueba"],
     ),

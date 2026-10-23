@@ -13,7 +13,12 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import audited
 from app.core.db import get_db
-from app.core.deps import get_current_user, parking_context, require_role
+from app.core.deps import (
+    ROLES_STAFF,
+    get_current_user,
+    parking_context,
+    require_role,
+)
 from app.core.ip import get_real_ip
 from app.models.enums import TicketStatus, UserRole
 from app.models.ticket import Ticket
@@ -204,8 +209,26 @@ def close_ticket(
     payload: TicketClose,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role(*ROLES_STAFF)),
 ) -> Ticket:
+    """Cierra un ticket (operacion de personal).
+
+    T-120 (2026-10-23): esto era ``get_current_user`` + el scope del
+    cliente, asi que un **conductor** podia cerrar su propio ticket
+    activo. Medido contra el sistema en marcha::
+
+        [cliente] POST /tickets/620/close            -> [200]  (cerrado, 0,63 EUR)
+        [cliente] POST /tickets/621/close  (exit_at = ayer) -> [200]  (22,50 EUR
+                    por una estancia de 10 dias)
+
+    O sea: el cliente no solo cerraba su estancia, **fijaba la hora de
+    salida** y por tanto **el importe de su propio cobro**. Los tickets
+    los cierra la camara de salida (o el personal, a mano); el cliente
+    no toca el cobro.
+
+    OJO: ``require_role`` va ANTES que la consulta, asi que un cliente
+    recibe 403 sin que la consulta revele si el ticket existe.
+    """
     ticket = _scoped_query(db, user, None).filter(Ticket.id == ticket_id).one_or_none()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket no encontrado")
@@ -223,11 +246,32 @@ def close_ticket(
     except PricingError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    ticket.amount = total.amount
-    ticket.discount = total.discount
-    ticket.total = total.total
-    ticket.status = TicketStatus.CERRADO
-    ticket.payment_method = payload.payment_method
+    # T-121 (2026-10-23): el estado se comprobaba AL LEERLO y luego se
+    # commiteaba a ciegas. Si la camara de salida cerraba el ticket
+    # entre la lectura y el commit, los dos tenian exito y el ultimo que
+    # commite mandaba sobre el importe. Con un UPDATE condicional, la
+    # comprobacion y la escritura son la misma sentencia.
+    actualizados = (
+        db.query(Ticket)
+        .filter(Ticket.id == ticket.id, Ticket.status == TicketStatus.ACTIVO)
+        .update(
+            {
+                "exit_at": ticket.exit_at,
+                "amount": total.amount,
+                "discount": total.discount,
+                "total": total.total,
+                "status": TicketStatus.CERRADO,
+                "payment_method": payload.payment_method,
+            },
+            synchronize_session=False,
+        )
+    )
+    if not actualizados:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El ticket ya no está activo",
+        )
     db.commit()
     db.refresh(ticket)
 

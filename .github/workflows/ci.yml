@@ -103,6 +103,16 @@ jobs:
         # tienen que comprobarse de verdad.
         run: python ../tools/autopruebas.py --estricto
 
+      - name: El service worker no cachea la API
+        # POR QUE (2026-10-23, T-119): la PWA cachea el shell para arrancar
+        # sin red, pero la API NO se cachea nunca: sus respuestas son dato
+        # personal (matriculas, fotos de incidentes, tickets) y la cache del
+        # navegador sobrevive a la sesion, asi que otro usuario del mismo
+        # movil podria verlas. El service worker lo excluye (sw.js), pero
+        # **nadie lo vigilaba**: ni una puerta, ni la QA de la PWA (que
+        # contaba las entradas de la cache pero no miraba cuales eran).
+        run: python ../tools/verificar_cache_service_worker.py
+
       - name: Los endpoints acotan la sucursal
         # POR QUE (2026-10-23, T-118): el aislamiento entre sucursales lo
         # aplica cada endpoint a mano, y cuatro se lo saltaron (T-113...T-116):

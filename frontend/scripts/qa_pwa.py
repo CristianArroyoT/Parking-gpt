@@ -173,9 +173,17 @@ def _comprobar_service_worker(pagina) -> list[str]:
           ]);
           const claves = await caches.keys();
           let entradas = 0;
+          // T-119: no basta con CONTAR las entradas: hay que mirar
+          // cuales son. Una entrada bajo /api/ es un dato personal
+          // cacheado (matriculas, fotos de incidentes, tickets).
+          const entradasApi = [];
           for (const k of claves) {
             const c = await caches.open(k);
-            entradas += (await c.keys()).length;
+            const peticiones = await c.keys();
+            entradas += peticiones.length;
+            for (const p of peticiones) {
+              if (p.url.includes('/api/')) entradasApi.push(p.url);
+            }
           }
           return {
             soportado: true,
@@ -186,6 +194,7 @@ def _comprobar_service_worker(pagina) -> list[str]:
             ambito: reg.scope,
             clavesCache: claves.length,
             entradasCache: entradas,
+            entradasApi,
           };
         }"""
     )
@@ -204,11 +213,22 @@ def _comprobar_service_worker(pagina) -> list[str]:
             "la cache del service worker está vacia: sin precache la app "
             "no arranca sin red",
         )
+    # T-119 (2026-10-23): la API NO se cachea nunca. Si aparece una
+    # entrada bajo /api/, es un dato personal cacheado en el navegador:
+    # el usuario B de un movil compartido podria ver lo del usuario A.
+    entradas_api = estado.get("entradasApi") or []
+    if entradas_api:
+        fallos.append(
+            f"la cache del service worker tiene {len(entradas_api)} entrada(s) "
+            f"de la API: la API no se cachea nunca (dato personal, LOPDGDD). "
+            f"Ejemplos: {entradas_api[:3]}",
+        )
     if not fallos:
         print(
             f"  service worker OK: activo, controlando, "
             f"{estado.get('entradasCache')} entradas precacheadas en "
-            f"{estado.get('clavesCache')} cache(s), ambito {estado.get('ambito')}",
+            f"{estado.get('clavesCache')} cache(s) y 0 de la API, "
+            f"ambito {estado.get('ambito')}",
         )
     return fallos
 

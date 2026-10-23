@@ -2533,3 +2533,46 @@ comparaciones se leen del **AST**, no del texto.
 
 **97 endpoints analizados, 0 problemas.** Las exenciones llevan su motivo
 (`GET /parkings/{id}/tariffs` es deliberado: T-117).
+
+### 3-centésimocuarta. La caché del service worker no la vigilaba nadie (2026-10-23)
+
+La PWA cachea el shell para arrancar sin red; la API no se cachea nunca, y
+eso está escrito en `frontend/public/sw.js` (la exclusión de `/api/` está
+antes de cualquier `event.respondWith`). El problema no era el
+comportamiento, sino que **nadie lo vigilaba**: la QA de la PWA contaba
+las entradas de la caché pero **no miraba cuáles eran**, así que una
+regla de cacheo nueva para `/api/` habría dejado el repo en verde con
+tickets, matrículas y fotos de incidentes en la caché del navegador.
+
+**El arreglo**: la QA de la PWA ahora reúne las URLs de todas las cachés
+y falla si alguna está bajo `/api/` (navegador de verdad), y la puerta
+`tools/verificar_cache_service_worker.py` vigila el código: que la
+exclusión vaya antes del primer `respondWith`, que los tres prefijos
+(cliente, SW y nginx) coincidan y que la lista de precache no traiga la
+API. Con la Autoprueba de tres casos de mentira.
+
+### 3-centésimoquinta. Un cliente podía cerrar su ticket y fijar su propio cobro (2026-10-23)
+
+`POST /tickets/{ticket_id}/close` usaba `get_current_user` + el scope del
+cliente, y ese scope incluye los tickets del propio conductor. Medido
+contra el sistema en marcha: el cliente cerró su ticket activo (**200**)
+y, además, **fijó la hora de salida** (una estancia de 10 días se cobró
+como si fuera de 1 día: 22,50 €). Es decir, el cliente se fijaba el
+importe de su propio cobro.
+
+**El arreglo**: cerrar un ticket es una operación de personal
+(`require_role(*ROLES_STAFF)`), como ya exigía el alta de tickets. Los
+tickets los cierra la cámara de salida o el personal, a mano.
+
+### 3-centésimosexta. Dos cierres del mismo ticket: el importe dependía del orden (2026-10-23)
+
+El cierre manual y el de la cámara de salida comprobaban que el ticket
+estaba `ACTIVO` **al leerlo** y luego commiteaban a ciegas: un TOCTOU.
+Con la intercalación forzada, **los dos cierres tenían éxito** y el
+último que commiteaba mandaba sobre el importe (y la ingesta volvía a
+cerrar una estancia ya cerrada, con dos PDF y dos eventos).
+
+**El arreglo**: el cierre se hace con un UPDATE **condicional** (`WHERE
+id = ... AND status = 'activo'`): la comprobación y la escritura son la
+misma sentencia, así que no hay ventana. El manual responde 409 y la
+ingesta `skipped_already_inside`.

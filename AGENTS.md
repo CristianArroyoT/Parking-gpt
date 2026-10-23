@@ -41,11 +41,11 @@ Hace falta una **tercera** fuente: el caso de mentira escrito a mano.
 ## Comandos que funcionan (verificados)
 
 ```bash
-# La salud del repo en un comando: 26 comprobaciones (~2 min)
+# La salud del repo en un comando: 27 comprobaciones (~2 min)
 python tools/verificar_repo.py
 python tools/verificar_repo.py --completo      # + CI local y QA en 5 anchos (~40 min)
 
-# Las 25 autopruebas de las puertas
+# Las 26 autopruebas de las puertas
 python tools/autopruebas.py
 python tools/autopruebas.py --estricto          # lo "no comprobado" tambien falla
 
@@ -65,6 +65,7 @@ python tools/ejecutar_ci_local.py --list
 # Puertas sueltas
 python tools/verificar_api_doc.py --autoprueba
 python tools/verificar_aislamiento_sucursal.py --autoprueba
+python tools/verificar_cache_service_worker.py --autoprueba
 python tools/verificar_roles_frontend.py --autoprueba
 python tools/verificar_contrato_frontend.py --autoprueba
 python tools/verificar_cuentas_demo.py --autoprueba

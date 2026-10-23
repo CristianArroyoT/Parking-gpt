@@ -471,3 +471,80 @@ def test_selects_geofence_with_best_iou(ingest_env) -> None:
 
     assert result.status == IngestStatus.TICKET_CREATED
     assert result.parking_space_id == space2.id
+
+
+# ── T-121 (2026-10-23): el cierre por camara no pisa otro cierre ──────
+def test_el_cierre_por_camara_no_pisa_el_de_otro(ingest_env, monkeypatch) -> None:
+    """Si otro cierre se adelanta, la camara NO vuelve a cobrar.
+
+    El defecto era un TOCTOU: el cierre comprobaba que el ticket estaba
+    ACTIVO al leerlo y luego commiteaba a ciegas, asi que un cierre
+    manual intercalado hacia que **los dos** tuvieran exito y el ultimo
+    que commiteaba mandaba sobre el importe.
+
+    Aqui la intercalacion se fuerza: en el punto en que la ingesta
+    calcula el importe (despues de leer el estado, antes de escribir),
+    otra sesion cierra el ticket.
+    """
+    parking, space, camera = _setup_with_geofence(ingest_env, direction="exit")
+    ingest_env.add(_add_tariff(ingest_env, parking.id))
+    ingest_env.commit()
+
+    veh = Vehicle(plate="4444JJJ")
+    ingest_env.add(veh)
+    ingest_env.flush()
+    entry = datetime.now(timezone.utc) - timedelta(hours=1)
+    ticket = Ticket(
+        parking_id=parking.id,
+        vehicle_id=veh.id,
+        parking_space_id=space.id,
+        status=TicketStatus.ACTIVO,
+        entry_at=entry,
+    )
+    ingest_env.add(ticket)
+    ingest_env.commit()
+    ticket_id = ticket.id
+
+    cerrado = {"hecho": False}
+
+    def _otro_cierre(*args, **kwargs):
+        if not cerrado["hecho"]:
+            cerrado["hecho"] = True
+            otra = sessionmaker(bind=ingest_env.get_bind())()
+            try:
+                otra.query(Ticket).filter(Ticket.id == ticket_id).update(
+                    {
+                        "exit_at": datetime.now(timezone.utc),
+                        "amount": 99.0,
+                        "discount": 0.0,
+                        "total": 99.0,
+                        "status": TicketStatus.CERRADO,
+                    },
+                    synchronize_session=False,
+                )
+                otra.commit()
+            finally:
+                otra.close()
+        from app.services.pricing import calculate_ticket_total as real
+
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(
+        ingest_service, "calculate_ticket_total", _otro_cierre
+    )
+
+    hit = PlateHit(plate="4444JJJ", confidence=0.95, bbox=[10, 10, 50, 50])
+    result = process_plate_hit(hit, camera, now=entry + timedelta(hours=1))
+
+    assert cerrado["hecho"], "el test no llego al punto de intercalacion"
+    assert result.status == IngestStatus.SKIPPED_ALREADY_INSIDE, (
+        f"la ingesta volvio a cerrar (o a fallar): {result.status} {result.reason}"
+    )
+
+    ingest_env.expire_all()
+    final = ingest_env.get(Ticket, ticket_id)
+    assert final is not None
+    assert final.status == TicketStatus.CERRADO
+    assert final.total == 99.0, (
+        f"la ingesta escribio su importe encima del del otro cierre: {final.total}"
+    )
