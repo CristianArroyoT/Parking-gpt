@@ -194,17 +194,17 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 
 | Método | Ruta | Quién |
 |---|---|---|
-| GET | `/admin/reports/margins` | Autenticado + ámbito: membresías de sucursal |
-| GET | `/admin/reports/margins.csv` | Autenticado + ámbito: membresías de sucursal |
-| GET | `/admin/reports/ingresos.csv` | Autenticado + ámbito: membresías de sucursal |
-| GET | `/admin/reports/ingresos.pdf` | Autenticado + ámbito: membresías de sucursal |
-| GET | `/admin/reports/ocupacion.csv` | Autenticado + ámbito: membresías de sucursal |
-| GET | `/admin/reports/ocupacion.pdf` | Autenticado + ámbito: membresías de sucursal |
-| GET | `/admin/reports/tickets.csv` | Autenticado + ámbito: membresías de sucursal |
-| GET | `/admin/reports/tickets.pdf` | Autenticado + ámbito: membresías de sucursal |
-| GET | `/admin/reports/alertas.csv` | Autenticado + ámbito: membresías de sucursal |
-| GET | `/admin/reports/alertas.pdf` | Autenticado + ámbito: membresías de sucursal |
-| GET | `/admin/reports/margins.pdf` | Autenticado + ámbito: membresías de sucursal |
+| GET | `/admin/reports/margins` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
+| GET | `/admin/reports/margins.csv` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
+| GET | `/admin/reports/ingresos.csv` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
+| GET | `/admin/reports/ingresos.pdf` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
+| GET | `/admin/reports/ocupacion.csv` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
+| GET | `/admin/reports/ocupacion.pdf` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
+| GET | `/admin/reports/tickets.csv` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
+| GET | `/admin/reports/tickets.pdf` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
+| GET | `/admin/reports/alertas.csv` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
+| GET | `/admin/reports/alertas.pdf` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
+| GET | `/admin/reports/margins.pdf` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
 
 ### 3.19 Plazas — `spaces` (`spaces.py`)
 

@@ -371,6 +371,14 @@ def _quien(deps: list[Dep], por_middleware: bool = False) -> str:
             lista = ", ".join(f"'{r}'" for r in roles)
             textos.append(f"`require_role({lista})`")
             continue
+        # T-100: las dependencias que aplican el **rate-limit por
+        # endpoint** (una por router, con el nombre que tenga ese
+        # router) se describen con su sentido, no con su nombre interno:
+        # en el inventario de la API, "_limite_de_informes" no le dice
+        # nada a quien lo lee.
+        if "rate_limit" in nombre or "limite_de_" in nombre:
+            textos.append("rate-limit por actor")
+            continue
         textos.append(DESCRIPCION_DEP.get(nombre, f"`{nombre}`"))
     if not textos and por_middleware:
         return "Autenticado (middleware de auditoría)"
