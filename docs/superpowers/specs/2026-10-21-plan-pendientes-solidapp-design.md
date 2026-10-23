@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **653 de 660 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **661 de 665 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2380,17 +2380,26 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [ ] Si es auto-cierre: con qué importe y con qué aviso al cliente.
   - [ ] Si es alerta: cada cuántas horas y a quién.
 
-### T-125 · P2 (pendiente) — los vehículos «fantasma» se acumulan sin purga
+### T-125 · P2 (operación) — los vehículos «fantasma» se acumulan sin purga
 
-- **Estado**: **medido, pendiente** — no es un bug de la ingesta, es una tarea que falta
-- **Contexto**: la ingesta crea el vehículo de una matrícula desconocida **sin marca, sin modelo y sin fila en `vehicle_users`** (nadie queda como propietario). La tabla `vehicles` no tiene purga: el beat sólo purga adjuntos de incidentes, auditoría y frames fallidos. Un parque con mucho tráfico desconocido acumula vehículos vacíos para siempre.
-- **Medido** (2026-10-23, sobre el código): `ingest_service.py` inserta el `Vehicle` sin `vehicle_users`; `models/vehicle.py` no tiene `user_id` (la asociación es `vehicle_users`); y `celery_app.py` no tiene ninguna tarea de purga de vehículos. (En la BD de QA, tras las mediciones de esta tanda, hay 6 vehículos: los de la demo y algunos creados por las pruebas.)
-- **Por qué es de prioridad baja**: no rompe nada (un vehículo de más sólo ocupa una fila), pero sin purga la tabla crece sin límite en un sistema de OCR que ve matrículas nuevas constantemente.
-- **El arreglo previsto** (cuando se priorice): una tarea en el beat, al estilo de `purgar_adjuntos_incidentes`, que borre los vehículos **sin tickets** y **sin `vehicle_users`** con una antigüedad mínima (para no borrar el vehículo de un coche que acaba de entrar).
-- **Criterios de aceptación** (pendientes):
-  - [ ] Tarea de purga en el beat, con su criterio de antigüedad.
-  - [ ] Test de la tarea (no borra un vehículo con tickets, sí uno huérfano y viejo).
-  - [ ] La puerta `verificar_tareas_celery.py` la da por buena (tarea registrada y ejecutable).
+- **Estado**: **completado** — una tarea diaria en el beat los borra
+- **Contexto**: la ingesta crea el vehículo de una matrícula desconocida **antes** de saber si va a haber ticket: si después la plaza está ocupada, o averiada, o la cámara no tiene geocerca calibrada, el intento se queda a medias y el vehículo se queda **sin dueño y sin ticket**. Y no había ninguna tarea que los borrara: el beat sólo purga adjuntos de incidentes, auditoría y frames fallidos.
+- **Medido** (2026-10-23, en la base de datos de QA): **3 vehículos con cero dueños y cero tickets**, creados el **2026-06-30** (casi cuatro meses antes) y sin ninguna purga que los tocara. Las únicas tareas de purga eran `purge_incident_attachments` y `purge_audit_logs`.
+- **El arreglo**: servicio nuevo `app/services/vehicle_purge.py` + tarea `solidapp.purge_ghost_vehicles` en el beat (4:23 AM, hora valle). El criterio son **tres** condiciones, todas necesarias:
+  1. **sin dueño** (`vehicle_users` vacío): protege a los coches que los clientes dan de alta en la app;
+  2. **sin tickets** (ni activos ni cerrados): un vehículo que ha entrado alguna vez no se toca;
+  3. **antiguo** (24 h por defecto): el coche puede haber entrado ahora mismo y su ticket escribirse después.
+- **Medido al arreglarlo** (2026-10-23, tarea despachada por el broker de verdad): `{'deleted': 3, 'max_age_hours': 24}` → los 3 fantasmas borrados y los 3 vehículos con tickets **intactos**.
+- **OJO (efecto secundario documentado)**: la purga borra también los vehículos **de ejemplo** del seed (`1111DIR`, `2222NEW`, `9999DIR`): son filas sin uso igual que los fantasmas. El flujo de «dar de alta un coche desconocido» no se rompe, porque el alta manual crea el vehículo.
+- **Criterios de aceptación**:
+  - [x] Test: un vehículo sin dueño, sin tickets y viejo → **se borra**.
+  - [x] Test: un vehículo **con dueño** → se queda (no se toca el coche de un cliente).
+  - [x] Test: un vehículo **con ticket** → se queda.
+  - [x] Test: un vehículo **reciente** → se queda (el coche puede haber entrado ahora).
+  - [x] Test: la purga es **idempotente** (la segunda pasada borra 0).
+  - [x] Prueba inversa de las tres condiciones: debilitando cualquiera de ellas, el test correspondiente **falla**.
+  - [x] Tarea registrada en el worker y despachada por el broker: `deleted=3` en la BD de QA.
+  - [x] La puerta `verificar_tareas_celery.py` la da por viva (está en el `beat_schedule`).
 
 ### T-126 · P2 (operación) — el cierre manual no publicaba nada en el bus de eventos
 

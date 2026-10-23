@@ -2611,3 +2611,15 @@ hacía rollback (que se llevaba el vehículo recién creado) y luego un
 `.one()` que lanzaba `NoResultFound`, con la causa original enterrada.
 **El arreglo**: `.one_or_none()` y, si no está, se propaga el
 `IntegrityError` original.
+
+### 3-centésimodecimocuarta. Los vehículos «fantasma» se acumulaban sin purga (2026-10-23)
+
+La ingesta crea el vehículo de una matrícula desconocida antes de saber si
+habrá ticket; si la plaza estaba ocupada o averiada, el intento se quedaba
+a medias y el vehículo se quedaba **sin dueño y sin ticket**. Nadie los
+borraba: medido en la base de datos de QA, 3 vehículos con cero dueños y
+cero tickets, creados cuatro meses antes.
+
+**El arreglo**: `app/services/vehicle_purge.py` + la tarea
+`solidapp.purge_ghost_vehicles` en el beat (4:23 AM). El criterio son tres
+condiciones (sin dueño, sin tickets y antiguo), y cada una tiene su test.

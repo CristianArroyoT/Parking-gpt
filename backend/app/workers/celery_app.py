@@ -67,6 +67,15 @@ celery_app.conf.beat_schedule = {
         "task": "solidapp.purge_incident_attachments",
         "schedule": crontab(minute=17, hour=3),  # 3:17 AM, hora valle.
     },
+    # T-125 (2026-10-23): purga diaria de los vehiculos «fantasma» (los
+    # que creo la ingesta y que se quedaron sin dueno y sin ticket).
+    # Antes no habia ninguna tarea que los borrara: medido en la base de
+    # datos de QA, 3 vehiculos con cero duenos y cero tickets, creados
+    # cuatro meses antes.
+    "purge-ghost-vehicles-daily": {
+        "task": "solidapp.purge_ghost_vehicles",
+        "schedule": crontab(minute=23, hour=4),  # 4:23 AM, hora valle.
+    },
     # Sprint Fase 3C: rotación de audit_logs (sprint 2026-07-01).
     # Borra ``audit_logs`` con ``created_at < now - audit_log_retention_days``
     # (default 365). Necesita el índice ``ix_audit_logs_created_at``

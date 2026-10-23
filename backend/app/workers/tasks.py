@@ -534,6 +534,30 @@ def purge_audit_logs(retention_days: int | None = None) -> dict[str, Any]:
         db.close()
 
 
+@celery_app.task(name="solidapp.purge_ghost_vehicles")  # type: ignore[untyped-decorator]
+def purge_ghost_vehicles(max_age_hours: int | None = None) -> dict[str, Any]:
+    """Borra los vehiculos «fantasma» (T-125).
+
+    Un vehiculo fantasma es el que creo la ingesta (matricula
+    desconocida) y que se quedo **sin dueno y sin ticket**: la plaza
+    estaba ocupada, o averiada, o la camara no tenia geocerca
+    calibrada. Nadie los borraba, asi que la tabla ``vehicles`` crecia
+    sin limite.
+
+    Medido el 2026-10-23 en la base de datos de QA: 3 vehiculos con cero
+    duenos y cero tickets, creados el 2026-06-30, sin ninguna tarea que
+    los purgara.
+
+    Idempotente: si no hay nada que borrar devuelve ``deleted=0``.
+    """
+    from app.services.vehicle_purge import purgar_vehiculos_fantasma
+
+    with SessionLocal() as db:
+        resultado = purgar_vehiculos_fantasma(db, max_age_hours=max_age_hours)
+    log.info("purga de vehiculos fantasma: %s", resultado)
+    return dict(resultado)
+
+
 #: Tope de segundos que se guarda el lock de una tarea periodica (T-102).
 #: El beat lanza ``probe_heartbeats`` cada 60 s; el lock dura el doble
 #: para que una ronda larga (una camara colgada) siga protegida.
