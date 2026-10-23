@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **685 de 689 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **689 de 693 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2513,6 +2513,19 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Test: la metadata de un adjunto caducado → 410.
   - [x] Test: el listado no lo enseña.
   - [x] El `DELETE` sigue pudiendo borrar un adjunto caducado (para limpiarlo).
+
+### T-135 · P1 (puerta) — las pruebas inversas vivían en una carpeta temporal: nadie las ejecutaba
+
+- **Estado**: **completado** — la puerta está en el repo y en el CI
+- **Contexto**: cada arreglo de esta tanda se comprobó con una **prueba inversa** (volver a poner el defecto y ver que el test **falla**). Es la única forma de saber que un test sigue detectando. Pero esas pruebas vivían en la carpeta temporal de quien las escribió: nadie las ejecutaba, así que un test reescrito, un refactor o un mensaje cambiado podían dejar de detectar **sin que el repo se pusiera rojo**.
+- **Lo que hace la puerta** (`tools/verificar_pruebas_inversas.py`): para cada uno de los **11** arreglos de la tanda, copia el fichero, vuelve a poner el defecto, ejecuta el test y comprueba que **falla** — y que falla por una **aserción**, no por un error de código (un `NameError` en el defecto probaría que el test se rompe, no que detecta). Después restaura el fichero.
+- **Medido** (2026-10-23): las 11 pruebas inversas siguen detectando su defecto ✓.
+- **La autoprueba de la puerta**: monta un caso de mentira (un «defecto» que no rompe nada, con un test que sigue pasando) y comprueba que la puerta lo detecta.
+- **Criterios de aceptación**:
+  - [x] Los 11 casos (T-113, T-114, T-115, T-120, T-121, T-125, T-129, T-131, T-132, T-133, T-134) se comprueban con el defecto puesto y el test **falla**.
+  - [x] Un fallo por error de código **no** cuenta como detección (la puerta lo marca como inválido).
+  - [x] La autoprueba detecta un caso que no detecta nada.
+  - [x] Registrada en `tools/autopruebas.py` (meta-puerta), en `tools/verificar_repo.py` y en el workflow del CI.
 
 ### T-14 · I3 — OCR con GPU
 

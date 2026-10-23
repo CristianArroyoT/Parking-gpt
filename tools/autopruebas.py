@@ -75,6 +75,10 @@ AUTOPRUEBAS: list[tuple[str, list[str]]] = [
         [sys.executable, "tools/verificar_cache_service_worker.py", "--autoprueba"],
     ),
     (
+        "Las pruebas inversas siguen detectando su defecto",
+        [sys.executable, "tools/verificar_pruebas_inversas.py", "--autoprueba"],
+    ),
+    (
         "La clasificacion del CI remoto sigue distinguiendo",
         [sys.executable, "tools/estado_ci.py", "--autoprueba"],
     ),

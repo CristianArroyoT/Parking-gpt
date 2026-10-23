@@ -103,6 +103,16 @@ jobs:
         # tienen que comprobarse de verdad.
         run: python ../tools/autopruebas.py --estricto
 
+      - name: Las pruebas inversas siguen detectando su defecto
+        # POR QUE (2026-10-23, T-135): un test que no puede demostrar
+        # que detecta lo que dice detectar no es un test. Esta puerta
+        # vuelve a poner el defecto de cada arreglo de la tanda y
+        # comprueba que el test **falla** (y que falla por una asercion,
+        # no por un error de codigo). Sin esto, un test reescrito o un
+        # refactor podrian dejar de detectar y el repo se quedaria en
+        # verde sin que nadie se entere.
+        run: python ../tools/verificar_pruebas_inversas.py
+
       - name: El service worker no cachea la API
         # POR QUE (2026-10-23, T-119): la PWA cachea el shell para arrancar
         # sin red, pero la API NO se cachea nunca: sus respuestas son dato

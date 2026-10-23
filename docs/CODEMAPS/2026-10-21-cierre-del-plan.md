@@ -2660,3 +2660,12 @@ ve los planes que puede comprar.
 El T-95 hacía que los *bytes* de un adjunto caducado dieran un 410, pero su
 metadata se seguía sirviendo y el listado lo seguía enseñando. **El
 arreglo**: la metadata también es un 410 y el listado no los enseña.
+
+### 3-centésimodecimonovena. Las pruebas inversas, en el repo y en el CI (2026-10-23)
+
+Cada arreglo se comprobó con una prueba inversa (volver a poner el
+defecto y ver que el test falla), pero esas pruebas vivían en una carpeta
+temporal: nadie las ejecutaba y los tests podían dejar de detectar sin
+que nadie se enterase. Ahora `tools/verificar_pruebas_inversas.py` las
+ejecuta todas (11 casos), comprueba que el fallo es una **aserción** y no
+un error de código, y va en el CI.

@@ -85,6 +85,11 @@ def _comprobaciones() -> list[Comprobacion]:
             patron=r"(OK: el service worker no cachea la API.*)",
         ),
         Comprobacion(
+            "Las pruebas inversas siguen detectando su defecto",
+            [py, "tools/verificar_pruebas_inversas.py"],
+            patron=r"(Las \d+ pruebas inversas siguen detectando su defecto.*)",
+        ),
+        Comprobacion(
             "Cobertura: todo endpoint con test",
             [py, "tools/cobertura_api.py"],
             patron=r"(SIN ningun test: +\d+)",

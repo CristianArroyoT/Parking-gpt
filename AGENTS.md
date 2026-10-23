@@ -31,6 +31,12 @@ Al añadir una puerta nueva:
 2. Comprueba que la autoprueba **falla** cuando reintroduces el defecto
    (no basta con que pase en verde).
 3. Añádela a la lista de `tools/autopruebas.py`, que es la meta-puerta.
+4. Y si el arreglo tiene un test que lo comprueba, **añade también la
+   prueba inversa** a `tools/verificar_pruebas_inversas.py`: volver a poner
+   el defecto y comprobar que el test **falla** (y que falla por una
+   aserción, no por un error de código). Sin eso, un test reescrito
+   puede dejar de detectar y el repo se queda en verde sin que nadie se
+   entere (T-135).
 
 Ojo con un caso especial que ya costó un bug real: **dos comprobaciones
 que comparten la fuente de verdad no se vigilan entre sí**. Si la puerta
@@ -41,11 +47,11 @@ Hace falta una **tercera** fuente: el caso de mentira escrito a mano.
 ## Comandos que funcionan (verificados)
 
 ```bash
-# La salud del repo en un comando: 27 comprobaciones (~2 min)
+# La salud del repo en un comando: 28 comprobaciones (~4 min)
 python tools/verificar_repo.py
 python tools/verificar_repo.py --completo      # + CI local y QA en 5 anchos (~40 min)
 
-# Las 26 autopruebas de las puertas
+# Las 27 autopruebas de las puertas
 python tools/autopruebas.py
 python tools/autopruebas.py --estricto          # lo "no comprobado" tambien falla
 
@@ -66,6 +72,7 @@ python tools/ejecutar_ci_local.py --list
 python tools/verificar_api_doc.py --autoprueba
 python tools/verificar_aislamiento_sucursal.py --autoprueba
 python tools/verificar_cache_service_worker.py --autoprueba
+python tools/verificar_pruebas_inversas.py --autoprueba
 python tools/verificar_roles_frontend.py --autoprueba
 python tools/verificar_contrato_frontend.py --autoprueba
 python tools/verificar_cuentas_demo.py --autoprueba
