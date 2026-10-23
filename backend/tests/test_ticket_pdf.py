@@ -82,7 +82,8 @@ def test_el_ticket_no_expone_la_ruta_del_pdf(
     datos = _sembrar(db_session)
     headers = _login(client, "admin-pdf@test.es", "admin12345")
 
-    r = client.get(f"/api/v1/tickets/{datos['ticket'].id}", headers=headers)
+    ticket_id = datos["ticket"].id
+    r = client.get(f"/api/v1/tickets/{ticket_id}", headers=headers)
     assert r.status_code == 200, r.text
     cuerpo = r.json()
     assert "pdf_path" not in cuerpo, (
@@ -113,7 +114,8 @@ def test_el_pdf_se_sirve_como_pdf(
     datos = _sembrar(db_session)
     headers = _login(client, "admin-pdf@test.es", "admin12345")
 
-    r = client.get(f"/api/v1/tickets/{datos['ticket_cerrado'].id}/pdf", headers=headers)
+    ticket_id = datos["ticket_cerrado"].id
+    r = client.get(f"/api/v1/tickets/{ticket_id}/pdf", headers=headers)
     assert r.status_code == 200, r.text
     assert r.headers["content-type"] == "application/pdf"
     assert "attachment" in r.headers.get("content-disposition", "")
@@ -128,7 +130,8 @@ def test_un_cliente_no_puede_descargar_el_pdf_de_otro(
     datos = _sembrar(db_session)
     headers = _login(client, "otro-pdf@test.es", "otro12345")
 
-    r = client.get(f"/api/v1/tickets/{datos['ticket_cerrado'].id}/pdf", headers=headers)
+    ticket_id = datos["ticket_cerrado"].id
+    r = client.get(f"/api/v1/tickets/{ticket_id}/pdf", headers=headers)
     assert r.status_code == 404, r.text
 
 
@@ -139,6 +142,7 @@ def test_el_cliente_descarga_el_pdf_de_su_ticket(
     datos = _sembrar(db_session)
     headers = _login(client, "cliente-pdf@test.es", "cliente12345")
 
-    r = client.get(f"/api/v1/tickets/{datos['ticket_cerrado'].id}/pdf", headers=headers)
+    ticket_id = datos["ticket_cerrado"].id
+    r = client.get(f"/api/v1/tickets/{ticket_id}/pdf", headers=headers)
     assert r.status_code == 200, r.text
     assert r.content.startswith(b"%PDF")
