@@ -182,6 +182,13 @@ docker run --rm -v "D:\Parking:/repo" -w /repo rhysd/actionlint:latest .github/w
   `ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION` (autorizar Node *inseguro*).
   Esa variable ya no está en el workflow: no la vuelvas a poner.
 
+- **Un `datetime` que viene de la base de datos vuelve *naive* en SQLite**
+  (PostgreSQL sí devuelve la zona). Compararlo con un `datetime.now(timezone.utc)`
+  peta con `TypeError`, y en un test sale como un 500 raro. Hay que
+  normalizar antes: `if dt.tzinfo is None: dt = dt.replace(tzinfo=timezone.utc)`
+  (el patrón ya está en `app/api/v1/cliente.py`, `app/services/cost.py`,
+  `app/api/v1/password_reset.py`, `app/services/pricing.py`,
+  `app/services/reports.py` y `app/services/plans.py`).
 - **La puerta de dependencias necesita red.** `tools/verificar_dependencias.py`
   consulta **OSV** (la base que alimenta `pip-audit` y `npm audit`). Si OSV no
   responde devuelve el **código 3** ("no comprobado"), que **no** es verde: en
