@@ -178,6 +178,15 @@ sistema en marcha, no leyendo codigo):
 4. **Los errores se dicen.** Un fallo inesperado es `skipped_error`, no
    `skipped_no_geofence` ("no hay geocerca"): una explicacion falsa
    esconde la causa.
+5. **Los vehiculos «fantasma» se purgan a diario** (T-125). La ingesta
+   crea el vehiculo de una matricula desconocida *antes* de saber si
+   habra ticket: si la plaza esta ocupada o averiada, el intento se queda
+   a medias y el vehiculo se queda sin dueno y sin ticket. La tarea
+   `solidapp.purge_ghost_vehicles` (beat, 4:23 AM) borra los que cumplen
+   **las tres** condiciones: sin dueno, sin tickets y antiguo (> 24 h).
+   Ojo: al anadir una tarea hay que **reiniciar el worker**
+   (`docker compose restart celery-worker`), si no sigue con el codigo
+   viejo en memoria y la tarea no existe.
 
 Y lo que **no** hay que inventar: si un hallazgo es una decision de
 producto (que hacer con un coche que no sale; si se cobra lo que se
