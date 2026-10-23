@@ -156,6 +156,34 @@ La puerta que vigila el patrón está en
 `tools/verificar_aislamiento_sucursal.py` (con su autoprueba: reintroduce
 los cuatro defectos y comprueba que los detecta).
 
+## El cobro de los tickets (T-120...T-127)
+
+Cuatro reglas, y cada una costó un agujero de cobro (medidos contra el
+sistema en marcha, no leyendo codigo):
+
+1. **Cerrar un ticket es del personal.**
+   `POST /tickets/{id}/close` exige `require_role(*ROLES_STAFF)`: un
+   conductor no cierra su propia estancia, ni se fija la hora de salida,
+   ni por tanto el importe. Los tickets los cierra la camara de salida o
+   el personal, a mano.
+2. **El cierre es condicional.** Se hace con un
+   `UPDATE ... WHERE status = 'activo'`, de modo que la comprobacion y
+   la escritura son la misma sentencia. Sin eso, un cierre de la camara
+   y uno manual a la vez **los dos tienen exito** y el ultimo que
+   commite manda sobre el importe.
+3. **La matricula se normaliza antes de buscar el vehiculo.** Con el
+   texto crudo del OCR, la entrada "1234abc" y la salida "1234ABC" son
+   dos coches: la salida no encuentra el ticket (no cobra) y el de la
+   entrada se queda activo para siempre.
+4. **Los errores se dicen.** Un fallo inesperado es `skipped_error`, no
+   `skipped_no_geofence` ("no hay geocerca"): una explicacion falsa
+   esconde la causa.
+
+Y lo que **no** hay que inventar: si un hallazgo es una decision de
+producto (que hacer con un coche que no sale; si se cobra lo que se
+cobra), se documenta medido y se decide con el usuario, no se arregla
+por las buenas. Ver T-124 y T-125 en el plan.
+
 ## Trampas de este entorno (Windows + Docker Desktop)
 
 - `localhost` en Windows resuelve primero a IPv6 (`::1`) y `psycopg`

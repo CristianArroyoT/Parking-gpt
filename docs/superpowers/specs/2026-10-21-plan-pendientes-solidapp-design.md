@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **650 de 651 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **650 de 657 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2373,6 +2373,34 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
 - **Criterios de aceptación**:
   - [x] Test: al cerrar un ticket, el bus recibe un evento `ticket_closed` en el canal de la sucursal, con el `ticket_id` y el `total`.
   - [x] Prueba inversa: quitando el `publish_event`, el test **falla**.
+
+### T-124 · P1 (decisión de producto) — una entrada sin salida deja el ticket activo para siempre
+
+- **Estado**: **medido, pendiente de decisión** — no se arregla sin decidir la política de cobro
+- **Contexto**: no hay **ningún** mecanismo que reconcilie una entrada cuya salida nunca se vio: ni auto-cierre, ni purga de tickets, ni alerta. El beat (`app/workers/celery_app.py`) sólo tiene tick, probe de cámaras y purgas de adjuntos, auditoría y frames fallidos: ninguna de tickets.
+- **Medido** (2026-10-23, sobre el código y con la suite): una entrada sin salida deja el ticket `ACTIVO` **para siempre**, y de ahí salen cuatro consecuencias:
+  1. el KPI de espacios muestra `occupied=1` para siempre (la plaza consta ocupada);
+  2. el vehículo no puede volver a entrar: la ingesta responde `skipped_already_inside` (T-105);
+  3. **el ingreso no se factura**: el importe se escribe sólo al cerrar (`ingest_service.py`), así que mientras el ticket está activo `amount`/`total` son NULL y los ingresos (que suman tickets **cerrados**) no lo cuentan;
+  4. si se cierra a mano 30 días después, `max_daily` se aplica **por estancia** (con la tarifa del seed, 25 €/día → 750 €; y `max_daily` es **opcional**: la UI ofrece «Sin tope», así que sin tope serían 30 días lineales).
+- **Por qué no se arregla aquí**: el «qué hacemos con un coche que no sale» es **política de producto**, no un bug: auto-cierre a las 24 h con el importe de esa estancia, con aviso al operador, o sin auto-cierre pero con alerta. Cada opción cambia lo que se cobra y hay que elegirla (y y hay que decidir si el cliente final recibe un aviso).
+- **Lo que sí se puede hacer sin decidir nada**: **avisar**. Una alerta cuando un ticket lleva activo más de X horas es informacional (no cobra nada) y deja al operador decidir. Está pendiente de la decisión del umbral.
+- **Criterios de aceptación** (pendientes):
+  - [ ] Decisión de producto: auto-cierre / alerta / nada.
+  - [ ] Si es auto-cierre: con qué importe y con qué aviso al cliente.
+  - [ ] Si es alerta: cada cuántas horas y a quién.
+
+### T-125 · P2 (pendiente) — los vehículos «fantasma» se acumulan sin purga
+
+- **Estado**: **medido, pendiente** — no es un bug de la ingesta, es una tarea que falta
+- **Contexto**: la ingesta crea el vehículo de una matrícula desconocida **sin marca, sin modelo y sin fila en `vehicle_users`** (nadie queda como propietario). La tabla `vehicles` no tiene purga: el beat sólo purga adjuntos de incidentes, auditoría y frames fallidos. Un parque con mucho tráfico desconocido acumula vehículos vacíos para siempre.
+- **Medido** (2026-10-23, sobre el código): `ingest_service.py` inserta el `Vehicle` sin `vehicle_users`; `models/vehicle.py` no tiene `user_id` (la asociación es `vehicle_users`); y `celery_app.py` no tiene ninguna tarea de purga de vehículos. (En la BD de QA, tras las mediciones de esta tanda, hay 6 vehículos: los de la demo y algunos creados por las pruebas.)
+- **Por qué es de prioridad baja**: no rompe nada (un vehículo de más sólo ocupa una fila), pero sin purga la tabla crece sin límite en un sistema de OCR que ve matrículas nuevas constantemente.
+- **El arreglo previsto** (cuando se priorice): una tarea en el beat, al estilo de `purgar_adjuntos_incidentes`, que borre los vehículos **sin tickets** y **sin `vehicle_users`** con una antigüedad mínima (para no borrar el vehículo de un coche que acaba de entrar).
+- **Criterios de aceptación** (pendientes):
+  - [ ] Tarea de purga en el beat, con su criterio de antigüedad.
+  - [ ] Test de la tarea (no borra un vehículo con tickets, sí uno huérfano y viejo).
+  - [ ] La puerta `verificar_tareas_celery.py` la da por buena (tarea registrada y ejecutable).
 
 ### T-14 · I3 — OCR con GPU
 
