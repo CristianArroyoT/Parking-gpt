@@ -56,6 +56,7 @@ from app.schemas.plate import PlateHit
 from app.services.pdf import save_ticket_pdf
 from app.services.plates import normalizar_matricula, parece_matricula
 from app.services.pricing import PricingError, calculate_ticket_total
+from app.services.ticket_closing import TicketAlreadyClosedError, cerrar_ticket
 from app.services.event_bus import EventType, publish as publish_event
 
 log = logging.getLogger(__name__)
@@ -554,20 +555,6 @@ def _process_in_tx(
     )
 
 
-class TicketAlreadyClosedError(Exception):
-    """El ticket ya estaba cerrado cuando se iba a cerrar (T-121).
-
-    Lo lanza el cierre por camara cuando el UPDATE condicional no
-    actualiza ninguna fila: otro cierre (el manual de un operador) se ha
-    adelantado. No es un error: es una carrera legitima que se resuelve
-    sin que el importe se escriba dos veces.
-    """
-
-    def __init__(self, ticket_id: int) -> None:
-        super().__init__(f"el ticket {ticket_id} ya estaba cerrado")
-        self.ticket_id = ticket_id
-
-
 def _close_ticket_for_exit(
     db: Session, ticket: Ticket, *, exit_at: datetime
 ) -> Ticket:
@@ -587,33 +574,19 @@ def _close_ticket_for_exit(
         entry_at=ticket.entry_at,
         exit_at=exit_at,
     )
-    # T-121 (2026-10-23): el cierre se hace con un UPDATE **condicional**.
-    # Antes se comprobaba el estado AL LEERLO y luego se commiteaba a
-    # ciegas: si otro cierre (el manual de un operador) se colaba entre
-    # la lectura y el commit, los dos tenian exito y **el ultimo que
-    # commite gana** (el importe dependia del orden de commit).
-    # Con el WHERE, la comprobacion y la escritura son la misma
-    # sentencia: no hay ventana.
-    actualizados = (
-        db.query(Ticket)
-        .filter(Ticket.id == ticket.id, Ticket.status == TicketStatus.ACTIVO)
-        .update(
-            {
-                "exit_at": exit_at,
-                "amount": total.amount,
-                "discount": total.discount,
-                "total": total.total,
-                "status": TicketStatus.CERRADO,
-            },
-            synchronize_session=False,
-        )
+    # T-121/T-130: el cierre usa el helper comun
+    # (``ticket_closing.cerrar_ticket``), que es **condicional**: la
+    # comprobacion (el ticket sigue ACTIVO) y la escritura son la misma
+    # sentencia. Antes se comprobaba al leer y se commiteaba a ciegas,
+    # asi que dos cierres a la vez podian tener exito los dos.
+    cerrar_ticket(
+        db,
+        ticket,
+        exit_at=exit_at,
+        amount=total.amount,
+        discount=total.discount,
+        total=total.total,
     )
-    if not actualizados:
-        # Otro cierre se ha adelantado. No se toca el ticket.
-        db.rollback()
-        raise TicketAlreadyClosedError(ticket.id)
-    db.commit()
-    db.refresh(ticket)
     # Sprint O2 (2026-07-06): notificar al bus SSE para refresco live
     # de MapView (plaza vuelve a libre).
     publish_event(

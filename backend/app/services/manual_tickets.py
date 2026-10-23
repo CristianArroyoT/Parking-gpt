@@ -37,6 +37,7 @@ from app.services import record_audit
 from app.services.event_bus import EventType, publish as publish_event
 from app.services.pdf import save_ticket_pdf
 from app.services.pricing import PricingError, calculate_ticket_total
+from app.services.ticket_closing import TicketAlreadyClosedError, cerrar_ticket
 
 log = logging.getLogger(__name__)
 
@@ -84,7 +85,6 @@ def _space_is_occupied(db: Session, parking_space_id: int) -> bool:
 
 
 def _close_for_manual_exit(db: Session, ticket: Ticket, exit_at: datetime) -> Ticket:
-    ticket.exit_at = exit_at
     total = calculate_ticket_total(
         db,
         parking_id=ticket.parking_id,
@@ -92,13 +92,21 @@ def _close_for_manual_exit(db: Session, ticket: Ticket, exit_at: datetime) -> Ti
         entry_at=ticket.entry_at,
         exit_at=exit_at,
     )
-    ticket.amount = total.amount
-    ticket.discount = total.discount
-    ticket.total = total.total
-    ticket.status = TicketStatus.CERRADO
-    ticket.origin = TicketOrigin.MANUAL_EXIT
-    db.commit()
-    db.refresh(ticket)
+    # T-130: el cierre usa el helper comun (`ticket_closing.cerrar_ticket`),
+    # que es **condicional**: la comprobacion y la escritura son la misma
+    # sentencia. Antes se comprobaba el estado al leerlo y se commiteaba
+    # a ciegas, asi que un cierre a la vez (la camara y el operador)
+    # podia hacer que **los dos** tuvieran exito y el ultimo que
+    # commitea mandaba sobre el importe.
+    ticket = cerrar_ticket(
+        db,
+        ticket,
+        exit_at=exit_at,
+        amount=total.amount,
+        discount=total.discount,
+        total=total.total,
+        origin=TicketOrigin.MANUAL_EXIT,
+    )
 
     try:
         vehicle = db.get(Vehicle, ticket.vehicle_id)
@@ -178,6 +186,14 @@ def create_manual_ticket(
             ticket = activo
             try:
                 ticket = _close_for_manual_exit(db, ticket, occurred_at)
+            except TicketAlreadyClosedError as exc:
+                # T-130: otro cierre se ha adelantado (la camara de
+                # salida, por ejemplo). No es un fallo: el ticket ya
+                # esta cerrado y con su importe.
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="El ticket ya estaba cerrado",
+                ) from exc
             except PricingError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT, detail=str(exc)

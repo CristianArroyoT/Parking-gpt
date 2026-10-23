@@ -53,7 +53,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import HTTPException, status
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import event, or_
 from sqlalchemy.orm import Session
 
@@ -260,6 +260,44 @@ def _unlink(ruta: Path) -> None:
         log.warning("incident_attachments: no se pudo borrar %s: %s", ruta, exc)
 
 
+def sanear_metadatos(contenido: bytes, mime: str) -> bytes:
+    """Re-codifica la imagen **sin metadatos** (EXIF, GPS, texto...).
+
+    Se conservan los pixeles (mismas dimensiones) y la orientacion: la
+    rotacion de la camara va en el EXIF, asi que si se quita el EXIF sin
+    aplicar la rotacion, la foto sale girada.
+
+    Se hace con ``ImageOps.exif_transpose`` (aplica la rotacion) y un
+    ``save()`` **sin** pasar ``exif=`` (Pillow no copia los metadatos si
+    no se los pasas). Para JPEG se pide ``quality="keep"`` para no
+    recomprimir de mas; si Pillow no puede (imagen ya modificada), se
+    recurre a ``quality=95``.
+
+    OJO: el contenido devuelto es **distinto** del subido (mismo
+    aspecto, sin metadatos). El hash y el tamano se calculan sobre el
+    contenido guardado, no sobre el recibido.
+    """
+    with Image.open(io.BytesIO(contenido)) as imagen:
+        imagen.load()
+        # La orientacion va en el EXIF: se aplica a los pixeles antes de
+        # quitarlo, o la foto sale girada.
+        enderezada = ImageOps.exif_transpose(imagen)
+        buffer = io.BytesIO()
+        if mime == "image/jpeg":
+            try:
+                enderezada.save(
+                    buffer, format="JPEG", quality="keep", subsampling="keep"
+                )
+            except (OSError, ValueError):
+                buffer = io.BytesIO()
+                enderezada.save(buffer, format="JPEG", quality=95)
+        elif mime == "image/png":
+            enderezada.save(buffer, format="PNG", optimize=True)
+        else:
+            enderezada.save(buffer, format="WEBP", quality=90)
+        return buffer.getvalue()
+
+
 def generar_miniatura(contenido: bytes) -> bytes:
     """Genera la miniatura en JPEG.
 
@@ -339,17 +377,43 @@ def crear_adjunto(
     asegurar_directorio(base)
     mime = validar_imagen(contenido, nombre=nombre_original)
 
-    hash_hex = hashlib.sha256(contenido).hexdigest()
+    # T-129 (2026-10-23): el original se guarda **sin metadatos**. Una
+    # foto de movil lleva la GPS, el modelo de camara y la hora: dato
+    # personal que el sistema no necesita y que salia con cada descarga
+    # (LOPDGDD, minimizacion). Se conservan los pixeles y la orientacion.
+    try:
+        contenido_guardado = sanear_metadatos(contenido, mime)
+    except (OSError, ValueError) as exc:
+        # La imagen ya se ha validado (Pillow la abrio y decodifico), asi
+        # que llegar aqui es raro. No se guarda con metadatos: se rechaza
+        # la subida, que es la decision segura para la privacidad.
+        log.warning(
+            "incident_attachments: no se pudo sanear la imagen %s: %s",
+            nombre_original,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"El fichero '{nombre_original}' está corrupto o no se puede "
+                f"decodificar como imagen"
+            ),
+        ) from exc
+
+    # El hash es del contenido **guardado**: dos subidas del mismo
+    # fichero (con EXIF distinto cada vez) tienen que compartir el
+    # fichero del volumen, que es lo que hace la deduplicacion.
+    hash_hex = hashlib.sha256(contenido_guardado).hexdigest()
     relativa = ruta_relativa_original(hash_hex, EXTENSIONES[mime])
     relativa_thumb = ruta_relativa_thumbnail(hash_hex)
 
     destino = base / relativa
     if not destino.exists():
-        _escribir(destino, contenido)
+        _escribir(destino, contenido_guardado)
     destino_thumb = base / relativa_thumb
     if not destino_thumb.exists():
         try:
-            miniatura = generar_miniatura(contenido)
+            miniatura = generar_miniatura(contenido_guardado)
         except (OSError, ValueError) as exc:
             # El fichero pasa la comprobación de la firma (JPEG/PNG/WebP)
             # pero **no se puede decodificar**: está corrupto o truncado.
@@ -375,7 +439,7 @@ def crear_adjunto(
         original_filename=nombre_seguro(nombre_original),
         content_hash=hash_hex,
         mime_type=mime,
-        size_bytes=len(contenido),
+        size_bytes=len(contenido_guardado),
         storage_path=relativa,
         thumbnail_path=relativa_thumb,
         expires_at=ahora + timedelta(days=retencion),

@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **661 de 665 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **670 de 674 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2432,6 +2432,32 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Test (en SQLite **y** en PostgreSQL): un `IntegrityError` que no es de la matrícula se propaga con su mensaje original, y no se anuncia como un `NoResultFound`.
   - [x] El caso normal (matrícula duplicada) sigue funcionando: se re-fetchera el vehículo del otro proceso.
   - [x] La suite de ingesta pasa en los dos dialectos (19 tests).
+
+### T-129 · P1 (privacidad) — las fotos de incidentes se guardaban con la GPS y el modelo de cámara
+
+- **Estado**: **completado** — el original se guarda sin metadatos (mismos píxeles)
+- **Contexto**: la miniatura de los adjuntos ya se re-codificaba (y por eso no tenía EXIF), pero el **original se guardaba byte a byte** y se servía tal cual. Una foto de móvil lleva en el EXIF la **GPS** de donde se hizo, el modelo de cámara y la hora.
+- **Medido** (2026-10-23, auditoría de la API de incidencias): los bytes servidos en `GET /incidents/attachments/{id}/download` eran **idénticos** a los subidos, y por tanto **con su EXIF**. La retención de 90 días (T-95) no lo neutraliza: el EXIF viaja en cada descarga.
+- **Por qué importa**: la ubicación de donde se hizo una foto es dato personal (LOPDGDD) y el sistema **no lo necesita** para nada: es metadato del dispositivo de quien fotografía.
+- **El arreglo**: `sanear_metadatos()` re-codifica la imagen sin metadatos conservando los **píxeles** y la **orientación** (que va en el EXIF: si se quita sin aplicar la rotación, la foto sale girada → `ImageOps.exif_transpose`). El hash y el tamaño pasan a ser los del contenido **guardado**, no los del recibido (si no, dos subidas del mismo fichero darían hashes distintos y la deduplicación del volumen no serviría).
+- **Criterios de aceptación**:
+  - [x] Test: una foto con GPS en el EXIF se descarga **sin** la GPS.
+  - [x] Test: la imagen conservada tiene las mismas dimensiones.
+  - [x] Test: la miniatura tampoco lleva EXIF (afirmación que hasta ahora no tenía test).
+  - [x] Test: la **orientación** se conserva (una foto con `Orientation=6` sale recta, no girada).
+  - [x] Prueba inversa: volviendo a guardar el contenido tal cual, el test del GPS **falla**.
+  - [x] Un fichero corrupto sigue siendo un **400** (no un 500).
+
+### T-130 · P1 (negocio) — los tres caminos de cierre duplicaban el patrón «comprueba al leer y commitea a ciegas»
+
+- **Estado**: **completado** — un solo helper, condicional, para los tres caminos
+- **Contexto**: el T-121 arregló el cierre **por cámara**, pero el cierre **manual del servicio** (`app/services/manual_tickets.py`) y el del **endpoint** tenían cada uno su propia copia del patrón. Y había **tres** sitios donde arreglarlo y tres donde se podía volver a romper.
+- **Medido** (2026-10-23, auditoría del cobro de planes): con un cierre a la vez (la cámara de salida y el operador), la salida manual **escribía su importe encima** del del otro cierre → el importe dependía del orden de commit.
+- **El arreglo**: `app/services/ticket_closing.py` — **una sola implementación** (`cerrar_ticket`) con el UPDATE condicional (`WHERE id = ... AND status = 'activo'`), usada por los tres caminos. La excepción `TicketAlreadyClosedError` también es una sola definición.
+- **Criterios de aceptación**:
+  - [x] Test: la salida manual, con la intercalación forzada, recibe **409** y el ticket conserva el importe del primer cierre.
+  - [x] Prueba inversa: volviendo al `commit()` a ciegas, el test **falla**.
+  - [x] Los tres caminos usan el helper (no queda ninguna copia del patrón).
 
 ### T-14 · I3 — OCR con GPU
 

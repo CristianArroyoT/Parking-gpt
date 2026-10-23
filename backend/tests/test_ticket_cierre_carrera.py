@@ -53,7 +53,10 @@ def _escenario(db: Session):
     gestor = _seed_gestor(db, email="gestor@carrera.es")
     db.add(ParkingMembership(user_id=gestor.id, parking_id=parking.id))
     db.commit()
-    vehiculo = Vehicle(plate="2222-CARR")
+    # OJO: sin guiones ni espacios: la salida manual **normaliza** la
+    # matricula (quita lo que no sea alfanumerico), asi que "2222-CARR" no
+    # casaria con el vehiculo.
+    vehiculo = Vehicle(plate="2222CARR")
     db.add(vehiculo)
     db.commit()
     db.refresh(vehiculo)
@@ -130,6 +133,85 @@ def test_dos_cierres_a_la_vez_solo_uno_puede_cobrar(
     ticket = db_session.get(Ticket, ticket_id)
     assert ticket is not None
     assert ticket.status == TicketStatus.CERRADO
+    assert ticket.total == 99.0, (
+        f"el importe lo escribio el cierre que perdio: {ticket.total}"
+    )
+
+
+def test_la_salida_manual_no_pisa_el_cierre_de_otro(
+    client: TestClient, db_session: Session, monkeypatch
+) -> None:
+    """T-130: la salida manual usa el mismo cierre condicional.
+
+    El servicio de tickets manuales (``app/services/manual_tickets.py``)
+    tenia su propia copia del patron "comprueba al leer + commit a
+    ciegas": con un cierre a la vez (la camara de salida y el operador),
+    los dos podian tener exito y el ultimo que commitea mandaba sobre el
+    importe.
+    """
+    parking, gestor, vehiculo = _escenario(db_session)
+    headers_gestor = _login_headers(client, gestor.email, "gestor1234")
+
+    abierto = client.post(
+        "/api/v1/tickets",
+        headers=headers_gestor,
+        json={
+            "parking_id": parking.id,
+            "vehicle_id": vehiculo.id,
+            "entry_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    assert abierto.status_code == 201, abierto.text
+    ticket_id = abierto.json()["id"]
+
+    cerrado = {"hecho": False}
+
+    def _otro_cierre(*args, **kwargs):
+        if not cerrado["hecho"]:
+            cerrado["hecho"] = True
+            otra = sessionmaker(bind=db_session.get_bind())()
+            try:
+                otra.query(Ticket).filter(Ticket.id == ticket_id).update(
+                    {
+                        "exit_at": datetime.now(timezone.utc),
+                        "amount": 99.0,
+                        "discount": 0.0,
+                        "total": 99.0,
+                        "status": TicketStatus.CERRADO,
+                    },
+                    synchronize_session=False,
+                )
+                otra.commit()
+            finally:
+                otra.close()
+        from app.services.pricing import calculate_ticket_total as real
+
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "app.services.manual_tickets.calculate_ticket_total", _otro_cierre
+    )
+
+    r = client.post(
+        "/api/v1/tickets/manual",
+        headers=headers_gestor,
+        json={
+            "plate": vehiculo.plate,
+            "parking_id": parking.id,
+            "direction": "exit",
+            "reason": "ocr_failed",
+            "occurred_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+    assert cerrado["hecho"], "el test no llego al punto de intercalacion"
+    assert r.status_code == 409, (
+        f"la salida manual escribio su importe encima del del otro cierre: {r.text}"
+    )
+
+    db_session.expire_all()
+    ticket = db_session.get(Ticket, ticket_id)
+    assert ticket is not None
     assert ticket.total == 99.0, (
         f"el importe lo escribio el cierre que perdio: {ticket.total}"
     )

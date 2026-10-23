@@ -29,6 +29,7 @@ from app.services.manual_tickets import create_manual_ticket as _create_manual_t
 from app.services.event_bus import EventType, publish as publish_event
 from app.services.pdf import render_ticket_pdf, save_ticket_pdf
 from app.services.pricing import PricingError, calculate_ticket_total
+from app.services.ticket_closing import TicketAlreadyClosedError, cerrar_ticket
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
@@ -247,34 +248,26 @@ def close_ticket(
     except PricingError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    # T-121 (2026-10-23): el estado se comprobaba AL LEERLO y luego se
-    # commiteaba a ciegas. Si la camara de salida cerraba el ticket
-    # entre la lectura y el commit, los dos tenian exito y el ultimo que
-    # commite mandaba sobre el importe. Con un UPDATE condicional, la
-    # comprobacion y la escritura son la misma sentencia.
-    actualizados = (
-        db.query(Ticket)
-        .filter(Ticket.id == ticket.id, Ticket.status == TicketStatus.ACTIVO)
-        .update(
-            {
-                "exit_at": ticket.exit_at,
-                "amount": total.amount,
-                "discount": total.discount,
-                "total": total.total,
-                "status": TicketStatus.CERRADO,
-                "payment_method": payload.payment_method,
-            },
-            synchronize_session=False,
+    # T-121/T-130: el cierre usa el helper comun
+    # (`ticket_closing.cerrar_ticket`), que es **condicional**: la
+    # comprobacion (el ticket sigue ACTIVO) y la escritura son la misma
+    # sentencia. Antes se comprobaba al leer y se commiteaba a ciegas,
+    # asi que dos cierres a la vez podian tener exito los dos.
+    try:
+        cerrar_ticket(
+            db,
+            ticket,
+            exit_at=ticket.exit_at,
+            amount=total.amount,
+            discount=total.discount,
+            total=total.total,
+            payment_method=payload.payment_method,
         )
-    )
-    if not actualizados:
-        db.rollback()
+    except TicketAlreadyClosedError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="El ticket ya no está activo",
-        )
-    db.commit()
-    db.refresh(ticket)
+        ) from exc
 
     # T-127 (2026-10-23): el cierre por camara y el alta manual publican
     # en el bus SSE (para que el mapa del gestor se actualice al

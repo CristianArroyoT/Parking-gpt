@@ -52,6 +52,23 @@ def _imagen(formato: str = "JPEG", color=(200, 30, 30), size=(64, 48)) -> bytes:
     return buffer.getvalue()
 
 
+def _imagen_con_exif(orientation: int | None = None) -> bytes:
+    """Una imagen **con EXIF**: GPS de donde se hizo y (opcional) giro.
+
+    Es lo que hace una foto de movil: la GPS, el modelo de camara y la
+    orientacion. Todo eso es dato personal que el sistema no necesita.
+    """
+    buffer = io.BytesIO()
+    imagen = Image.new("RGB", (64, 48), (10, 20, 30))
+    exif = imagen.getexif()
+    # 34853 = GPSInfo (el sub-IFD de la GPS).
+    exif[34853] = {1: "N", 2: (41.0, 1.0, 0.0), 3: "W", 4: (3.0, 1.0, 0.0)}
+    if orientation is not None:
+        exif[274] = orientation  # 274 = Orientation
+    imagen.save(buffer, format="JPEG", quality=90, exif=exif)
+    return buffer.getvalue()
+
+
 def _seed(db) -> dict[str, object]:
     admin = User(
         email="admin_adj@test.es", full_name="Admin",
@@ -163,8 +180,6 @@ def test_subida_ok_guarda_fichero_y_solo_metadata(client, db_session, datos, vol
     assert len(body) == 1
     adjunto = body[0]
     assert adjunto["mime_type"] == "image/jpeg"
-    assert adjunto["size_bytes"] == len(contenido)
-    assert adjunto["content_hash"] == hashlib.sha256(contenido).hexdigest()
     assert adjunto["original_filename"] == "foto.jpg"
     assert adjunto["thumbnail_url"].endswith("/thumbnail")
     assert adjunto["download_url"].endswith("/download")
@@ -175,8 +190,19 @@ def test_subida_ok_guarda_fichero_y_solo_metadata(client, db_session, datos, vol
     ).one()
     ruta_original = volumen / fila.storage_path
     assert ruta_original.exists()
-    assert ruta_original.read_bytes() == contenido
-    assert hashlib.sha256(contenido).hexdigest() in fila.storage_path
+
+    # T-129 (2026-10-23): el original se guarda **sin metadatos** (los
+    # pixeles son los mismos, pero sin EXIF/GPS: una foto de movil lleva
+    # la ubicacion de donde se hizo, y eso sale del sistema con cada
+    # descarga). Por eso el hash y el tamano son los del contenido
+    # GUARDADO, no los del subido.
+    contenido_guardado = ruta_original.read_bytes()
+    assert adjunto["size_bytes"] == len(contenido_guardado)
+    assert adjunto["content_hash"] == hashlib.sha256(contenido_guardado).hexdigest()
+    assert hashlib.sha256(contenido_guardado).hexdigest() in fila.storage_path
+    with Image.open(io.BytesIO(contenido_guardado)) as guardada:
+        assert guardada.size == (64, 48), "la imagen guardada no es la misma"
+        assert not dict(guardada.getexif()), "la imagen guardada lleva EXIF"
     # Y la miniatura aparte.
     assert fila.thumbnail_path
     assert (volumen / fila.thumbnail_path).exists()
@@ -366,7 +392,11 @@ def test_gestor_lista_descarga_y_miniatura(client, db_session, datos):
     assert "attachment" in r.headers["content-disposition"]
     assert "foto.jpg" in r.headers["content-disposition"]
     assert r.headers["x-content-type-options"] == "nosniff"
-    assert r.content == contenido
+    # T-129: el original se guarda SIN metadatos (mismos pixeles, sin
+    # EXIF/GPS), asi que los bytes ya **no** son los que se subieron.
+    with Image.open(io.BytesIO(r.content)) as servida:
+        assert servida.size == (64, 48)
+        assert not dict(servida.getexif()), "la imagen servida lleva EXIF"
 
     # Miniatura: JPEG en línea, y más pequeña que el original.
     r_thumb = client.get(
@@ -624,3 +654,70 @@ def test_fichero_con_firma_valida_pero_contenido_corrupto_da_400(
 
     # Y no queda ningun adjunto en la base de datos ni el fichero en disco.
     assert db_session.query(IncidentAttachment).count() == 0
+
+
+# ── T-129 (2026-10-23): las fotos se guardan sin metadatos ─────────────
+def test_el_original_servido_no_lleva_metadatos(client, db_session, datos) -> None:
+    """Una foto de movil (con GPS en el EXIF) se sirve SIN la GPS.
+
+    Antes el original se guardaba byte a byte y se servia tal cual: la
+    GPS de donde se hizo la foto salia del sistema con cada descarga
+    (LOPDGDD, minimizacion).
+    """
+    token = datos["tokens"]["operador"]
+    alert_id = _crear_incidente(client, token, datos["parking_a"].id)
+
+    contenido = _imagen_con_exif()
+    # Se comprueba que la imagen de partida **sí** lleva la GPS (si no,
+    # el test probaria nada).
+    with Image.open(io.BytesIO(contenido)) as origen:
+        assert 34853 in dict(origen.getexif()), "la imagen de test no lleva GPS"
+
+    r = _subir(client, token, alert_id, [("foto.jpg", contenido, "image/jpeg")])
+    assert r.status_code == 201, r.text
+    adjunto_id = r.json()[0]["id"]
+
+    descarga = client.get(
+        f"/api/v1/incidents/attachments/{adjunto_id}/download",
+        headers={"Authorization": f"Bearer {datos['tokens']['gestor']}"},
+    )
+    assert descarga.status_code == 200, descarga.text
+    with Image.open(io.BytesIO(descarga.content)) as servida:
+        assert 34853 not in dict(servida.getexif()), "la GPS sigue en la foto"
+        assert servida.size == (64, 48), "la foto no conserva sus dimensiones"
+
+    # Y la miniatura tampoco (afirmacion que hasta ahora no tenia test).
+    miniatura = client.get(
+        f"/api/v1/incidents/attachments/{adjunto_id}/thumbnail",
+        headers={"Authorization": f"Bearer {datos['tokens']['gestor']}"},
+    )
+    assert miniatura.status_code == 200, miniatura.text
+    with Image.open(io.BytesIO(miniatura.content)) as mini:
+        assert not dict(mini.getexif()), "la miniatura lleva EXIF"
+
+
+def test_la_orientacion_de_la_foto_se_conserva(client, db_session, datos) -> None:
+    """Quitar el EXIF no puede dejar la foto girada.
+
+    La orientacion va **en** el EXIF: si se quita sin aplicar la
+    rotacion a los pixeles, la foto sale de lado.
+    """
+    token = datos["tokens"]["operador"]
+    alert_id = _crear_incidente(client, token, datos["parking_a"].id)
+
+    # Orientation=6 → la foto se guarda girada 90°.
+    contenido = _imagen_con_exif(orientation=6)
+    r = _subir(client, token, alert_id, [("foto.jpg", contenido, "image/jpeg")])
+    assert r.status_code == 201, r.text
+    adjunto_id = r.json()[0]["id"]
+
+    descarga = client.get(
+        f"/api/v1/incidents/attachments/{adjunto_id}/download",
+        headers={"Authorization": f"Bearer {datos['tokens']['gestor']}"},
+    )
+    assert descarga.status_code == 200, descarga.text
+    with Image.open(io.BytesIO(descarga.content)) as servida:
+        # 64x48 girada 90° -> 48x64.
+        assert servida.size == (48, 64), (
+            f"la foto sale girada: {servida.size} en vez de (48, 64)"
+        )

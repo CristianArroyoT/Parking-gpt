@@ -25,7 +25,7 @@ from app.models.enums import TicketStatus
 from app.models.ticket import Ticket
 from app.models.vehicle import Vehicle, VehicleUser
 from app.services.vehicle_purge import purgar_vehiculos_fantasma
-from tests._audit_helpers import _seed_cliente
+from tests._audit_helpers import _seed_cliente, _seed_parking
 
 ANTIGUEDAD = timedelta(days=3)
 AHORA = datetime.now(timezone.utc)
@@ -76,10 +76,11 @@ def test_no_borra_un_vehiculo_con_ticket(
     client: TestClient, db_session: Session
 ) -> None:
     """Un vehículo que ha entrado alguna vez tiene ticket → se queda."""
+    parking = _seed_parking(db_session, code="P-TICKET")
     vehiculo = _vehiculo(db_session, "3333CON")
     db_session.add(
         Ticket(
-            parking_id=1,
+            parking_id=parking.id,
             vehicle_id=vehiculo.id,
             status=TicketStatus.ACTIVO,
             entry_at=AHORA - ANTIGUEDAD,

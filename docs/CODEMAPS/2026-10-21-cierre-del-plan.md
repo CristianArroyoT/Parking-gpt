@@ -2623,3 +2623,18 @@ cero tickets, creados cuatro meses antes.
 **El arreglo**: `app/services/vehicle_purge.py` + la tarea
 `solidapp.purge_ghost_vehicles` en el beat (4:23 AM). El criterio son tres
 condiciones (sin dueño, sin tickets y antiguo), y cada una tiene su test.
+
+### 3-centésimodecimocuarta. Las fotos se guardaban con la GPS y el modelo de cámara (2026-10-23)
+
+La miniatura ya se re-codificaba (sin EXIF), pero el **original se guardaba
+byte a byte** y se servía tal cual: los bytes servidos eran idénticos a los
+subidos, con su EXIF (la GPS de donde se hizo la foto). La retención no lo
+neutraliza: el EXIF viaja en cada descarga. **El arreglo**: `sanear_metadatos()`
+re-codifica sin metadatos, conservando píxeles y orientación.
+
+### 3-centésimodecimoquinta. Tres copias del cierre, dos con el patrón viejo (2026-10-23)
+
+El T-121 arregló el cierre por cámara, pero el cierre manual del servicio y
+el del endpoint tenían cada uno su copia de «comprueba al leer y commitea a
+ciegas». **El arreglo**: `app/services/ticket_closing.py` — un solo helper
+condicional para los tres caminos.
