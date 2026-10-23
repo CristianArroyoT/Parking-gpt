@@ -214,8 +214,23 @@ por las buenas. Ver T-124 y T-125 en el plan.
   Vite estaba sirviendo). Medido el 2026-10-23: 20 peticiones fallidas
   y 18 errores de consola que no eran de la app, sino del servidor de
   desarrollo reiniciándose. Repetida sin tocar nada: 0 y 0.
+- **Reiniciar el frontend justo antes de la QA visual tambien la arruina**
+  (2026-10-23): al arrancar, Vite **reoptimiza las dependencias**
+  (escribe en `node_modules/.vite`), esa escritura se sincroniza por el
+  bind mount y el dev-server se reinicia otra vez. Medido: con
+  `docker compose restart frontend` + 20 s de margen, la QA salio con 5
+  peticiones fallidas y 8 errores de consola, **todas** `ERR_CONNECTION_RESET`
+  (módulos `/src/...`, `node_modules/vite/dist/client/env.mjs` y el
+  WebSocket del HMR); **sin** reiniciar (frontend ya caliente + 30 s),
+  130 capturas y **0 y 0**. Ojo: el `informe.json` se escribe al final, y
+  hasta entonces es el de la ejecución anterior.
 - **Dos suites del host sí pueden ir en paralelo** (SQLite y PostgreSQL a
   la vez): la base de Redis de cada una se **toma con un lock** (`SET NX`).
+  Pero **dos suites de PostgreSQL no**: la segunda hace `DROP DATABASE` de
+  la que está usando la primera. Medido el 2026-10-23: **491 errores** (no
+  fallos del código, sino la base de datos disappearing debajo). Se
+  reconoce por el patron: todos los tests de un fichero fallan con
+  «no such table».
   Antes se elegía con `8 + (pid % 8)`, y dos PIDs que difieren en un
   múltiplo de 8 compartían base: las dos suites se rompían mutuamente los
   tests de rate-limit (medido el 2026-10-22: 5 fallos en cada una).
