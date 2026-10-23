@@ -2392,7 +2392,7 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [ ] Test de la tarea (no borra un vehículo con tickets, sí uno huérfano y viejo).
   - [ ] La puerta `verificar_tareas_celery.py` la da por buena (tarea registrada y ejecutable).
 
-### T-127 · P2 (operación) — el cierre manual no publicaba nada en el bus de eventos
+### T-126 · P2 (operación) — el cierre manual no publicaba nada en el bus de eventos
 
 - **Estado**: **completado** — el cierre manual publica `ticket_closed` como los demás
 - **Contexto**: el cierre por cámara y el alta manual publican en el bus SSE (para que el mapa del gestor se actualice al instante). El cierre **manual** (`POST /tickets/{id}/close`) no publicaba nada: la app se enteraba hasta el poll de 30 s.
@@ -2402,7 +2402,7 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Test: al cerrar un ticket, el bus recibe un evento `ticket_closed` en el canal de la sucursal, con el `ticket_id` y el `total`.
   - [x] Prueba inversa: quitando el `publish_event`, el test **falla**.
 
-### T-128 · P1 (operación) — un error de integridad que no era de la matrícula se comía la causa
+### T-127 · P1 (operación) — un error de integridad que no era de la matrícula se comía la causa
 
 - **Estado**: **completado** — el error de verdad se propaga
 - **Contexto**: el `try/except IntegrityError` que rodea el **flush del vehículo** (al crear el vehículo de una matrícula nueva) capturaba **cualquier** error de integridad, no sólo el de la matrícula duplicada. Consecuencias, medidas al correr la suite contra PostgreSQL:

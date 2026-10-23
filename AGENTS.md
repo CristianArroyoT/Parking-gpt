@@ -156,7 +156,7 @@ La puerta que vigila el patrón está en
 `tools/verificar_aislamiento_sucursal.py` (con su autoprueba: reintroduce
 los cuatro defectos y comprueba que los detecta).
 
-## El cobro de los tickets (T-120...T-127)
+## El cobro de los tickets (T-120...T-126)
 
 Cuatro reglas, y cada una costó un agujero de cobro (medidos contra el
 sistema en marcha, no leyendo codigo):
