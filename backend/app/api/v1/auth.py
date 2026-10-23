@@ -7,9 +7,11 @@ import logging
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from redis.exceptions import RedisError
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.emails import normalizar_email
 from app.core.db import get_db
 from app.core.ip import get_real_ip
 from app.core.security import (
@@ -162,7 +164,15 @@ def _autenticar(
     inexistente frente a 207,6 ms con un email real y contrasena
     incorrecta.
     """
-    user = db.query(User).filter(User.email == email).one_or_none()
+    # T-99: se compara en la forma canonica (minusculas). Sin esto, un
+    # correo con mayusculas no encontraba la cuenta: medido el 2026-10-23
+    # contra la API real, "gestor.mixto@solidapp.es" daba 401 para un
+    # usuario guardado como "Gestor.Mixto@solidapp.es".
+    user = (
+        db.query(User)
+        .filter(func.lower(User.email) == normalizar_email(email))
+        .one_or_none()
+    )
     hashed = user.hashed_password if user is not None else None
     credenciales_ok = verify_password_or_dummy(password, hashed)
     extra_payload = dict(extra or {})

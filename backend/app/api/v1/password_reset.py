@@ -47,9 +47,11 @@ from typing import NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from redis.exceptions import RedisError
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.core.emails import normalizar_email
 from app.core.ip import get_real_ip
 from app.core.security import hash_password
 from app.models.password_reset_token import PasswordResetToken
@@ -217,7 +219,10 @@ def forgot_password(
 
     inicio = time.perf_counter()
     client_ip = get_real_ip(request)
-    email_normalizado = payload.email.strip().lower()
+    # T-99: la misma normalizacion que el login (minusculas, sin
+    # espacios): el rate-limit y la busqueda de la cuenta tienen que
+    # hablar del MISMO correo.
+    email_normalizado = normalizar_email(str(payload.email))
 
     # 1) Rate-limit por IP y por email.
     allowed, bucket, count = _aplicar_rate_limit(
@@ -246,9 +251,13 @@ def forgot_password(
         )
 
     # 2) ¿Existe la cuenta? Mismo criterio de comparación que el login
-    #    (``User.email == payload.email``) para no resetear una cuenta con
+    #    (forma canónica, T-99) para no resetear una cuenta con
     #    una grafía que luego no serviría para entrar.
-    user = db.query(User).filter(User.email == payload.email).one_or_none()
+    user = (
+        db.query(User)
+        .filter(func.lower(User.email) == email_normalizado)
+        .one_or_none()
+    )
     token_emitido = False
 
     if user is not None and user.is_active:

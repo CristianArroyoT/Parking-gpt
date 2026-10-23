@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **544 de 545 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **550 de 551 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1898,6 +1898,31 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Un correo que no es de demo no se bloquea.
   - [x] El intento queda auditado con su motivo (`demo_account`).
   - [x] 5 tests nuevos; prueba inversa: sin el bloqueo, el test **falla**.
+
+
+### T-99 · P2 (usabilidad y datos) — el login comparaba el correo en bruto
+
+- **Estado**: **completado** — una forma canónica para el correo, al escribir y al comparar
+- **Contexto**: el correo **no distingue** mayúsculas de minúsculas (en la práctica ningún proveedor de correo las distingue), pero el código comparaba el texto **tal como se escribía**: `User.email == payload.email`.
+- **Medido** (2026-10-23, contra la API real en marcha):
+  | login | antes | ahora |
+  |---|---|---|
+  | `Gestor.Mixto@solidapp.es` (como se guardó) | 200 | 200 |
+  | `gestor.mixto@solidapp.es` | **401** | **200** |
+  | `GESTOR.MIXTO@solidapp.es` | **401** | **200** |
+  | `ADMIN@solidapp.es` (usuario normal, tecleado en mayúsculas) | **401** | **200** |
+  O sea: **el mismo correoDepending de cómo lo escribieras**, y un usuario que teclea en mayúsculas se queda fuera sin entender por qué.
+- **El arreglo, de raíz** (tres piezas):
+  1. **al escribir**: el alta de usuarios y de operadores guarda el correo **canónico** (sin espacios y en minúsculas), con un validador del esquema;
+  2. **al comparar**: login, «olvidé mi contraseña», el alta de operadores y la búsqueda de usuario por correo comparan en forma canónica (así las cuentas **ya guardadas** en mayúsculas siguen entrando);
+  3. **en la base de datos**: un índice **único sobre `lower(email)`** (migración `0015_email_canonico`), que además canonicaliza los correos existentes. Sin él se podrían crear dos cuentas que solo se diferencian en cómo están escritas, y el login (que ya compara canónico) las confundiría.
+- **Criterios de aceptación**:
+  - [x] Medido: las tres formas del mismo correo dan 401 antes y 200 ahora; `ADMIN@solidapp.es` también.
+  - [x] El alta guarda el correo canónico (`Nuevo.Gestor@Solidapp.ES` → `nuevo.gestor@solidapp.es`).
+  - [x] Dos cuentas que solo se diferencian en las mayúsculas: la segunda rebota con **409** (el índice único de la base lo prohibe).
+  - [x] «Olvidé mi contraseña» encuentra la cuenta con el correo en mayúsculas.
+  - [x] La puerta de migraciones (`alembic check`): **«el esquema migrado coincide con los modelos»**.
+  - [x] 4 tests nuevos; prueba inversa: sin la normalización al escribir o al comparar, los tests **fallan**.
 
 ### T-14 · I3 — OCR con GPU
 

@@ -2092,6 +2092,15 @@ las credenciales públicas del README servían como administrador.
 `reason=demo_account`.
 
 
+### 3-octogésimocuarta. El correo tiene una sola forma (2026-10-23)
+
+El login comparaba el correo **tal como se escribía**: `Gestor.Mixto@solidapp.es`
+enttaba y `gestor.mixto@solidapp.es` no (401). Ahora el correo se
+**guarda canónico** (validador del esquema), se **compara canónico**
+(login, reset, altas) y la base de datos lo hace **único sin distinguir
+mayúsculas** (índice sobre `lower(email)`, migración `0015`).
+
+
 ## 5. Variables de entorno nuevas
 
 | Variable | Default | Para qué |

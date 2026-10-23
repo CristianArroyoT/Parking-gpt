@@ -5,12 +5,14 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.audit import audited
 from app.core.db import get_db
 from app.core.deps import get_current_user, require_role
+from app.core.emails import normalizar_email
 from app.core.security import hash_password, verify_password
 from app.models.enums import UserRole, VehicleRole
 from app.models.ticket import Ticket
@@ -347,8 +349,11 @@ def add_my_vehicle_user(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Vehículo no encontrado"
         )
+    # T-99: forma canónica (el correo no distingue mayusculas).
     target = (
-        db.query(User).filter(User.email == payload.email).one_or_none()
+        db.query(User)
+        .filter(func.lower(User.email) == normalizar_email(str(payload.email)))
+        .one_or_none()
     )
     if target is None:
         raise HTTPException(

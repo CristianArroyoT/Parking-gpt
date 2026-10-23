@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import EmailStr, Field
+from pydantic import EmailStr, Field, field_validator
 
+from app.core.emails import normalizar_email
 from app.core.password_policy import ContrasenaBcrypt
 from app.schemas import ORMModel, TimestampMixinSchema
 from app.schemas.vehicle import VehicleRead
@@ -24,6 +25,25 @@ class UserCreate(UserBase):
     # caracteres: a partir de ahi el hash solo distingue el prefijo.
     password: ContrasenaBcrypt = Field(min_length=8, max_length=128)
 
+    @field_validator("email", mode="before")
+    @classmethod
+    def _email_canonico(cls, valor: object) -> object:
+        """T-99: el email se guarda en su forma canonica (minusculas).
+
+        Sin esto se podrian crear dos cuentas que solo se diferencian en
+        como estan escritas ("A@b.es" y "a@b.es"): el login compararia
+        el texto en bruto y cada una entraria con su propia forma, pero
+        para el usuario seria la misma cuenta. Con el indice unico
+        sobre ``lower(email)`` la base de datos lo prohibe.
+
+        Va en modo ``before`` (no ``after``) porque ``EmailStr`` es un
+        tipo especial que no se puede construir a mano: se normaliza el
+        texto y luego lo valida pydantic como siempre.
+        """
+        if isinstance(valor, str):
+            return normalizar_email(valor)
+        return valor
+
 
 class OperadorCreate(ORMModel):
     """Alta de operador por parte de un gestor (T-20).
@@ -36,6 +56,14 @@ class OperadorCreate(ORMModel):
     full_name: str = Field(min_length=2, max_length=255)
     phone: Optional[str] = None
     password: ContrasenaBcrypt = Field(min_length=8, max_length=128)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def _email_canonico(cls, valor: object) -> object:
+        """T-99: el email se guarda en su forma canonica (minusculas)."""
+        if isinstance(valor, str):
+            return normalizar_email(valor)
+        return valor
 
 
 class UserUpdate(ORMModel):

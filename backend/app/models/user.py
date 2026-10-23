@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, Index, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -37,6 +37,17 @@ class User(Base, TimestampMixin):
     memberships: Mapped[list["ParkingMembership"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+
+
+# T-99: unicidad del correo **sin distinguir mayusculas**. El UNIQUE de
+# la columna es sensible a mayusculas, asi que sin este indice se podrian
+# crear dos cuentas que solo se diferencian en como estan escritas
+# ("A@b.es" y "a@b.es"): el login (que compara canonico) las confundiria.
+#
+# Se declara FUERA de la clase porque necesita la columna ya construida
+# (``func.lower(User.email)``); dentro de ``__table_args__`` habria que
+# escribir el nombre de la columna como texto.
+Index("uq_users_email_lower", func.lower(User.email), unique=True)
 
 
 class ParkingMembership(Base, TimestampMixin):

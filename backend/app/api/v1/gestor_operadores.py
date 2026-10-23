@@ -31,13 +31,14 @@ Garantías (esto es lo importante):
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.audit import audited
 from app.core.db import get_db
 from app.core.deps import enforce_parking_membership, get_current_user
+from app.core.emails import normalizar_email
 from app.core.security import hash_password
 from app.models.enums import UserRole
 from app.models.user import ParkingMembership, User
@@ -112,8 +113,15 @@ def crear_operador(
         request, db, scope="users_create", actor_id=actor_id,
     )
 
-    email = payload.email.lower()
-    existente = db.query(User).filter(User.email == email).one_or_none()
+    # T-99: el alta guarda el email canonico y lo compara asi (para que
+    # no se pueda crear un duplicado que solo se diferencie en las
+    # mayusculas).
+    email = normalizar_email(str(payload.email))
+    existente = (
+        db.query(User)
+        .filter(func.lower(User.email) == email)
+        .one_or_none()
+    )
     if existente is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
