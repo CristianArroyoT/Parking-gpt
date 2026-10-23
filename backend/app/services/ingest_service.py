@@ -410,7 +410,45 @@ def _process_in_tx(
         entry_at=now,
     )
     db.add(ticket)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # T-105: otra peticion creo el ticket mientras esta comprobaba
+        # (dos pushes de la misma matricula a la vez). La base de datos
+        # lo prohibe (indice unico parcial) y aqui se devuelve el
+        # ticket que ya habia, en vez de crear un segundo (y cobrar dos
+        # veces).
+        db.rollback()
+        existente = (
+            db.query(Ticket)
+            .filter(
+                Ticket.vehicle_id == vehicle.id,
+                Ticket.parking_id == camera.parking_id,
+                Ticket.status == TicketStatus.ACTIVO,
+            )
+            .first()
+        )
+        if existente is None:
+            # No es el indice del vehiculo (puede ser el de la plaza):
+            # el error original se propaga.
+            raise
+        log.info(
+            "ingest: ENTRY duplicado en carrera plate=%s camera=%s ticket_id=%s",
+            hit.plate,
+            camera.id,
+            existente.id,
+        )
+        return IngestResult(
+            plate=hit.plate,
+            camera_id=camera.id,
+            parking_id=camera.parking_id,
+            status=IngestStatus.SKIPPED_ALREADY_INSIDE,
+            confidence=hit.confidence,
+            ticket_id=existente.id,
+            vehicle_id=vehicle.id,
+            parking_space_id=existente.parking_space_id,
+            reason="Vehículo ya tiene ticket activo en este parking",
+        )
     db.refresh(ticket)
     log.info(
         "ingest: ENTRADA ticket creado id=%s plate=%s vehicle_id=%s space_id=%s",

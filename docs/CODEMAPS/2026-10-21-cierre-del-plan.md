@@ -2156,6 +2156,31 @@ abría el result store y, si no respondía, el que encolaba se quedaba
 **23 s** bloqueado (peor que el SMTP).
 
 
+### 3-octogésimonovena. Un vehículo no puede tener dos tickets activos (2026-10-23)
+
+3-{.}. Un vehículo no puede tener dos tickets activos (2026-10-23)
+
+La ingesta comprobaba antes de insertar (un SELECT) y después
+insertaba: dos pushes de la misma matrícula a la vez podían crear
+**DOS tickets activos** y el cliente **cobraba dos veces**.
+
+**El arreglo**: dos índices únicos **parciales** en la base
+(`uq_tickets_activo_vehiculo`, `uq_tickets_activo_plaza`, migración
+`0016`) y la captura del `IntegrityError` en la ingesta, que devuelve el
+ticket que ya había.
+
+
+### 3-nonagésima. El PDF del ticket aguanta el texto que rompe un Paragraph (2026-10-23)
+
+3-{.}. El PDF del ticket aguanta el texto que rompe un Paragraph (2026-10-23)
+
+La auditoría sospechó que el PDF del ticket no escapaba el texto del
+usuario. **Medido: no es un defecto** (los datos van en celdas de tabla,
+que no son XML; y el PDF de informes ya escapa todo). Lo que se ha
+hecho es **fijarlo con un test**, para que el falso positivo no vuelva
+como avería ni se «arregle» algo que no está roto.
+
+
 ## 5. Variables de entorno nuevas
 
 | Variable | Default | Para qué |

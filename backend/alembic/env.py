@@ -35,6 +35,14 @@ POSTGIS_TABLAS_EXTERNAS = {
 }
 
 
+#: Indices PARCIALES que la comparacion de alembic no puede comparar
+#: (T-105): su ``WHERE`` llega normalizado por PostgreSQL.
+INDICES_PARCIALES = {
+    "uq_tickets_activo_vehiculo",
+    "uq_tickets_activo_plaza",
+}
+
+
 def incluir_objeto(
     objeto: object,
     name: str,
@@ -66,6 +74,15 @@ def incluir_objeto(
             return False
     if tipo == "index":
         # El indice espacial de ``parkings.geom`` tampoco es del app.
+        # T-105: los indices PARCIALES tampoco se comparan. SQLAlchemy
+        # refleja su ``WHERE`` ya normalizado por PostgreSQL
+        # (``((status)::text = 'activo'::text)``), que no coincide con el
+        # texto del modelo (``status = 'activo'``): la comparacion los
+        # daria por eliminados y ``alembic check`` (el CI) se pondria
+        # rojo en cada migracion. La migracion los crea y el modelo los
+        # declara.
+        if name in INDICES_PARCIALES:
+            return False
         return name != "idx_parkings_geom"
     return True
 

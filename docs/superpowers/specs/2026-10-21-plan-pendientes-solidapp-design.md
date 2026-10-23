@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **569 de 570 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **576 de 577 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2001,6 +2001,32 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Si la alerta ya no existe, la tarea no rompe nada.
   - [x] Las tareas de fire-and-forget tienen `ignore_result=True` (sin result store al publicar).
   - [x] 4 tests nuevos; prueba inversa: si el correo se vuelve a mandar en línea, el test **falla**.
+
+
+### T-105 · P2 (datos) — dos tickets activos del mismo vehículo (doble cobro)
+
+- **Estado**: **completado** — la base de datos lo prohíbe (índice único parcial)
+- **Contexto** (auditoría del 2026-10-23): la ingesta comprueba antes de insertar («este vehículo ya tiene ticket activo en este parking») y después inserta. Eso es un **«comprueba y luego hace»**: dos pushes de la misma matrícula a la vez (dos rondas solapadas, o dos peticiones simultáneas) podían pasar las dos comprobaciones y crear **DOS tickets activos** → el cliente **cobraba dos veces**.
+- **El arreglo**, en la raíz y no en el código:
+  1. **dos índices únicos parciales** en la base de datos: `uq_tickets_activo_vehiculo` sobre `(vehicle_id, parking_id) WHERE status = 'activo'` y `uq_tickets_activo_plaza` sobre `parking_space_id WHERE status = 'activo'` (migración `0016_ticket_activo_unico`). Lo único que una carrera no puede saltar es la base de datos;
+  2. la ingesta **captura el rechazo** (`IntegrityError`), hace `rollback` y devuelve el ticket que ya había (con el mismo `SKIPPED_ALREADY_INSIDE` de siempre), en vez de propagar un 500.
+- **Medido**: en la base de QA no había ninguna violación (0 y 0), así que la migración no encuentra datos que arreglar. Y la puerta de migraciones sigue verde: «el esquema migrado coincide con los modelos».
+- **Criterios de aceptación**:
+  - [x] La base rechaza el segundo ticket activo del mismo vehículo (IntegrityError).
+  - [x] La base rechaza dos tickets activos en la misma plaza.
+  - [x] Cerrar el ticket **sí** permite abrir otro (el índice es parcial: solo mira los activos).
+  - [x] La ingesta, cuando la base rechaza por la carrera, devuelve el ticket existente y no un 500.
+  - [x] 3 tests nuevos; prueba inversa: sin el índice, el test **falla**.
+
+### T-106 · P2 (sospecha **refutada**) — el PDF del ticket no escapaba el texto del usuario
+
+- **Estado**: **cerrado por medición** — no era un defecto; el comportamiento queda fijado con un test
+- **La sospecha** (auditoría del 2026-10-23): el PDF del ticket metía texto del usuario (matrícula, marca) sin escapar, y eso lo rompía (reportlab interpreta el texto de un `Paragraph` como XML).
+- **Medido**: **no se rompe**. Con una matrícula `1234&<>'"ABC` y una marca `Peugeot "307" <b>`, el PDF se genera sin problema (**2701 bytes**, empieza por `%PDF-`). El motivo: los datos del vehículo van en **celdas de tabla** (cadenas de texto, que reportlab no interpreta como XML) y el PDF de **informes** ya escapa todo lo que mete en `Paragraph` (`escape(...)`).
+- **Lo que sí se hace**: un test (`backend/tests/test_ticket_pdf_escaping.py`) que **fija** ese comportamiento: si alguien metiera un dato del usuario dentro de un `Paragraph` sin escapar, el test se caería (el PDF no se generaría). Es la manera de que el falso positivo no vuelva como «avería» ni se «arregle» algo que no está roto.
+- **Criterios de aceptación**:
+  - [x] Medido: el PDF se genera con `& < > ' "` en la matrícula y en la marca (2701 bytes, `%PDF-`).
+  - [x] Test que fija el comportamiento (1 test nuevo).
 
 ### T-14 · I3 — OCR con GPU
 

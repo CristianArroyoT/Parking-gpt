@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Float, ForeignKey, String
+from sqlalchemy import DateTime, Float, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -19,6 +19,38 @@ if TYPE_CHECKING:
 
 class Ticket(Base, TimestampMixin):
     __tablename__ = "tickets"
+    __table_args__ = (
+        # T-105 (2026-10-23): un vehiculo **no puede tener dos tickets
+        # activos** en la misma sucursal, y una plaza **no puede estar
+        # ocupada por dos vehiculos**. El codigo lo comprueba antes de
+        # insertar (un SELECT), pero eso es un "comprueba y luego hace":
+        # dos pushes de la misma matricula a la vez (dos rondas
+        # solapadas, o dos peticiones simultaneas) podian pasar las dos
+        # comprobaciones y crear DOS tickets activos -> el cliente
+        # cobraba dos veces.
+        #
+        # Con estos indices, la **base de datos** lo prohibe (es lo
+        # unico que una carrera no puede saltar) y el codigo captura el
+        # rechazo y devuelve el ticket que ya habia.
+        #
+        # Son indices PARCIALES: solo miran los tickets activos (un
+        # vehiculo puede tener cuantos tickets cerrados haga falta).
+        Index(
+            "uq_tickets_activo_vehiculo",
+            "vehicle_id",
+            "parking_id",
+            unique=True,
+            sqlite_where=text("status = 'activo'"),
+            postgresql_where=text("status = 'activo'"),
+        ),
+        Index(
+            "uq_tickets_activo_plaza",
+            "parking_space_id",
+            unique=True,
+            sqlite_where=text("status = 'activo' AND parking_space_id IS NOT NULL"),
+            postgresql_where=text("status = 'activo' AND parking_space_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     parking_id: Mapped[int] = mapped_column(
