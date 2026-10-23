@@ -26,6 +26,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import redis
+from redis.exceptions import RedisError
+
 from app.core.config import get_settings
 from app.core.db import SessionLocal
 from app.models.audit import AuditLog
@@ -448,6 +451,43 @@ def purge_audit_logs(retention_days: int | None = None) -> dict[str, Any]:
         db.close()
 
 
+#: Tope de segundos que se guarda el lock de una tarea periodica (T-102).
+#: El beat lanza ``probe_heartbeats`` cada 60 s; el lock dura el doble
+#: para que una ronda larga (una camara colgada) siga protegida.
+LOCK_TTL_SEGUNDOS = 120
+
+
+def _tomar_lock(nombre: str, ttl: int = LOCK_TTL_SEGUNDOS) -> bool:
+    """Toma el lock de la tarea para que no se solape consigo misma.
+
+    POR QUE (T-102, 2026-10-23): el beat lanza la ronda de heartbeat
+    **cada 60 s**, pero una ronda puede tardar mas (una camara colgada
+    hace que FFmpeg tarde en abandonar el RTSP). Con dos rondas a la vez:
+
+    - el contador de fallos de cada camara se incrementaba **dos veces
+      por minuto**, asi que la alerta saltaba al double de tiempo;
+    - se duplicaban las filas de auditoria y los eventos publicados;
+    - dos rondas podian tomar a la vez el lock de alerta de una camara:
+      el ``SET NX`` es atomico, pero el ``INCR -> comprobar -> SET NX ->
+      borrar contador -> INSERT`` no lo es, y si el INSERT fallaba la
+      camara se quedaba muda una hora.
+
+    Devuelve ``False`` si ya hay una ejecucion en curso. Si Redis no
+    responde, **no** se bloquea la tarea: sin Redis no hay ni colas ni
+    rate-limit, y es preferible avisar y seguir que no hacer nada.
+    """
+    try:
+        rds = redis.Redis.from_url(
+            get_settings().redis_url, decode_responses=True,
+        )
+        return bool(rds.set(f"celery:lock:{nombre}", "1", nx=True, ex=ttl))
+    except RedisError as exc:
+        log.warning(
+            "_tomar_lock: Redis no disponible (%s); se sigue sin lock", exc,
+        )
+        return True
+
+
 @celery_app.task(name="solidapp.probe_heartbeats")  # type: ignore[untyped-decorator]
 def probe_heartbeats() -> dict[str, Any]:
     """Heartbeat batch: sondea todas las cámaras activas cada 60 s.
@@ -485,6 +525,10 @@ def probe_heartbeats() -> dict[str, Any]:
     invocación se propaga a TODOS los audit_logs + logs estructurados
     de esta ronda (coherente con ``ping_camera``).
     """
+    # T-102: si hay otra ronda en curso, esta se omite (no se solapan).
+    if not _tomar_lock("probe_heartbeats"):
+        log.info("probe_heartbeats: ya hay una ronda en curso; se omite esta")
+        return {"omitida": True, "motivo": "ronda_en_curso"}
     cid = make_worker_correlation_id()
     settings = get_settings()
     skip_prefixes: tuple[str, ...] = tuple(

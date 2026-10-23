@@ -43,8 +43,9 @@ import csv
 import io
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.audit import Alert
@@ -104,6 +105,30 @@ def _duracion_min(entry_at: datetime | None, exit_at: datetime | None) -> str:
     return f"{round(delta.total_seconds() / 60.0, 1)}"
 
 
+#: Tope de filas por informe (T-100). Acota la memoria del proceso y el
+#: tamaño del PDF (que multiplica las filas por los objetos del dibujo).
+MAX_FILAS_INFORME = 20_000
+
+
+class InformeDemasiadoGrandeError(Exception):
+    """El informe pedido supera el tope de filas.
+
+    Se lanza **en vez de recortar en silencio**: un informe truncado sin
+    avisar es peor que uno que no se genera (el usuario creería que
+    estos son todos los datos).
+    """
+
+
+def _acotar_filas(filas: list[Any]) -> list[Any]:
+    """Rechaza el informe si supera el tope de filas."""
+    if len(filas) > MAX_FILAS_INFORME:
+        raise InformeDemasiadoGrandeError(
+            f"el informe supera el maximo de {MAX_FILAS_INFORME} filas: "
+            "acota el rango de fechas"
+        )
+    return filas
+
+
 def _plates(db: Session, vehicle_ids: Sequence[int]) -> dict[int, str]:
     """Matrículas indexadas por ``vehicle_id`` (evita N+1)."""
     ids = {vid for vid in vehicle_ids if vid is not None}
@@ -130,8 +155,10 @@ def build_ingresos_report(
             Ticket.exit_at <= to,
         )
         .order_by(Ticket.exit_at)
+        .limit(MAX_FILAS_INFORME + 1)
         .all()
     )
+    _acotar_filas(tickets)
     placas = _plates(db, [t.vehicle_id for t in tickets])
 
     rows: list[list[str]] = []
@@ -192,10 +219,17 @@ def build_ocupacion_report(
             Ticket.parking_id == parking_id,
             Ticket.status != TicketStatus.ANULADO,
             Ticket.entry_at <= to,
+            # T-100: solo los tickets que **siguen abiertos** en ``to``.
+            # Antes se cargaba TODA la historia de la sucursal y el
+            # filtro se hacia en Python: pedir un informe de una hora
+            # traia los tickets de tres anos en memoria.
+            or_(Ticket.exit_at.is_(None), Ticket.exit_at > to),
         )
         .order_by(Ticket.entry_at)
+        .limit(MAX_FILAS_INFORME + 1)
         .all()
     )
+    _acotar_filas(tickets)
     ocupacion: dict[int, Ticket] = {}
     for t in tickets:
         if t.parking_space_id is None:
@@ -262,8 +296,10 @@ def build_tickets_report(
             Ticket.entry_at <= to,
         )
         .order_by(Ticket.entry_at)
+        .limit(MAX_FILAS_INFORME + 1)
         .all()
     )
+    _acotar_filas(tickets)
     placas = _plates(db, [t.vehicle_id for t in tickets])
     espacios = {
         s.id: f"{s.lane}-{s.number}"

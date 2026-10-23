@@ -124,6 +124,7 @@ def comprobar(
     servicios_dev: dict[str, dict[str, str]],
     servicios_prod: dict[str, dict[str, str]],
     texto_prod: str,
+    texto_dev: str = "",
 ) -> list[str]:
     """Devuelve la lista de problemas (vacía si todo está bien)."""
     problemas: list[str] = []
@@ -176,6 +177,25 @@ def comprobar(
                     "en este repositorio publico (T-74)"
                 )
 
+    # T-101: todos los servicios se levantan solos si mueren. El compose
+    # de produccion es un OVERRIDE del de desarrollo: los servicios los
+    # define el de desarrollo y el de produccion solo cambia algunas
+    # cosas de algunos. Sin `restart: unless-stopped`, un servicio que
+    # se cae (un OOM, un SIGKILL) se queda caido hasta que alguien lo
+    # levante a mano. En el worker es lo mas grave: el beat sigue
+    # publicando cada 60 s y la cola crece sin que nadie la consuma.
+    reinicios = _politicas_de_restart(texto_dev)
+    for servicio, valor in _politicas_de_restart(texto_prod).items():
+        if valor is not None:
+            reinicios[servicio] = valor
+    for servicio, valor in sorted(reinicios.items()):
+        if valor != "unless-stopped":
+            problemas.append(
+                f"el servicio {servicio} no tiene 'restart: unless-stopped' "
+                f"(dice {valor!r}): si se cae se queda caido hasta que "
+                "alguien lo levante a mano (T-101)"
+            )
+
     # El `build:` del frontend se comprueba sobre el texto: el parser de
     # arriba solo recoge los bloques `environment`.
     if "dockerfile: Dockerfile.prod" not in texto_prod:
@@ -209,6 +229,41 @@ def comprobar(
                     "del backend fallaria (T-75)."
                 )
     return problemas
+
+
+def _politicas_de_restart(texto: str) -> dict[str, str | None]:
+    """Servicios del compose y su politica de reinicio (``None`` si no tiene).
+
+    Solo cuenta los bloques que tienen ``image:`` o ``build:`` (los
+    volumenes de abajo del compose no son servicios).
+    """
+    servicios: dict[str, str | None] = {}
+    nombre = None
+    es_servicio = False
+    reinicio: str | None = None
+    for linea in texto.splitlines():
+        if not linea.strip() or linea.strip().startswith("#"):
+            continue
+        sangria = len(linea) - len(linea.lstrip())
+        if sangria == 2 and linea.rstrip().endswith(":"):
+            if nombre and es_servicio:
+                servicios[nombre] = reinicio
+            nombre = linea.strip()[:-1]
+            es_servicio = False
+            reinicio = None
+            continue
+        if sangria == 4 and (
+            linea.strip().startswith("image:")
+            or linea.strip().startswith("build:")
+        ):
+            es_servicio = True
+            continue
+        if sangria == 4 and linea.strip().startswith("restart:"):
+            reinicio = linea.strip().split(":", 1)[1].strip().strip('"')
+            continue
+    if nombre and es_servicio:
+        servicios[nombre] = reinicio
+    return servicios
 
 
 def _cargar_en_settings(variables: dict[str, str]) -> str | None:
@@ -304,6 +359,22 @@ def autoprueba() -> int:
         ),
         ("sin compose de produccion", {}, {}, "", True),
         (
+            "un servicio sin politica de reinicio",
+            {},
+            prod_ok,
+            texto_ok,
+            True,
+            "  backend:\n    image: ejemplo\n",
+        ),
+        (
+            "todos los servicios con politica de reinicio",
+            {},
+            prod_ok,
+            texto_ok,
+            False,
+            "  backend:\n    image: ejemplo\n    restart: unless-stopped\n",
+        ),
+        (
             "un valor de entorno que el backend no puede cargar",
             {
                 "backend": {
@@ -316,8 +387,10 @@ def autoprueba() -> int:
             False,  # con el arreglo (T-75) este valor SÍ se puede cargar
         ),
     ]
-    for nombre, dev, prod, texto, debe_fallar in casos:
-        problemas = comprobar(dev, prod, texto)
+    for caso in casos:
+        nombre, dev, prod, texto, debe_fallar = caso[:5]
+        texto_dev = caso[5] if len(caso) > 5 else ""
+        problemas = comprobar(dev, prod, texto, texto_dev)
         fallo = bool(problemas)
         if fallo != debe_fallar:
             fallos += 1
@@ -354,8 +427,9 @@ def main() -> int:
     servicios_dev = _servicios(COMPOSE_DEV)
     servicios_prod = _servicios(COMPOSE_PROD)
     texto_prod = COMPOSE_PROD.read_text(encoding="utf-8") if COMPOSE_PROD.is_file() else ""
+    texto_dev = COMPOSE_DEV.read_text(encoding="utf-8") if COMPOSE_DEV.is_file() else ""
 
-    problemas = comprobar(servicios_dev, servicios_prod, texto_prod)
+    problemas = comprobar(servicios_dev, servicios_prod, texto_prod, texto_dev)
     if problemas:
         for p in problemas:
             print(f"  FALLO  {p}")

@@ -13,6 +13,15 @@ services:
 
   # ── Base de datos ─────────────────────────────────────────────────────
   db:
+    # T-101 (2026-10-23): ``restart: unless-stopped`` en TODOS los
+    # servicios. Antes db, redis, backend, frontend, celery-worker y
+    # celery-beat NO lo tenian: si uno se caia (un OOM, un SIGKILL), se
+    # quedaba caido hasta que alguien lo levantara a mano. En el worker
+    # es lo mas grave: con ``acks_on_failure_or_timeout`` (que ya es el
+    # defecto) las tareas perdidas no se reintentan, el beat sigue
+    # publicando cada 60 s y la cola de Redis crece sin que nadie la
+    # consuma.
+    restart: unless-stopped
     image: postgis/postgis:16-3.4
     environment:
       POSTGRES_USER: parking
@@ -38,6 +47,7 @@ services:
 
   # ── Cola + cache + scheduler ─────────────────────────────────────────
   redis:
+    restart: unless-stopped
     image: redis:7-alpine
     command: ["redis-server", "--save", "60", "1"]
     volumes:
@@ -113,6 +123,10 @@ services:
 
   # ── API FastAPI ──────────────────────────────────────────────────────
   backend:
+    # T-101 (2026-10-23): ver la nota del servicio ``db``. Si el backend
+    # se cae (un OOM al generar un informe enorme, un bug), Docker lo
+    # levanta solo.
+    restart: unless-stopped
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -191,6 +205,7 @@ services:
 
   # ── Frontend Vue 3 (Vite dev) ────────────────────────────────────────
   frontend:
+    restart: unless-stopped
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -225,6 +240,10 @@ services:
   # aquí porque el worker NO expone el puerto HTTP: el probe real es
   # `celery inspect ping` contra el propio broker.
   celery-worker:
+    # T-101: sin esto, un worker muerto se queda muerto (y el beat sigue
+    # publicando: la cola crece y no hay ni alertas ni deteccion de
+    # camaras caidas).
+    restart: unless-stopped
     build:
       context: .
       dockerfile: docker/celery/Dockerfile
@@ -268,6 +287,7 @@ services:
   # El beat no responde a "ping": está vivo si el archivo celerybeat-schedule
   # se actualiza con cada tick. Probamos mtime < 120 s.
   celery-beat:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: docker/celery/Dockerfile

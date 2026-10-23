@@ -51,12 +51,13 @@ import io
 from datetime import datetime, timezone
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.deps import get_current_user
+from app.services.endpoint_rate_limit import enforce_endpoint_rate_limit
 from app.models.parking import Parking
 from app.models.user import ParkingMembership, User
 from app.schemas.reports import MarginReportRead
@@ -64,16 +65,35 @@ from app.services.cost import compute_margin
 from app.services.pdf import render_report_pdf
 from app.services.reports import (
     FILE_BASENAMES,
+    InformeDemasiadoGrandeError,
     REPORT_BUILDERS,
     escapar_celda_csv,
     render_report_csv,
     to_utc,
 )
 
+#: Tope de dias que puede abarcar un informe (T-100).
+MAX_DIAS_VENTANA = 366
+
+
+def _limite_de_informes(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
+    """T-100: los informes son caros (BD + PDF + CSV): se limitan por actor.
+
+    Como **dependencia del router**, aplica a todos sus endpoints sin
+    repetir la llamada once veces (el mismo patron que el rate-limit
+    unico de T-69: una sola implementacion, no once copias).
+    """
+    enforce_endpoint_rate_limit(request, db, scope="informe", actor_id=user.id)
+
+
 router = APIRouter(
     prefix="/admin/reports",
     tags=["admin-reports"],
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(get_current_user), Depends(_limite_de_informes)],
 )
 
 #: Roles con acceso a los informes: admin (cualquier sucursal) o gestor
@@ -135,6 +155,19 @@ def _parse_window(
             status_code=422,
             detail="'to' debe ser posterior a 'from'",
         )
+    # T-100: la ventana no puede ser arbitrariamente larga. Un informe de
+    # 30 años carga (y dibuja en el PDF) toda la historia de la sucursal:
+    # con 50.000 tickets el PDF multiplica por doce el numero de objetos y
+    # el proceso se queda sin memoria. Y si se queda sin memoria, se cae
+    # la API **entera**, que es lo que hay que evitar.
+    if (to_utc(to) - to_utc(from_)).days > MAX_DIAS_VENTANA:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"el rango pedido es de mas de {MAX_DIAS_VENTANA} dias: "
+                "acota las fechas del informe"
+            ),
+        )
     return from_, to
 
 
@@ -169,7 +202,10 @@ def _csv_response(
 ) -> Response:
     """Genera el exporte CSV del informe pedido."""
     pid, f, t = _ventana(parking_id, from_, to, user, db)
-    report = REPORT_BUILDERS[informe](db, pid, f, t)
+    try:
+        report = REPORT_BUILDERS[informe](db, pid, f, t)
+    except InformeDemasiadoGrandeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
     return Response(
         content=render_report_csv(report),
         media_type="text/csv; charset=utf-8",
@@ -191,7 +227,10 @@ def _pdf_response(
 ) -> Response:
     """Genera el exporte PDF del informe pedido."""
     pid, f, t = _ventana(parking_id, from_, to, user, db)
-    report = REPORT_BUILDERS[informe](db, pid, f, t)
+    try:
+        report = REPORT_BUILDERS[informe](db, pid, f, t)
+    except InformeDemasiadoGrandeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
     parking = db.get(Parking, pid)
     return Response(
         content=render_report_pdf(

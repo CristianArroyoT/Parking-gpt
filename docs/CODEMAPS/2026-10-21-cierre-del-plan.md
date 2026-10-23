@@ -2101,6 +2101,46 @@ enttaba y `gestor.mixto@solidapp.es` no (401). Ahora el correo se
 mayúsculas** (índice sobre `lower(email)`, migración `0015`).
 
 
+### 3-octogésimoquinta. Los informes tienen topes (2026-10-23)
+
+3-{.}. Los informes tienen topes (2026-10-23)
+
+Los exportes no tenían tope de filas ni de ventana: un gestor podía
+pedir 30 años y el informe de ocupación cargaba **toda** la historia de
+la sucursal (el filtro se hacía en Python, no en SQL). Con 50.000
+tickets el PDF multiplica por doce los objetos y el proceso se queda
+sin memoria: y si se queda sin memoria, se cae la API **entera**.
+
+**El arreglo**: ventana de 366 días como máximo (422), 20.000 filas
+como máximo (413, sin recortar en silencio), rate-limit por actor en
+todo el router y el filtro de ocupación **en SQL**.
+
+
+### 3-octogésimosexta. Los servicios vuelven a levantarse solos (2026-10-23)
+
+3-{.}. Los servicios vuelven a levantarse solos (2026-10-23)
+
+Seis servicios del compose (db, redis, backend, frontend, celery-worker,
+celery-beat) **no** tenían `restart`: si morían, se quedaban caídos
+hasta que alguien los levantara a mano. Con el worker, además, las
+tareas en curso no se reintentan y el beat sigue publicando.
+
+**El arreglo**: `restart: unless-stopped` en todos, vigilado por la
+puerta `tools/verificar_compose_produccion.py`.
+
+
+### 3-octogésimoséptima. Las rondas periódicas no se solapan (2026-10-23)
+
+3-{.}. Las rondas periódicas no se solapan (2026-10-23)
+
+El beat lanza la ronda de heartbeat cada 60 s y una ronda puede tardar
+más: dos rondas a la vez contaban los fallos por duplicado (la alerta
+saltaba antes de tiempo) y duplicaban la auditoría.
+
+**El arreglo**: lock por tarea en Redis (`SET NX EX 120`); si ya hay
+una ronda en curso, la nueva se omite.
+
+
 ## 5. Variables de entorno nuevas
 
 | Variable | Default | Para qué |

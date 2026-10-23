@@ -456,9 +456,10 @@ def _clean_redis_counters():
             client.delete(key)
         # Sprint R5 (2026-07-06): rate-limit en parkings/tariffs/cameras.
         # T-79: los scopes de incidentes y de subida de adjuntos.
+        # T-100: el scope de informes (tope por actor de los exportes).
         for prefix in ("rl:parkings_*", "rl:tariffs_*", "rl:cameras_*",
                        "rl:geofences_*", "rl:incidents_*",
-                       "rl:incident_attachments_*"):
+                       "rl:incident_attachments_*", "rl:informe*"):
             for key in client.scan_iter(prefix):
                 client.delete(key)
         # Sprint R2-followup: set de jtis activos por usuario que mantiene

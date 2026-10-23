@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **550 de 551 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **562 de 563 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1923,6 +1923,59 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] «Olvidé mi contraseña» encuentra la cuenta con el correo en mayúsculas.
   - [x] La puerta de migraciones (`alembic check`): **«el esquema migrado coincide con los modelos»**.
   - [x] 4 tests nuevos; prueba inversa: sin la normalización al escribir o al comparar, los tests **fallan**.
+
+
+### T-100 · P0 (disponibilidad) — los informes no tenían tope de filas ni de ventana
+
+- **Estado**: **completado** — ventana acotada, filas acotadas y rate-limit por actor
+- **Contexto** (auditoría del 2026-10-23): los exportes de informes pedían **todo** lo que les pedían, sin ningún tope:
+  1. la **ventana** no tenía límite: un gestor podía pedir 30 años;
+  2. el **informe de ocupación** cargaba **TODA la historia** de la sucursal (el filtro se hacía en Python, no en SQL): pedir un informe de una hora traía los tickets de tres años en memoria;
+  3. el PDF multiplica las filas por los objetos del dibujo.
+- **Por qué es P0**: el efecto no es un informe lento, es el **proceso de la API sin memoria** — y si la API se queda sin memoria, se cae **entera** (no solo los informes). Y lo puede pedir un usuario autenticado cualquiera con un rol de gestor.
+- **El arreglo** (tres topes):
+  1. **ventana**: como máximo **366 días**; más que eso → 422 con el motivo;
+  2. **filas**: como máximo **20.000** por informe; más que eso → 413. Y **no** se recorta en silencio: un informe truncado sin avisar es peor que uno que no se genera;
+  3. **rate-limit por actor** en todo el router de informes (dependencia del router: una sola implementación, no once copias — el mismo patrón que el rate-limit único de T-69);
+  4. y el **informe de ocupación filtra en SQL** (`exit_at IS NULL OR exit_at > to`): solo carga los tickets que siguen abiertos en el instante de la foto.
+- **Medido** (2026-10-23, contra la API real en marcha):
+  | ventana | antes | ahora |
+  |---|---|---|
+  | 1 día | 200 | 200 |
+  | 30 días | 200 | 200 |
+  | 10 años | **200** (toda la historia en memoria) | **422** |
+- **Criterios de aceptación**:
+  - [x] Una ventana de más de 366 días se rechaza con 422 (medido: 10 años → 422).
+  - [x] Un informe que supera el tope de filas se rechaza con **413** (y no se recorta en silencio).
+  - [x] El informe de ocupación **sigue diciendo lo mismo** (que es lo que hay que comprobar al acotar: un ticket cerrado de hace un año no ocupa, y el abierto sí).
+  - [x] Los informes tienen rate-limit por actor (31 peticiones seguidas → 429).
+  - [x] 5 tests nuevos; prueba inversa: sin el tope de ventana o sin el de filas, los tests **fallan**.
+
+### T-101 · P0 (disponibilidad) — seis servicios se quedaban caídos si morían
+
+- **Estado**: **completado** — `restart: unless-stopped` en todos los servicios
+- **Contexto** (auditoría del 2026-10-23): el compose tenía la política de reinicio en **6 servicios** (ocr, vehicle-detector, loki, promtail, grafana) pero **no** en `db`, `redis`, `backend`, `frontend`, `celery-worker` ni `celery-beat`. Sin `restart`, un servicio que se cae (un OOM, un SIGKILL, un bug) **se queda caído** hasta que alguien lo levante a mano.
+- **Por qué es lo más grave con el worker**: con `task_acks_on_failure_or_timeout` (el defecto de Celery), las tareas que estaban en curso **no se reintentan**; el beat sigue publicando cada 60 s; la cola de Redis crece sin que nadie la consuma; y no hay ni alertas de cámara caída ni detección de matrículas.
+- **El arreglo**: `restart: unless-stopped` en los seis servicios que faltaban (y también en el compose de producción, que es un *override* del de desarrollo: los servicios los define el de desarrollo).
+- **Vigilado por una puerta**: `tools/verificar_compose_produccion.py` comprueba ahora que **todo** servicio tiene `restart: unless-stopped`, con su caso de mentira (un compose con un servicio sin la política → la puerta falla ✓).
+- **Criterios de aceptación**:
+  - [x] Medido: 6 servicios sin política de reinicio (db, redis, backend, frontend, celery-worker, celery-beat).
+  - [x] Los 6 la tienen ahora, y la puerta del compose lo vigila.
+  - [x] La autoprueba de la puerta tiene el caso de mentira: un servicio sin la política → **falla**.
+
+### T-102 · P1 (fiabilidad) — dos rondas de heartbeat podían solaparse
+
+- **Estado**: **completado** — lock por tarea en Redis (`SET NX`)
+- **Contexto** (auditoría del 2026-10-23): el beat lanza `probe_heartbeats` **cada 60 s**, pero una ronda puede tardar más (una cámara colgada hace que FFmpeg tarde en abandonar el RTSP; además el `asyncio.run` de Python 3.11 **espera a los hilos** del executor aunque su `wait_for` ya haya expirado). Con dos rondas a la vez:
+  - el contador de fallos de cada cámara se incrementaba **dos veces por minuto**, así que la alerta de cámara caída saltaba al **doble** de tiempo del configurado;
+  - se duplicaban las filas de auditoría y los eventos publicados;
+  - dos rondas podían tomar a la vez el lock de alerta de una cámara: el `SET NX` es atómico, pero la secuencia `INCR → comprobar → SET NX → borrar contador → INSERT` **no lo es**, y si el `INSERT` fallaba la cámara se quedaba muda una hora.
+- **El arreglo**: la tarea toma un lock en Redis (`SET NX EX 120`, dos veces el intervalo del beat) y, si ya hay una ronda en curso, **se omite** y lo dice (`{"omitida": True, "motivo": "ronda_en_curso"}`). Si Redis no responde, la tarea **no** se bloquea (sin Redis no hay ni colas ni rate-limit): avisa y sigue.
+- **Criterios de aceptación**:
+  - [x] Con el lock tomado, la ronda se omite y lo dice.
+  - [x] Sin lock, la ronda se ejecuta como siempre (no se ha roto nada).
+  - [x] El lock es `SET NX` (dos rondas no lo toman las dos) y **caduca** (para que un worker muerto no bloquee las rondas siguientes).
+  - [x] 3 tests nuevos; prueba inversa: sin el lock, el test **falla**.
 
 ### T-14 · I3 — OCR con GPU
 
