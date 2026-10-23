@@ -126,6 +126,14 @@ docker run --rm -v "D:\Parking:/repo" -w /repo rhysd/actionlint:latest .github/w
   y la del contenedor a la vez**: la del host se queda **colgada con 0 %
   de CPU** (no es un test lento, es un bloqueo) y hay que matarla. Lanza
   una, espera, y luego la otra.
+- **Un test de tiempos es frágil si la máquina está saturada**: medido el
+  2026-10-23, la suite del contenedor dio **12 fallos** (los que dependen
+  de Redis agotando el tiempo de espera) mientras el CI replicado corría
+  en paralelo en el host; con la máquina idle los mismos tests pasan. Por
+  eso el test de latencia del login (T-86) compara de forma **relativa**
+  al coste del bcrypt (un ratio) y no con un umbral en segundos: así da el
+  mismo veredicto en un portátil lento y en un servidor, y la mutación
+  (quitar el hash señuelo) sigue detectándose (el ratio pasa de ~1 a ~0,07).
 - **Dos suites del host sí pueden ir en paralelo** (SQLite y PostgreSQL a
   la vez): la base de Redis de cada una se **toma con un lock** (`SET NX`).
   Antes se elegía con `8 + (pid % 8)`, y dos PIDs que difieren en un
