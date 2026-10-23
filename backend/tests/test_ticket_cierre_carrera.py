@@ -28,7 +28,6 @@ from app.models.user import ParkingMembership
 from app.models.vehicle import Vehicle
 from tests._audit_helpers import (
     _login_headers,
-    _seed_cliente,
     _seed_gestor,
     _seed_parking,
 )
