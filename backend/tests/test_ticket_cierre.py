@@ -204,3 +204,55 @@ def test_un_gestor_de_otra_sucursal_no_puede_cerrar_el_ticket(
         json={"exit_at": datetime.now(timezone.utc).isoformat()},
     )
     assert r.status_code in (403, 404), r.text
+
+
+def test_el_cierre_manual_publica_el_evento_del_bus(
+    client: TestClient, db_session: Session, monkeypatch
+) -> None:
+    """T-127: el cierre manual publica ``TICKET_CLOSED`` en el bus.
+
+    El cierre por cámara y el alta manual ya lo hacían (para que el mapa
+    del gestor se actualice al instante); el manual no, así que la app
+    se enteraba hasta el poll de 30 s.
+    """
+    import json as _json
+
+    publicados: list[tuple[str, str]] = []
+
+    class _FakeRedis:
+        def publish(self, channel: str, body: str) -> int:
+            publicados.append((channel, body))
+            return 1
+
+    monkeypatch.setattr(
+        "redis.Redis.from_url", lambda url, **kwargs: _FakeRedis()
+    )
+
+    parking, _cliente, gestor, vehiculo = _escenario(db_session)
+    headers = _login_headers(client, gestor.email, "gestor1234")
+
+    abierto = client.post(
+        "/api/v1/tickets",
+        headers=headers,
+        json={
+            "parking_id": parking.id,
+            "vehicle_id": vehiculo.id,
+            "entry_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    assert abierto.status_code == 201, abierto.text
+    ticket_id = abierto.json()["id"]
+
+    r = client.post(
+        f"/api/v1/tickets/{ticket_id}/close",
+        headers=headers,
+        json={"exit_at": datetime.now(timezone.utc).isoformat()},
+    )
+    assert r.status_code == 200, r.text
+
+    assert publicados, "el cierre manual no publicó nada en el bus"
+    canal, cuerpo = publicados[0]
+    assert canal == f"parking:{parking.id}:events"
+    evento = _json.loads(cuerpo)
+    assert evento["type"] == "ticket_closed"
+    assert evento["payload"]["ticket_id"] == ticket_id

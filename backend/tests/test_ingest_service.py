@@ -548,3 +548,133 @@ def test_el_cierre_por_camara_no_pisa_el_de_otro(ingest_env, monkeypatch) -> Non
     assert final.total == 99.0, (
         f"la ingesta escribio su importe encima del del otro cierre: {final.total}"
     )
+
+
+# ── T-122 (2026-10-23): la matricula se normaliza ─────────────────────
+def test_la_entrada_y_la_salida_casan_aunque_el_ocr_difiera(ingest_env) -> None:
+    """La entrada "1111abc" y la salida "1111ABC" son el MISMO coche.
+
+    Antes de T-122 la ingesta usaba el texto crudo del OCR: la entrada
+    con minusculas y la salida con mayusculas creaban dos vehiculos
+    distintos, de modo que la salida no encontraba el ticket activo
+    (no se cobraba) y el ticket de la entrada se quedaba ACTIVO para
+    siempre (plaza ocupada, coche que no puede volver a entrar).
+    """
+    parking, space, cam_entry = _setup_with_geofence(ingest_env, direction="entry")
+    space_b = ParkingSpace(parking_id=parking.id, lane="B", number="B-01")
+    ingest_env.add(space_b)
+    ingest_env.flush()
+    cam_exit = Camera(
+        parking_id=parking.id, code="CAM-OUT", name="Out",
+        rtsp_url="rtsp://demo.invalid/x",
+    )
+    ingest_env.add(cam_exit)
+    ingest_env.flush()
+    ingest_env.add(CameraGeofence(
+        camera_id=cam_exit.id, parking_space_id=space_b.id,
+        x=0, y=0, w=200, h=200, confidence_threshold=0.85,
+        direction="exit",
+    ))
+    ingest_env.add(_add_tariff(ingest_env, parking.id))
+    ingest_env.commit()
+
+    # Entrada en minusculas.
+    entrada = PlateHit(plate="1111abc", confidence=0.95, bbox=[10, 10, 50, 50])
+    r1 = process_plate_hit(entrada, cam_entry)
+    assert r1.status == IngestStatus.TICKET_CREATED, r1.reason
+    assert r1.ticket_id is not None
+
+    # El vehiculo se guarda normalizado.
+    ingest_env.expire_all()
+    vehiculo = ingest_env.query(Vehicle).filter_by(plate="1111ABC").one()
+    assert vehiculo.id == r1.vehicle_id
+
+    # Salida en mayusculas (y con un espacio, como lo lee un OCR).
+    salida = PlateHit(plate="1111 ABC", confidence=0.95, bbox=[10, 10, 50, 50])
+    r2 = process_plate_hit(salida, cam_exit)
+
+    assert r2.status == IngestStatus.TICKET_CLOSED, (
+        f"la salida no encontro la entrada: {r2.status} {r2.reason}"
+    )
+    assert r2.ticket_id == r1.ticket_id
+
+    # Y no se ha creado un segundo vehiculo.
+    ingest_env.expire_all()
+    assert ingest_env.query(Vehicle).filter_by(plate="1111ABC").count() == 1
+
+
+# ── T-123 (2026-10-23): los errores no se disfracen ────────────────────
+def test_un_error_interno_no_dice_que_no_hay_geocerca(ingest_env, monkeypatch) -> None:
+    """Un fallo inesperado se anuncia como error, no como "no hay geocerca".
+
+    Antes (T-123) el ``catch-all`` traducia **cualquier** error a
+    ``skipped_no_geofence``: un fallo de la base de datos, una plaza
+    ocupada o un error de programacion se anunciaban con una
+    explicacion falsa, y el motivo real se perdia.
+    """
+    _parking, _space, camera = _setup_with_geofence(ingest_env)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("se ha roto la base de datos")
+
+    monkeypatch.setattr(ingest_service, "_process_in_tx", _boom)
+
+    hit = PlateHit(plate="7777ZZZ", confidence=0.95, bbox=[10, 10, 50, 50])
+    result = process_plate_hit(hit, camera)
+
+    assert result.status == IngestStatus.SKIPPED_ERROR, (
+        f"un error interno se anuncio como {result.status}"
+    )
+    assert "geocerca" not in (result.reason or "").lower(), (
+        f"el motivo sigue hablando de geocercas: {result.reason}"
+    )
+    assert "se ha roto la base de datos" in (result.reason or "")
+
+
+def test_la_carrera_por_la_plaza_dice_plaza_ocupada(ingest_env, monkeypatch) -> None:
+    """Si otro vehiculo ocupa la plaza entre medias, se dice "plaza ocupada".
+
+    La base de datos lo prohibe (indice unico parcial). Antes ese
+    IntegrityError acababa en el ``catch-all`` y se anunciaba como
+    "no hay geocerca" (o como error interno).
+    """
+    parking, space, camera = _setup_with_geofence(ingest_env)
+    ingest_env.add(_add_tariff(ingest_env, parking.id))
+    ingest_env.commit()
+
+    otro = Vehicle(plate="8888YYY")
+    ingest_env.add(otro)
+    ingest_env.flush()
+
+    ocupado = {"hecho": False}
+    commit_original = type(ingest_env).commit
+
+    def _commit_con_carrera(self, *args, **kwargs):
+        # Justo antes del commit de la ingesta, otro coche ocupa la plaza.
+        if not ocupado["hecho"]:
+            ocupado["hecho"] = True
+            otra = sessionmaker(bind=ingest_env.get_bind())()
+            try:
+                otra.add(
+                    Ticket(
+                        parking_id=parking.id,
+                        vehicle_id=otro.id,
+                        parking_space_id=space.id,
+                        status=TicketStatus.ACTIVO,
+                        entry_at=datetime.now(timezone.utc),
+                    )
+                )
+                otra.commit()
+            finally:
+                otra.close()
+        return commit_original(self, *args, **kwargs)
+
+    monkeypatch.setattr(type(ingest_env), "commit", _commit_con_carrera)
+
+    hit = PlateHit(plate="9999ZZZ", confidence=0.95, bbox=[10, 10, 50, 50])
+    result = process_plate_hit(hit, camera)
+
+    assert ocupado["hecho"], "el test no forzo la carrera"
+    assert result.status == IngestStatus.SKIPPED_SPACE_OCCUPIED, (
+        f"la carrera por la plaza se anuncio como {result.status} ({result.reason})"
+    )

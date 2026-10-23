@@ -26,6 +26,7 @@ from app.models.user import ParkingMembership, User
 from app.models.vehicle import Vehicle, VehicleUser
 from app.schemas.ticket import TicketClose, TicketCreate, TicketManualCreate, TicketRead
 from app.services.manual_tickets import create_manual_ticket as _create_manual_ticket
+from app.services.event_bus import EventType, publish as publish_event
 from app.services.pdf import render_ticket_pdf, save_ticket_pdf
 from app.services.pricing import PricingError, calculate_ticket_total
 
@@ -274,6 +275,16 @@ def close_ticket(
         )
     db.commit()
     db.refresh(ticket)
+
+    # T-127 (2026-10-23): el cierre por camara y el alta manual publican
+    # en el bus SSE (para que el mapa del gestor se actualice al
+    # instante). El cierre manual no publicaba nada, asi que la app se
+    # enteraba hasta el poll de 30 s.
+    publish_event(
+        ticket.parking_id,
+        EventType.TICKET_CLOSED,
+        {"ticket_id": ticket.id, "total": ticket.total},
+    )
 
     # Generar PDF de justificante. Si ReportLab fallase (raro en prod),
     # dejamos el ticket cerrado igualmente; sólo logueamos.

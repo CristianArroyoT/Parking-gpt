@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **641 de 642 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **650 de 651 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2332,6 +2332,47 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Test de la ingesta: con la intercalación forzada, la ingesta devuelve `skipped_already_inside` y el importe es el del primer cierre.
   - [x] Prueba inversa de los dos: reintroduciendo el `commit()` a ciegas, **los dos tests fallan**.
   - [x] El cierre normal (sin carrera) sigue funcionando: la ingesta devuelve `ticket_closed` y el manual 200.
+
+### T-122 · P0 (negocio) — la matrícula se guardaba sin normalizar: la entrada y la salida no casaban
+
+- **Estado**: **completado** — la matrícula se normaliza antes de buscar y de crear el vehículo
+- **Contexto**: la ingesta usaba el **texto crudo** del OCR (`hit.plate`) para buscar y crear el vehículo, mientras que el filtro de «esto es una matrícula» (`parece_matricula`) **sí** normalizaba. El helper `normalizar_matricula` ya existía y el alta manual lo usaba desde el principio: lo que faltaba era usarlo en la ingesta.
+- **Medido** (2026-10-23, con la intercalación de una cámara de entrada y otra de salida):
+  - entrada con `"1111abc"` y salida con `"1111ABC"` → **dos vehículos distintos**;
+  - la salida no encontraba el ticket activo → `skipped_no_active_ticket` → **no se cobraba**;
+  - el ticket de la entrada se quedaba **activo para siempre**: plaza ocupada, coche que no puede volver a entrar, y y el parking se queda sin ese ingreso.
+- **El arreglo**: `matricula = normalizar_matricula(hit.plate)` antes del lookup y del INSERT. Es el **cambio mínimo** que arregla el bug: el `IngestResult.plate` sigue siendo el texto que leyó el OCR (es la evidencia), pero la **identidad** del vehículo es la forma canónica.
+- **Nota**: los vehículos ya guardados con espacios (posibles sólo en una BD de desarrollo anterior a este cambio) no se re-normalizan; en producción la tabla está vacía al empezar.
+- **Criterios de aceptación**:
+  - [x] Test: entrada en minúsculas y salida en mayúsculas (con espacio) → **el mismo ticket**, cerrado y cobrado; y **un solo vehículo** en la BD.
+  - [x] El vehículo se guarda normalizado (`1111ABC`).
+  - [x] Prueba inversa: con la matrícula cruda, el test **falla**.
+  - [x] Los 19 tests de la ingesta pasan.
+
+### T-123 · P2 (operación) — un error interno se anunciaba como «no hay geocerca»
+
+- **Estado**: **completado** — cada error dice lo que es
+- **Contexto**: el `catch-all` global de la ingesta traducía **cualquier** error inesperado a `skipped_no_geofence` («no hay geocerca calibrada»), con el motivo real sólo en el log. Y la carrera por la **plaza** (otro vehículo la ocupa entre la comprobación y el INSERT) caía en ese mismo `catch-all`: la base de datos ya lo prohibe (índice único parcial) y el estado correcto (`skipped_space_occupied`) ya existía.
+- **Medido** (2026-10-23):
+  - un error inesperado → `skipped_no_geofence` con el motivo «error interno: …» (**explicación falsa**);
+  - la carrera por la plaza → `skipped_error` / «error interno: (sqlite3.IntegrityError…)» (**se pierde la causa**).
+- **El arreglo**:
+  1. Estado nuevo `SKIPPED_ERROR` para los fallos inesperados (el `catch-all` deja de disfrazarse de geocerca).
+  2. La carrera por la plaza se comprueba y se devuelve como `SKIPPED_SPACE_OCCUPIED` («la plaza ya la ocupa otro vehículo»), que es lo que ocurrió.
+- **Criterios de aceptación**:
+  - [x] Test: un error inesperado → `skipped_error`, y su motivo **no** habla de geocercas.
+  - [x] Test: la carrera por la plaza → `skipped_space_occupied` (con la intercalación forzada).
+  - [x] Pruebas inversas de los dos: reintroduciendo el comportamiento anterior, los tests **fallan**.
+
+### T-127 · P2 (operación) — el cierre manual no publicaba nada en el bus de eventos
+
+- **Estado**: **completado** — el cierre manual publica `ticket_closed` como los demás
+- **Contexto**: el cierre por cámara y el alta manual publican en el bus SSE (para que el mapa del gestor se actualice al instante). El cierre **manual** (`POST /tickets/{id}/close`) no publicaba nada: la app se enteraba hasta el poll de 30 s.
+- **Medido** (2026-10-23, con un Redis falso): al cerrar un ticket a mano, el canal `parking:{id}:events` **no recibía nada**.
+- **El arreglo**: el cierre manual publica `TICKET_CLOSED` con el `ticket_id` y el `total`, igual que los otros dos caminos.
+- **Criterios de aceptación**:
+  - [x] Test: al cerrar un ticket, el bus recibe un evento `ticket_closed` en el canal de la sucursal, con el `ticket_id` y el `total`.
+  - [x] Prueba inversa: quitando el `publish_event`, el test **falla**.
 
 ### T-14 · I3 — OCR con GPU
 

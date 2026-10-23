@@ -54,7 +54,7 @@ from app.models.ticket import Ticket
 from app.models.vehicle import Vehicle
 from app.schemas.plate import PlateHit
 from app.services.pdf import save_ticket_pdf
-from app.services.plates import parece_matricula
+from app.services.plates import normalizar_matricula, parece_matricula
 from app.services.pricing import PricingError, calculate_ticket_total
 from app.services.event_bus import EventType, publish as publish_event
 
@@ -77,6 +77,11 @@ class IngestStatus(StrEnum):
     #: crea ni vehículo ni ticket.
     SKIPPED_NOT_A_PLATE = "skipped_not_a_plate"
     SKIPPED_NO_ACTIVE_TICKET = "skipped_no_active_ticket"
+    #: T-123 (2026-10-23): fallo inesperado. Antes todo error caia en
+    #: ``skipped_no_geofence`` ("no hay geocerca"), que es una
+    #: explicacion falsa: el motivo real (una plaza ocupada, un error de
+    #: la base de datos) se perdia.
+    SKIPPED_ERROR = "skipped_error"
 
 
 @dataclass(frozen=True)
@@ -144,11 +149,15 @@ def process_plate_hit(
             return _process_in_tx(db, hit, camera, now=now)
     except Exception as exc:  # noqa: BLE001 — defensiva por contrato
         log.exception("ingest: fallo inesperado plate=%s: %s", hit.plate, exc)
+        # T-123 (2026-10-23): esto ya NO es "no hay geocerca". El
+        # catch-all traducia cualquier error a ese estado, de modo que
+        # un fallo de la base de datos o una plaza ocupada se
+        # anunciaban con una explicacion falsa.
         return IngestResult(
             plate=hit.plate,
             camera_id=camera.id,
             parking_id=camera.parking_id,
-            status=IngestStatus.SKIPPED_NO_GEOFENCE,
+            status=IngestStatus.SKIPPED_ERROR,
             confidence=hit.confidence,
             reason=f"error interno: {exc}",
         )
@@ -229,9 +238,18 @@ def _process_in_tx(
         )
 
     # 3. Lookup o create vehicle (con manejo de race condition)
-    vehicle = db.query(Vehicle).filter(Vehicle.plate == hit.plate).one_or_none()
+    #
+    # T-122 (2026-10-23): la matricula se NORMALIZA antes de buscar y
+    # de crear. Antes se usaba el texto crudo del OCR, de modo que la
+    # entrada "1234 abc" y la salida "1234ABC" creaban dos vehiculos
+    # distintos: la salida no encontraba el ticket activo (y no se
+    # cobraba) y el ticket de la entrada se quedaba activo para siempre.
+    # El filtro de "esto es una matricula" (``parece_matricula``) ya
+    # normalizaba; lo que faltaba era normalizar la identidad.
+    matricula = normalizar_matricula(hit.plate)
+    vehicle = db.query(Vehicle).filter(Vehicle.plate == matricula).one_or_none()
     if vehicle is None:
-        vehicle = Vehicle(plate=hit.plate)
+        vehicle = Vehicle(plate=matricula)
         db.add(vehicle)
         try:
             db.flush()
@@ -241,7 +259,7 @@ def _process_in_tx(
             db.rollback()
             vehicle = (
                 db.query(Vehicle)
-                .filter(Vehicle.plate == hit.plate)
+                .filter(Vehicle.plate == matricula)
                 .one()
             )
             log.info(
@@ -449,8 +467,35 @@ def _process_in_tx(
             .first()
         )
         if existente is None:
-            # No es el indice del vehiculo (puede ser el de la plaza):
-            # el error original se propaga.
+            # No es el indice del vehiculo. Puede ser el de la PLAZA
+            # (otro vehiculo la ocupa): eso no es un error interno, es
+            # la plaza ocupada (T-123).
+            ocupada = (
+                db.query(Ticket)
+                .filter(
+                    Ticket.parking_space_id == matched.parking_space_id,
+                    Ticket.status == TicketStatus.ACTIVO,
+                )
+                .first()
+            )
+            if ocupada is not None:
+                log.info(
+                    "ingest: ENTRY con la plaza ocupada plate=%s space=%s ticket=%s",
+                    hit.plate,
+                    matched.parking_space_id,
+                    ocupada.id,
+                )
+                return IngestResult(
+                    plate=hit.plate,
+                    camera_id=camera.id,
+                    parking_id=camera.parking_id,
+                    status=IngestStatus.SKIPPED_SPACE_OCCUPIED,
+                    confidence=hit.confidence,
+                    vehicle_id=vehicle.id,
+                    parking_space_id=matched.parking_space_id,
+                    reason="La plaza ya la ocupa otro vehículo",
+                )
+            # Es otro error: el original se propaga.
             raise
         log.info(
             "ingest: ENTRY duplicado en carrera plate=%s camera=%s ticket_id=%s",

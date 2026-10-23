@@ -2576,3 +2576,29 @@ cerrar una estancia ya cerrada, con dos PDF y dos eventos).
 id = ... AND status = 'activo'`): la comprobación y la escritura son la
 misma sentencia, así que no hay ventana. El manual responde 409 y la
 ingesta `skipped_already_inside`.
+
+### 3-centésimoséptima. La matrícula se guardaba sin normalizar (2026-10-23)
+
+La ingesta usaba el texto crudo del OCR para buscar y crear el vehículo,
+mientras que el filtro de «esto es una matrícula» ya normalizaba. La
+entrada `"1111abc"` y la salida `"1111ABC"` creaban **dos vehículos**:
+la salida no encontraba el ticket activo (no se cobraba) y el ticket de
+la entrada se quedaba activo para siempre.
+
+**El arreglo**: `normalizar_matricula` antes del lookup y del INSERT (la
+identidad del vehículo es la forma canónica; el `IngestResult` sigue
+diciendo lo que leyó el OCR).
+
+### 3-centésimoctava. Un error interno se anunciaba como «no hay geocerca» (2026-10-23)
+
+El `catch-all` de la ingesta traducía cualquier error inesperado a
+`skipped_no_geofence`, y la carrera por la plaza (otro vehículo la ocupa)
+caía en el mismo sitio. **El arreglo**: estado nuevo `skipped_error` para
+los fallos inesperados, y `skipped_space_occupied` para la carrera por la
+plaza (que ya tiene su estado).
+
+### 3-centésimonovena. El cierre manual no publicaba en el bus de eventos (2026-10-23)
+
+El cierre por cámara y el alta manual publican en el bus SSE; el manual
+no, así que la app se enteraba hasta el poll de 30 s. **El arreglo**: el
+cierre manual publica `ticket_closed` con el `ticket_id` y el `total`.
