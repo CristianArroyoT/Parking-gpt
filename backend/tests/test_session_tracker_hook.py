@@ -93,15 +93,21 @@ class _BrokenRedis:
         raise redis.RedisError("simulated redis down")
 
 
-def test_login_fail_open_when_redis_down(
+def test_login_fail_closed_when_redis_down(
     client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Si Redis cae durante track_session, login responde 200 igualmente.
+    """Si Redis cae durante track_session, login responde 503 y NO emite token.
 
-    Parchea ``session_tracker._r`` con un fake que lanza ``RedisError``
-    en ``sadd``. ``track_session`` captura el error internamente y
-    devuelve False (fail-OPEN documentado en ``session_tracker.py``),
-    así que login NO debe fallar.
+    T-109 (2026-10-23): antes esto era FAIL-OPEN (el login devolvia 200
+    con el token). El problema no era el token inutil (el middleware ya
+    es fail-closed y devuelve 401 a todo lo que lleva token mientras
+    Redis esta caido), sino lo que pasaba **al recuperarse Redis**: ese
+    token no estaba registrado, un cambio de contrasena (que revoca las
+    sesiones registradas) no lo revocaba, y el token **sobrevivia al
+    reset**.
+
+    Ahora el login es fail-closed como el middleware: si la sesion no se
+    puede registrar, se responde 503 y no se emite ningun token.
     """
     admin = _seed_admin(db_session)
     monkeypatch.setattr(session_tracker, "_r", lambda: _BrokenRedis())
@@ -110,8 +116,9 @@ def test_login_fail_open_when_redis_down(
         "/api/v1/auth/login",
         json={"email": admin.email, "password": "admin12345"},
     )
-    assert resp.status_code == 200, resp.text
-    assert "access_token" in resp.json()
+    assert resp.status_code == 503, resp.text
+    assert "access_token" not in resp.json()
+    assert "refresh_token" not in resp.json()
 
 
 def test_logout_all_now_invalidates_real_jtis(

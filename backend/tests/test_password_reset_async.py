@@ -101,21 +101,25 @@ def test_el_endpoint_no_es_mas_rapido_si_la_cuenta_no_existe(
         email_module, "encolar_envio_reset", lambda **kwargs: True
     )
 
-    _limpiar_buckets()
-    inicio = time.perf_counter()
-    existe = client.post(
-        "/api/v1/auth/forgot-password", json={"email": "cliente.async@test.es"}
-    )
-    con_cuenta = time.perf_counter() - inicio
-    assert existe.status_code == 200, existe.text
+    def _minimo(email: str) -> float:
+        """El tiempo MAS CORTO de tres peticiones (el mas estable).
 
-    _limpiar_buckets()
-    inicio = time.perf_counter()
-    no_existe = client.post(
-        "/api/v1/auth/forgot-password", json={"email": "nadie.async@test.es"}
-    )
-    sin_cuenta = time.perf_counter() - inicio
-    assert no_existe.status_code == 200, no_existe.text
+        Con la maquina saturada (medido el 2026-10-23: la suite del
+        contenedor corria en paralelo con el CI del host) una sola
+        medida puede comerse cientos de ms de ruido. El minimo de tres
+        es la estimacion menos contaminada.
+        """
+        tiempos = []
+        for _ in range(3):
+            _limpiar_buckets()
+            inicio = time.perf_counter()
+            r = client.post("/api/v1/auth/forgot-password", json={"email": email})
+            tiempos.append(time.perf_counter() - inicio)
+            assert r.status_code == 200, r.text
+        return min(tiempos)
+
+    con_cuenta = _minimo("cliente.async@test.es")
+    sin_cuenta = _minimo("nadie.async@test.es")
 
     assert con_cuenta >= SUELO_MS / 1000, (
         f"la respuesta tardó {con_cuenta:.3f}s: por debajo del suelo de "
