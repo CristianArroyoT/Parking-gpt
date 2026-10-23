@@ -119,10 +119,29 @@ export async function listSpaces(parkingId: number): Promise<ParkingSpace[]> {
   return data
 }
 
+/**
+ * Búsqueda dirigida por matrícula.
+ *
+ * T-116 (2026-10-23): el listado COMPLETO de la flota (`/vehicles` sin
+ * `plate`) queda para el administrador: antes cualquier gestor u operador
+ * recibía todas las matrículas del sistema, incluidas las de vehículos
+ * que sólo operan en otras sucursales (dato personal, LOPDGDD). Con
+ * `plate` es una búsqueda dirigida (el operador tiene la matrícula en la
+ * puerta) y sigue siendo del personal.
+ */
 export async function listVehicles(plate?: string): Promise<VehiclePlate[]> {
   const { data } = await http.get<VehiclePlate[]>('/vehicles', {
     params: plate ? { plate } : {},
   })
+  return data
+}
+
+/**
+ * Vehículos de una sucursal (T-116): los que tienen un ticket en ella.
+ * Es el listado acotado que usa la vista de movimientos del gestor.
+ */
+export async function listParkingVehicles(parkingId: number): Promise<VehiclePlate[]> {
+  const { data } = await http.get<VehiclePlate[]>(`/parkings/${parkingId}/vehicles`)
   return data
 }
 

@@ -107,23 +107,129 @@ def _roles_de(nodo: ast.AST, constantes: dict[str, list[str]]) -> list[str]:
     return []
 
 
-def _constantes_de_roles(arbol: ast.AST) -> dict[str, list[str]]:
-    """Constantes de modulo que son tuplas de roles (``_STAFF``)."""
+def _constantes_de_roles(arbol: ast.AST, base: Path) -> dict[str, list[str]]:
+    """Constantes de modulo que son tuplas de roles (``_STAFF``).
+
+    T-116 (2026-10-23): ademas de las tuplas literales, se resuelven las
+    constantes **importadas de otro modulo** (``from app.core.deps import
+    ROLES_STAFF``). Antes el extractor solo miraba literales, asi que al
+    unificar la lista de roles de personal en ``app/core/deps.py``
+    (``ROLES_STAFF``) el inventario paso a decir ``require_role(...)`` sin
+    los roles: un inventario que no dice quien puede usar cada endpoint
+    es un inventario que no se puede leer.
+
+    OJO: esto es el patron "dos comprobaciones que comparten la fuente de
+    verdad no se vigilan entre si": el extractor y el documento salen de
+    aqui los dos. Por eso el extractor tiene su propia autoprueba, contra
+    casos de mentira escritos a mano.
+    """
     constantes: dict[str, list[str]] = {}
+    # 1) Constantes definidas en este modulo (tupla o lista literal).
     for nodo in ast.walk(arbol):
-        if not isinstance(nodo, ast.Assign) or not isinstance(nodo.value, (ast.Tuple, ast.List)):
+        # T-116: ``ROLES_STAFF: tuple[str, ...] = (...)`` es un
+        # ``AnnAssign`` (con anotacion de tipo), no un ``Assign``: sin
+        # este caso, la constante no se resolvia y el inventario de la
+        # API se quedaba en ``require_role(...)`` sin decir los roles.
+        if isinstance(nodo, ast.Assign):
+            valor = nodo.value
+            objetivos = nodo.targets
+        elif isinstance(nodo, ast.AnnAssign):
+            valor = nodo.value
+            objetivos = [nodo.target]
+        else:
+            continue
+        if not isinstance(valor, (ast.Tuple, ast.List)):
             continue
         roles: list[str] = []
-        for elem in nodo.value.elts:
+        for elem in valor.elts:
             extraidos = _roles_de(elem, constantes)
             if extraidos:
                 roles.extend(extraidos)
         if not roles:
             continue
-        for objetivo in nodo.targets:
+        for objetivo in objetivos:
             if isinstance(objetivo, ast.Name):
                 constantes[objetivo.id] = roles
+    # 2) Constantes importadas: ``from app.core.deps import ROLES_STAFF``.
+    #    (Antes que los alias: un alias puede apuntar a una importada.)
+    for nodo in ast.walk(arbol):
+        if not isinstance(nodo, ast.ImportFrom) or not nodo.module:
+            continue
+        modulo = _ruta_de_modulo(nodo.module, base)
+        if modulo is None or not modulo.exists():
+            continue
+        for alias in nodo.names:
+            origen = alias.asname or alias.name
+            roles = _roles_de_constante_en(modulo, alias.name)
+            if roles:
+                constantes[origen] = roles
+    # 3) Alias de constantes ya conocidas: ``_STAFF = ROLES_STAFF``.
+    for nodo in ast.walk(arbol):
+        if isinstance(nodo, ast.Assign):
+            valor = nodo.value
+            objetivos = nodo.targets
+        elif isinstance(nodo, ast.AnnAssign):
+            valor = nodo.value
+            objetivos = [nodo.target]
+        else:
+            continue
+        if not isinstance(valor, ast.Name):
+            continue
+        origen = valor.id
+        if origen not in constantes:
+            continue
+        for objetivo in objetivos:
+            if isinstance(objetivo, ast.Name):
+                constantes[objetivo.id] = list(constantes[origen])
     return constantes
+
+
+def _ruta_de_modulo(nombre: str, base: Path) -> Path | None:
+    """Traduce ``app.core.deps`` a la ruta del fichero en disco.
+
+    Se busca **relativo al modulo que se esta analizando** (hacia arriba,
+    hasta el paquete ``app``), y no a una ruta fija del repo: asi la
+    autoprueba puede montar un ``app/core/deps.py`` de mentira y comprobar
+    que el extractor lo resuelve. Con una ruta fija, el caso de mentira
+    acabaria mirando el fichero de verdad y la autoprueba no probaria
+    nada (el patron "dos comprobaciones que comparten la fuente de
+    verdad no se vigilan entre si").
+    """
+    partes = nombre.split(".")
+    if not partes or partes[0] != "app":
+        return None
+    for ancestro in [base, *base.parents]:
+        if ancestro.name == partes[0]:
+            return ancestro.joinpath(*partes[1:]).with_suffix(".py")
+    return None
+
+
+def _roles_de_constante_en(modulo: Path, nombre: str) -> list[str]:
+    """Los roles de una constante de otro modulo (``ROLES_STAFF``)."""
+    try:
+        arbol = ast.parse(modulo.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return []
+    for nodo in ast.walk(arbol):
+        if isinstance(nodo, ast.Assign):
+            valor = nodo.value
+            objetivos = nodo.targets
+        elif isinstance(nodo, ast.AnnAssign):
+            valor = nodo.value
+            objetivos = [nodo.target]
+        else:
+            continue
+        if not isinstance(valor, (ast.Tuple, ast.List)):
+            continue
+        for objetivo in objetivos:
+            if isinstance(objetivo, ast.Name) and objetivo.id == nombre:
+                roles: list[str] = []
+                for elem in valor.elts:
+                    extraidos = _roles_de(elem, {})
+                    if extraidos:
+                        roles.extend(extraidos)
+                return roles
+    return []
 
 
 def _deps_de_lista(nodo: ast.AST, constantes: dict[str, list[str]]) -> list[Dep]:
@@ -390,7 +496,7 @@ def _quien(deps: list[Dep], por_middleware: bool = False) -> str:
 def extraer_de_modulo(ruta_fichero: Path) -> list[tuple[str, str, str, str]]:
     """(metodo, ruta completa, quien, modulo) de un fichero de router."""
     arbol = ast.parse(ruta_fichero.read_text(encoding="utf-8"))
-    constantes = _constantes_de_roles(arbol)
+    constantes = _constantes_de_roles(arbol, ruta_fichero.parent)
     prefijo = ""
     deps_router: list[Dep] = []
 
@@ -561,6 +667,53 @@ def _autoprueba() -> int:
             print(f"  OK: roles de una constante desplegada -> {sorted(encontrados)}")
         else:
             print(f"  FALLO: roles de una constante desplegada -> {sorted(encontrados)}")
+            fallos += 1
+
+        # T-116 (2026-10-23): el caso de la constante importada de OTRO
+        # modulo. El ``app/core/deps.py`` de aqui es de MENTIRA (no es el
+        # del repo): si el extractor lo mirase de verdad, la autoprueba
+        # no probaria nada.
+        mentira = raiz / "app" / "core"
+        mentira.mkdir(parents=True, exist_ok=True)
+        (mentira / "deps.py").write_text(
+            "from app.models.user import UserRole\n"
+            "\n"
+            # Con anotacion de tipo, como la de verdad (``AnnAssign``):
+            # si el caso de mentira no se parece al caso real, no
+            # comprueba lo que dice comprobar.
+            "ROLES_STAFF: tuple[str, ...] = (\n"
+            "    UserRole.ADMIN.value,\n"
+            "    UserRole.GESTOR.value,\n"
+            "    UserRole.OPERADOR.value,\n"
+            ")\n",
+            encoding="utf-8",
+        )
+        api = raiz / "app" / "api" / "v1"
+        api.mkdir(parents=True, exist_ok=True)
+        modulo = api / "constante_importada.py"
+        modulo.write_text(
+            "from fastapi import APIRouter, Depends\n"
+            "from app.core.deps import require_role, ROLES_STAFF\n"
+            "\n"
+            "_STAFF = ROLES_STAFF\n"
+            "router = APIRouter(prefix='/prueba')\n"
+            "\n"
+            "@router.get('/x', dependencies=[Depends(require_role(*ROLES_STAFF))])\n"
+            "def x():\n"
+            "    return {}\n"
+            "\n"
+            "@router.get('/y', dependencies=[Depends(require_role(*_STAFF))])\n"
+            "def y():\n"
+            "    return {}\n",
+            encoding="utf-8",
+        )
+        encontrados = set()
+        for _m, _r, quien, _mod in extraer_de_modulo(modulo):
+            encontrados |= _roles_de_quien(quien)
+        if {"admin", "gestor", "operador"} <= encontrados:
+            print(f"  OK: roles de una constante importada de otro modulo -> {sorted(encontrados)}")
+        else:
+            print(f"  FALLO: roles de una constante importada de otro modulo -> {sorted(encontrados)}")
             fallos += 1
 
     # Y el caso de verdad: en el código real, **ningún** ``require_role``

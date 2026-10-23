@@ -10,9 +10,22 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.security import decode_token
+from app.models.enums import UserRole
 from app.models.user import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
+
+#: Roles del personal: los que pueden operar sobre una sucursal.
+#:
+#: T-114 (2026-10-23): esto vivia duplicado en cada router (p.ej.
+#: ``vehicles.py`` lo tenia como ``_STAFF``). Lo que concede poder sobre
+#: una sucursal es el **rol global** del usuario, no su fila en
+#: ``parking_memberships`` (ver ``enforce_parking_membership``).
+ROLES_STAFF: tuple[str, ...] = (
+    UserRole.ADMIN.value,
+    UserRole.GESTOR.value,
+    UserRole.OPERADOR.value,
+)
 
 
 def get_current_user(
@@ -152,14 +165,39 @@ def enforce_parking_membership(
     Push security review (2026-07-07): se extrajo aquí para que
     ``parking_context`` pudiera volver a depender de ``get_current_user``
     (header-only) sin perder la opción de query-token en el endpoint live.
+
+    T-114 (2026-10-23): **el rol global manda**. Antes esta función sólo
+    miraba si existía una fila en ``parking_memberships``::
+
+        - [cliente] POST /parkings/11/spaces   -> [201] (creo una plaza)
+        - [cliente] POST /parkings/11/cameras  -> [201] (creo una camara)
+        - [cliente] POST /parkings/11/tariffs  -> [201] (FIJO EL PRECIO)
+
+    Es decir: un conductor con una fila de membresia (que el admin puede
+    crear desde ``POST /users/{id}/memberships``) se convertia en gestor
+    de la sucursal: fijaba las tarifas (fraude de ingresos), daba de alta
+    camaras y plazas, y subia placas. Ahora un rol que no es de personal
+    recibe 403 aunque tenga la membresia.
+
+    OJO: ``role_in_parking`` (la columna que dice "de que rol es en ESTA
+    sucursal") **no se usa para autorizar** en ninguna parte del codigo:
+    se escribe y no se lee. Por eso el alcance lo decide el rol global.
+    (Pendiente de decision de producto: RBAC por sucursal.)
     """
     from app.models.user import ParkingMembership
 
     # El rol se persiste como String(16); tras recargar el ORM puede venir
     # como enum o como str (depende del flush). Aceptamos ambos casos.
     role_value = user.role.value if hasattr(user.role, "value") else user.role
-    if role_value == "admin":
+    if role_value == UserRole.ADMIN.value:
         return user
+
+    # T-114: la membresia no convierte a un cliente en gestor.
+    if role_value not in ROLES_STAFF:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tiene acceso a esta sucursal",
+        )
 
     membership = (
         db.query(ParkingMembership)

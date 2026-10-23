@@ -51,6 +51,38 @@ def _enforce_endpoint_rate_limit(
     )
 
 
+def _camara_de_sucursal(db: Session, camera_id: int, parking_id: int) -> Camera:
+    """Carga la cámara **comprobando que es de esa sucursal**.
+
+    T-115 (2026-10-23): el router ya valida la membresía del
+    ``parking_id`` del path, pero tres endpoints NO comprobaban que la
+    cámara del path fuera de esa sucursal. Medido contra el sistema en
+    marcha (gestor de la sucursal 11, cámara 91 de la sucursal 12)::
+
+        GET   /parkings/11/cameras/91/geofences        -> [200] con datos
+        PATCH /parkings/11/cameras/91/geofences/25     -> [200] y MODIFICADA
+
+    Es decir, un gestor de una sucursal leia y **modificaba** las
+    geocercas de otra: las movia a una esquina diminuta y el OCR de la
+    otra sucursal dejaba de detectar la entrada (y con ella, de
+    registrar y de facturar).
+
+    Antes esta comprobacion estaba escrita a mano en ``create_geofence``
+    y en ``delete_geofence``, pero no en ``list_geofences`` ni en
+    ``update_geofence``: cuatro copias del mismo concepto, dos de ellas
+    equivocadas. Ahora hay **una** (``_camara_de_sucursal``) y la usan
+    las cuatro.
+    """
+    camera = (
+        db.query(Camera)
+        .filter(Camera.id == camera_id, Camera.parking_id == parking_id)
+        .one_or_none()
+    )
+    if not camera:
+        raise HTTPException(status_code=404, detail="Cámara no encontrada")
+    return camera
+
+
 router = APIRouter(
     prefix="/parkings/{parking_id}/cameras",
     tags=["cámaras"],
@@ -128,6 +160,8 @@ def list_geofences(
     camera_id: int,
     db: Session = Depends(get_db),
 ) -> list[CameraGeofence]:
+    # T-115: la camara tiene que ser de la sucursal del path.
+    _camara_de_sucursal(db, camera_id, parking_id)
     return (
         db.query(CameraGeofence)
         .filter(CameraGeofence.camera_id == camera_id)
@@ -146,13 +180,8 @@ def create_geofence(
     payload: GeofenceCreate,
     db: Session = Depends(get_db),
 ) -> CameraGeofence:
-    camera = (
-        db.query(Camera)
-        .filter(Camera.id == camera_id, Camera.parking_id == parking_id)
-        .one_or_none()
-    )
-    if not camera:
-        raise HTTPException(status_code=404, detail="Cámara no encontrada")
+    # T-115: la camara tiene que ser de la sucursal del path.
+    _camara_de_sucursal(db, camera_id, parking_id)
     fence = CameraGeofence(camera_id=camera_id, **payload.model_dump())
     db.add(fence)
     db.commit()
@@ -168,6 +197,10 @@ def update_geofence(
     payload: GeofenceUpdate,
     db: Session = Depends(get_db),
 ) -> CameraGeofence:
+    # T-115: la camara tiene que ser de la sucursal del path (si no,
+    # un gestor de otra sucursal movia esta geocerca y el OCR de la
+    # suya dejaba de detectar la entrada).
+    _camara_de_sucursal(db, camera_id, parking_id)
     fence = (
         db.query(CameraGeofence)
         .filter(
@@ -224,14 +257,8 @@ def delete_geofence(
     )
     if not fence:
         raise HTTPException(status_code=404, detail="Geocerca no encontrada")
-    # Validación cruzada camera↔parking.
-    camera = (
-        db.query(Camera)
-        .filter(Camera.id == camera_id, Camera.parking_id == parking_id)
-        .one_or_none()
-    )
-    if not camera:
-        raise HTTPException(status_code=404, detail="Cámara no encontrada")
+    # Validación cruzada camera↔parking (T-115: helper único).
+    _camara_de_sucursal(db, camera_id, parking_id)
     db.delete(fence)
     db.commit()
     return None

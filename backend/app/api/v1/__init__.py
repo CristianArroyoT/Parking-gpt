@@ -19,6 +19,7 @@ from app.api.v1 import (
     incidents,
     logout_all,
     parkings,
+    parking_vehicles,
     password_reset,
     plans,
     plates,
@@ -45,6 +46,10 @@ api_router.include_router(cameras.router)
 # ?token=... porque se consume desde <img> del navegador.
 api_router.include_router(cameras_live.router)
 api_router.include_router(vehicles.router)
+# T-116 (2026-10-23): listado de vehiculos ACOTADO a una sucursal. El
+# listado global (`GET /vehicles`) queda para el administrador, asi que
+# el personal usa este para los vehiculos de su sucursal.
+api_router.include_router(parking_vehicles.router)
 api_router.include_router(tariffs.router)
 # T-18 (2026-10-21): CRUD de planes + alta/baja de suscripciones. El
 # descuento ya se aplicaba al cerrar el ticket, pero nadie podía crear

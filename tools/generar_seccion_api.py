@@ -38,6 +38,7 @@ TITULOS = {
     "incidents": ("Incidentes y adjuntos", "incidents.py"),
     "logout_all": ("Cierre de sesión global", "logout_all.py"),
     "parkings": ("Sucursales", "parkings.py"),
+    "parking_vehicles": ("Vehículos de la sucursal", "parking_vehicles.py"),
     "password_reset": ("Recuperación de contraseña", "password_reset.py"),
     "plans": ("Planes y suscripciones", "plans.py"),
     "plates": ("Placas (OCR)", "plates.py"),

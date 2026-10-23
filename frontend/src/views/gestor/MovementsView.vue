@@ -17,9 +17,9 @@ import AppLayout from '@/layouts/AppLayout.vue'
 import {
   filterMovements,
   listMovements,
+  listParkingVehicles,
   listParkings,
   listSpaces,
-  listVehicles,
   movementLabel,
   type MovementFilters,
   type MovementOrigin,
@@ -100,7 +100,11 @@ async function loadBranch(): Promise<void> {
     spaces.value = []
   }
   try {
-    vehicles.value = await listVehicles()
+    // T-116 (2026-10-23): los vehiculos del desplegable son los de ESTA
+    // sucursal. Antes se pedia la flota global (`GET /vehicles`), que
+    // ademas quedo restringida al administrador: el gestor recibia las
+    // matriculas de todas las sucursales del sistema.
+    vehicles.value = await listParkingVehicles(id)
   } catch {
     vehicles.value = []
   }

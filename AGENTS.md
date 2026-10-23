@@ -13,7 +13,7 @@ Docker Compose, CI en GitHub Actions (`.github/workflows/ci.yml`).
 El estado del plan de trabajo (criterios verificados, qué queda, por qué)
 está en **`docs/superpowers/specs/2026-10-21-plan-pendientes-solidapp-design.md`**.
 El mapa de lo que se ha ido construyendo está en
-**`docs/CODEMAPS/2026-10-21-cierre-del-plan.md`**.
+**`docs/CODEMAPS/2026-10-21-cierre-del-plan.md`** (102 secciones `3-…`).
 
 ## La convención que más importa
 
@@ -109,6 +109,47 @@ docker run --rm -v "D:\Parking:/repo" -w /repo rhysd/actionlint:latest .github/w
   runtime, nunca en el repo (el repositorio es público).
 - `infra/backup/*.sh` necesitan el bit de ejecución (100755): sin él, en
   Linux el `cron` no haría backups y nadie se entera.
+- **El aislamiento por sucursal se mide, no se supone**: antes de dar
+  por bueno un endpoint que recibe o devuelve datos de una sucursal,
+  mídelo con dos sucursales y dos usuarios (uno de cada). Cuatro
+  endpoints se escaparon por no hacerlo (T-113…T-116).
+
+## El aislamiento por sucursal (T-113…T-116)
+
+El modelo **no tiene `client_id`**: el aislamiento entre sucursales se
+hace con `parking_memberships` (quién pertenece a qué sucursal) y con los
+roles (`admin`, `gestor`, `operador`, `cliente`). Cuatro reglas, y cada
+una costó un bug real:
+
+1. **El alcance lo decide el ROL GLOBAL, no la membresía.**
+   `enforce_parking_membership` (`backend/app/core/deps.py`) rechaza a
+   quien no sea de personal **aunque** tenga la fila de membresía. Antes
+   un conductor (`role=cliente`) con una membresía se convertía en gestor
+   de la sucursal: creaba plazas, creaba cámaras y **fijaba el precio**.
+   Los roles de personal viven en `ROLES_STAFF` (deps.py): una sola
+   definición.
+2. **Un endpoint que acepta `parking_id` en el cuerpo tiene que validar
+   la membresía**: `parking_context(payload.parking_id, current=user,
+   db=db)`. El patrón estaba en `POST /tickets/manual` y faltaba en
+   `POST /tickets`: un gestor escribía en la contabilidad de otra
+   sucursal, y el ticket creado no lo podía ni ver (404).
+3. **Un endpoint que carga un recurso por id tiene que cruzarlo con el
+   `parking_id` del path.** `GET`/`PATCH` de geocercas no comprobaban que
+   la cámara fuera de esa sucursal: un gestor leía y **modificaba** las
+   geocercas de otra, y el OCR de aquella dejaba de detectar entradas
+   (y de facturar). El helper único es `_camara_de_sucursal`.
+4. **Los listados globales son de admin; el personal usa el endpoint
+   acotado.** `GET /vehicles` (la flota entera) es de admin; con `plate`
+   sigue siendo una búsqueda dirigida del personal. Para los vehículos de
+   una sucursal: `GET /parkings/{id}/vehicles`.
+
+OJO: `role_in_parking` (la columna «de qué rol es en **esta** sucursal»)
+**se escribe y no se lee**: hoy el alcance es por rol global. Es una
+decisión de producto pendiente (RBAC por sucursal).
+
+La puerta que vigila el patrón está en
+`tools/verificar_aislamiento_sucursal.py` (con su autoprueba: reintroduce
+los cuatro defectos y comprueba que los detecta).
 
 ## Trampas de este entorno (Windows + Docker Desktop)
 

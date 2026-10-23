@@ -42,7 +42,7 @@ Dependencias de autorización (en `backend/app/core/deps.py`):
 
 ## 3. Mapa de recursos y RBAC
 
-102 endpoints en 25 grupos. La columna «Quién» tiene dos partes, las dos leídas del código con `tools/extraer_api.py`:
+103 endpoints en 26 grupos. La columna «Quién» tiene dos partes, las dos leídas del código con `tools/extraer_api.py`:
 
 1. **El RBAC de dependencia**: quién puede llamar al endpoint (`parking_context`, `require_role(...)`, el token por `?token=`, el middleware de auditoría…).
 2. **El ámbito de datos** que el endpoint aplica *en el cuerpo* (`ámbito: membresías de sucursal`, `ámbito: sus vehículos`): varios endpoints filtran por rol y por membresía a mano, para no duplicar el JOIN con `parking_context`.
@@ -162,14 +162,20 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 | PATCH | `/parkings/{parking_id}` | `parking_context` |
 | DELETE | `/parkings/{parking_id}` | `require_role('admin')` |
 
-### 3.15 Recuperación de contraseña — `password_reset` (`password_reset.py`)
+### 3.15 Vehículos de la sucursal — `parking_vehicles` (`parking_vehicles.py`)
+
+| Método | Ruta | Quién |
+|---|---|---|
+| GET | `/parkings/{parking_id}/vehicles` | `parking_context` |
+
+### 3.16 Recuperación de contraseña — `password_reset` (`password_reset.py`)
 
 | Método | Ruta | Quién |
 |---|---|---|
 | POST | `/auth/forgot-password` | Público |
 | POST | `/auth/reset-password` | Público |
 
-### 3.16 Planes y suscripciones — `plans` (`plans.py`)
+### 3.17 Planes y suscripciones — `plans` (`plans.py`)
 
 | Método | Ruta | Quién |
 |---|---|---|
@@ -183,14 +189,14 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 | PATCH | `/plans/{plan_id}` | `require_role('admin')` |
 | DELETE | `/plans/{plan_id}` | `require_role('admin')` |
 
-### 3.17 Placas (OCR) — `plates` (`plates.py`)
+### 3.18 Placas (OCR) — `plates` (`plates.py`)
 
 | Método | Ruta | Quién |
 |---|---|---|
 | GET | `/parkings/{parking_id}/plates-detected` | `parking_context` |
 | POST | `/parkings/{parking_id}/cameras/{camera_id}/plates` | `parking_context` |
 
-### 3.18 Informes — `reports` (`reports.py`)
+### 3.19 Informes — `reports` (`reports.py`)
 
 | Método | Ruta | Quién |
 |---|---|---|
@@ -206,7 +212,7 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 | GET | `/admin/reports/alertas.pdf` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
 | GET | `/admin/reports/margins.pdf` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
 
-### 3.19 Plazas — `spaces` (`spaces.py`)
+### 3.20 Plazas — `spaces` (`spaces.py`)
 
 | Método | Ruta | Quién |
 |---|---|---|
@@ -214,7 +220,7 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 | POST | `/parkings/{parking_id}/spaces` | `parking_context` |
 | PATCH | `/parkings/{parking_id}/spaces/{space_id}` | `parking_context` |
 
-### 3.20 Tarifas — `tariffs` (`tariffs.py`)
+### 3.21 Tarifas — `tariffs` (`tariffs.py`)
 
 | Método | Ruta | Quién |
 |---|---|---|
@@ -223,24 +229,24 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 | PATCH | `/parkings/{parking_id}/tariffs/{tariff_id}` | `parking_context` |
 | DELETE | `/parkings/{parking_id}/tariffs/{tariff_id}` | `require_role('admin')` |
 
-### 3.21 Resumen de tickets — `ticket_summary` (`ticket_summary.py`)
+### 3.22 Resumen de tickets — `ticket_summary` (`ticket_summary.py`)
 
 | Método | Ruta | Quién |
 |---|---|---|
 | GET | `/parkings/{parking_id}/tickets/summary` | `parking_context` + Autenticado |
 
-### 3.22 Tickets — `tickets` (`tickets.py`)
+### 3.23 Tickets — `tickets` (`tickets.py`)
 
 | Método | Ruta | Quién |
 |---|---|---|
 | GET | `/tickets` | Autenticado + ámbito: membresías de sucursal + ámbito: sus vehículos |
-| POST | `/tickets` | Autenticado |
+| POST | `/tickets` | Autenticado + `parking_context` |
 | POST | `/tickets/manual` | `require_role('admin', 'gestor', 'operador')` + Autenticado + `parking_context` |
 | GET | `/tickets/{ticket_id}` | Autenticado + ámbito: membresías de sucursal + ámbito: sus vehículos |
 | GET | `/tickets/{ticket_id}/pdf` | Autenticado + ámbito: membresías de sucursal + ámbito: sus vehículos |
 | POST | `/tickets/{ticket_id}/close` | Autenticado + ámbito: membresías de sucursal + ámbito: sus vehículos |
 
-### 3.23 Usuarios y membresías — `users` (`users.py`)
+### 3.24 Usuarios y membresías — `users` (`users.py`)
 
 | Método | Ruta | Quién |
 |---|---|---|
@@ -260,16 +266,16 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 | DELETE | `/users/{user_id}` | `require_role('admin')` |
 | POST | `/users/{user_id}/memberships` | `require_role('admin')` |
 
-### 3.24 Vehículos — `vehicles` (`vehicles.py`)
+### 3.25 Vehículos — `vehicles` (`vehicles.py`)
 
 | Método | Ruta | Quién |
 |---|---|---|
 | GET | `/vehicles` | `require_role('admin', 'gestor', 'operador')` |
-| POST | `/vehicles` | `require_role('admin', 'gestor', 'operador')` |
-| PATCH | `/vehicles/{vehicle_id}` | `require_role('admin', 'gestor', 'operador')` |
-| POST | `/vehicles/{vehicle_id}/users` | `require_role('admin', 'gestor', 'operador')` |
+| POST | `/vehicles` | `require_role('admin')` |
+| PATCH | `/vehicles/{vehicle_id}` | `require_role('admin')` |
+| POST | `/vehicles/{vehicle_id}/users` | `require_role('admin')` |
 
-### 3.25 Salud — `meta` (`main.py`)
+### 3.26 Salud — `meta` (`main.py`)
 
 | Método | Ruta | Quién |
 |---|---|---|

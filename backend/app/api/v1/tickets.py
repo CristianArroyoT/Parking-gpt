@@ -7,6 +7,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Query as SAQuery
 from sqlalchemy.orm import Session
 
@@ -79,14 +80,43 @@ def create_ticket(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Ticket:
+    """Alta de un ticket.
+
+    T-113 (2026-10-23): el endpoint aceptaba el ``parking_id`` del body
+    **sin mirar si el usuario tenia membresia en esa sucursal**. Medido
+    contra el sistema en marcha (gestor de la sucursal 11, la 12 no
+    tenia ni un miembro)::
+
+        POST /api/v1/tickets  {"parking_id": 12, ...}   -> [201]  ticket 617
+
+    O sea: un gestor escribia en la contabilidad de otra sucursal (y el
+    ticket creado ya no lo podia ni ver: ``GET /tickets/617`` -> 404).
+    El patron correcto ya estaba dos endpoints mas abajo, en
+    ``POST /tickets/manual``: ``parking_context(payload.parking_id, ...)``.
+
+    Ademas, el ``IntegrityError`` del indice unico parcial (un vehiculo no
+    puede tener dos tickets activos en la misma sucursal, T-105) no se
+    capturaba: la API devolvia un **500**. Ahora es un 409 con el motivo.
+    """
     if user.role == UserRole.CLIENTE:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Los clientes no crean tickets manualmente",
         )
+    # T-113: la sucursal del body tiene que ser una sucursal del usuario.
+    parking_context(payload.parking_id, current=user, db=db)
     ticket = Ticket(**payload.model_dump(), status=TicketStatus.ACTIVO)
     db.add(ticket)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # T-105: el indice unico parcial (vehiculo + sucursal, solo
+        # 'activo') es la unica cosa que una carrera no puede saltar.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El vehículo ya tiene un ticket activo en esa sucursal",
+        ) from None
     db.refresh(ticket)
     return ticket
 

@@ -2139,6 +2139,113 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Una cámara colgada devuelve False en menos de 15 s (el test que lo vigila).
   - [x] 2 tests nuevos; prueba inversa: sin el timeout, los tests **fallan** (y tardan 30 s: el propio bug se nota).
 
+### T-113 · P0 (seguridad) — el alta de tickets escribía en la sucursal que le dijeran, no en la del usuario
+
+- **Estado**: **completado** — el alta se acota a las sucursales del usuario y el duplicado es un 409, no un 500
+- **Contexto**: `POST /api/v1/tickets` (`backend/app/api/v1/tickets.py`) recibía `parking_id` **en el cuerpo** y lo aceptaba tal cual: el handler bloqueaba al rol `cliente`, pero **no miraba la membresía**. Dos endpoints más abajo, en `POST /tickets/manual`, el patrón correcto ya estaba escrito (`parking_context(payload.parking_id, ...)`). O sea: la comprobación existía en el fichero, pero no en el endpoint.
+- **Medido** (2026-10-23, contra el sistema en marcha: `gestor.madrid@solidapp.es` es gestor **sólo** de la sucursal 11 «Madrid Centro A»; la 12 «Madrid Centro B» no tenía ni un miembro):
+
+  | petición | antes | después |
+  |---|---|---|
+  | `POST /api/v1/tickets` con `parking_id` de la 12 | **201** (creó el ticket 617) | **403** |
+  | `GET /api/v1/tickets/617` (el que acababa de crear) | **404** | — |
+  | `POST /api/v1/tickets` con `parking_id` de la 11 (control) | 201 | 201 |
+  | `POST /api/v1/tickets` con un vehículo que ya tiene ticket activo | **500** (`IntegrityError` sin capturar) | **409** |
+
+- **Por qué era grave (y no un detalle de RBAC)**: el ticket creado en la sucursal ajena era **invisible para quien lo había creado** (el `GET` acotado por membresía devolvía 404). Con el índice único parcial de T-105 (`uq_tickets_activo_vehiculo`: vehículo + sucursal, sólo `activo`) ese ticket **bloqueaba la entrada real** de ese vehículo en esa sucursal: la ingesta (`app/services/ingest_service.py:332`) ve «el vehículo ya tiene ticket activo en este parking» → `SKIPPED_ALREADY_INSIDE` → **la entrada real no se registraba**. Y al salir, la cámara de salida (`:271`) cerraba **ese** ticket, con el `entry_at` fraudulento → el importe cobrar no correspondía a la estancia real. Es decir: un gestor podía **corruptionar el dato de facturación** de otra sucursal.
+- **El arreglo**:
+  1. `parking_context(payload.parking_id, current=user, db=db)` antes de crear el ticket (el patrón de `POST /tickets/manual`).
+  2. El `IntegrityError` del índice único se captura y se devuelve como **409** con su motivo, en vez de un 500.
+- **Criterios de aceptación**:
+  - [x] Medido: `POST /tickets` con `parking_id` ajeno → **403** (antes 201).
+  - [x] El alta en la sucursal propia sigue funcionando (201).
+  - [x] Vehículo con ticket activo duplicado → **409**, no 500.
+  - [x] 3 tests nuevos en `backend/tests/test_aislamiento_sucursal.py`; prueba inversa: sin el `parking_context`, el test del 403 **falla**.
+
+### T-114 · P0 (seguridad) — una membresía convertía a un conductor en gestor de la sucursal
+
+- **Estado**: **completado** — el alcance lo decide el **rol global**, no la fila de membresías
+- **Contexto**: `enforce_parking_membership` (`backend/app/core/deps.py`) comprobaba dos cosas: que el usuario fuese admin o que tuviera **fila** en `parking_memberships`. **No miraba el rol.** Como el admin puede crear membresías (`POST /users/{id}/memberships`), un usuario con rol global `cliente` (un conductor) que tuviera una membresía pasaba **todos** los routers por sucursal: cámaras, plazas, tarifas, placas, incidencias y alertas.
+- **Medido** (2026-10-23, cliente demo con una membresía que le dio el admin en la sucursal 11):
+
+  | petición del cliente | antes | después |
+  |---|---|---|
+  | `POST /api/v1/parkings/11/spaces` (crear plaza) | **201** | **403** |
+  | `POST /api/v1/parkings/11/cameras` (crear cámara) | **201** | **403** |
+  | `POST /api/v1/parkings/11/tariffs` (**fijar el precio**) | **201** | **403** |
+  | `GET /api/v1/parkings/11/cameras` | 200 | **403** |
+  | `GET /api/v1/parkings/11/spaces` | 200 | **403** |
+  | `GET /api/v1/parkings/11/alerts` | 200 | **403** |
+
+  El de las tarifas es el peor: un conductor podía **fijar el precio por hora** de la sucursal (fraude de ingresos directo).
+- **El arreglo**: `enforce_parking_membership` exige, además de la membresía, que el rol global sea de personal (`ROLES_STAFF`: admin, gestor, operador). El rol único de personal vive ahora en `app/core/deps.py` (antes estaba duplicado como `_STAFF` en `vehicles.py`).
+- **Consecuencia documentada**: `role_in_parking` (la columna que dice «de qué rol es en **esta** sucursal») **se escribe y no se lee** en ningún sitio: el alcance lo decide el rol global. Está pendiente de una decisión de producto (RBAC por sucursal) y queda anotado en el codemap.
+- **Criterios de aceptación**:
+  - [x] Medido: cliente con membresía → 403 en los tres POST y en los tres GET.
+  - [x] El gestor con membresía sigue gestionando su sucursal (201).
+  - [x] 2 tests nuevos; prueba inversa: sin el chequeo de rol, el test del 403 **falla**.
+
+### T-115 · P0 (seguridad) — las geocercas no se cruzaban con la sucursal de la cámara
+
+- **Estado**: **completado** — una única comprobación cruzada, usada por los cuatro endpoints
+- **Contexto**: el router de cámaras valida la membresía del `parking_id` **del path**, pero tres de sus cuatro endpoints de geocerca **no comprobaban que la cámara fuera de esa sucursal**: filtraban sólo por `camera_id`. Dos de ellos lo hacían bien (`POST` y `DELETE`, que tienen el «`Camera.parking_id == parking_id`» escrito a mano) y dos no (`GET` y `PATCH`): cuatro copias del mismo concepto, dos de ellas equivocadas.
+- **Medido** (2026-10-23, gestor de la sucursal 11; cámara 91 y geocerca 25 de la sucursal 12):
+
+  | petición | antes | después |
+  |---|---|---|
+  | `GET /api/v1/parkings/11/cameras/91/geofences` | **200 con la geocerca de la 12** | **404** |
+  | `PATCH /api/v1/parkings/11/cameras/91/geofences/25` | **200 y modificada** (x 0,1→0,99; y 0,2→0,99; w 0,3→0,01; h 0,4→0,01) | **404**, sin cambios |
+  | `GET`/`PATCH` de las geocercas propias | 200 | 200 |
+
+- **Por qué era grave**: la geocerca es la **zona de entrada/salida** que el OCR usa para decidir. Al moverla a una esquina diminuta, el OCR de la otra sucursal **dejaba de detectar las entradas**: la sucursal affected no registraba entradas y, por tanto, no facturaba. Un gestor de una sucursal podía **apagar la facturación** de otra.
+- **El arreglo**: una única función `_camara_de_sucursal(db, camera_id, parking_id)` (`backend/app/api/v1/cameras.py`), usada por los cuatro endpoints (`GET`, `POST`, `PATCH`, `DELETE`): una comprobación, no cuatro.
+- **Criterios de aceptación**:
+  - [x] Medido: `GET` → 404 y `PATCH` → 404 sobre una cámara de otra sucursal.
+  - [x] La geocerca de la otra sucursal queda **sin modificar** (se comprueba en el test).
+  - [x] Las geocercas propias se siguen leyendo y modificando.
+  - [x] 3 tests nuevos; prueba inversa: sin la comprobación cruzada, los tests **fallan**.
+
+### T-116 · P1 (seguridad) — la flota de vehículos era global (matrículas, ediciones y vínculos)
+
+- **Estado**: **completado** — listado global para admin, listado acotado por sucursal para el personal, y las escrituras para admin
+- **Contexto**: `Vehicle` **no tiene `parking_id`** (es global), así que el aislamiento por sucursal no era posible tal cual. El endpoint `GET /api/v1/vehicles` no filtraba nada: devolvía la flota entera a cualquier admin, gestor u operador. Además, tres endpoints de escritura también lo permitían.
+- **Medido** (2026-10-23, gestor de la sucursal 11):
+
+  | petición | antes | después |
+  |---|---|---|
+  | `GET /api/v1/vehicles` (sin filtro) | **200 con 6 matrículas** (1111DIR, 1234ABC, 2222NEW, 8888ZZZ, 9999DIR, 9999ZZZ) | **403** (listado global = admin) |
+  | `GET /api/v1/vehicles` como admin | 200 | 200 |
+  | `GET /api/v1/vehicles?plate=1111` (búsqueda dirigida) | 200 | 200 |
+  | `POST /api/v1/vehicles` (alta global) | 201 | **403** |
+  | `PATCH /api/v1/vehicles/{id}` | 200 | **403** |
+  | `POST /api/v1/vehicles/{id}/users` (vincular un usuario) | 201 | **403** |
+  | `GET /api/v1/parkings/11/vehicles` (nuevo, acotado) | — | **200** con los vehículos de la 11 |
+
+  Con 6 vehículos, el gestor veía 3 que no aparecen en sus propios movimientos (los que no tienen ticket en su sucursal).
+- **Por qué era grave**: `POST /vehicles/{id}/users` escribe en `vehicle_users`, y esa tabla es **el ámbito de los tickets de cada cliente** (`_scoped_query` y `GET /users/me/tickets` filtran por ella). Es decir: un gestor de la sucursal A podía **cambiar qué tickets ve un cliente de la B**. Y `POST /vehicles` permitía **ocupar (squat) la matrícula** de un cliente de otra sucursal: el alta posterior de ese vehículo en su sucursal fallaba con 409 «Matrícula duplicada».
+- **El arreglo**:
+  1. `GET /vehicles` **sin** `plate` → sólo admin. **Con** `plate` → búsqueda dirigida para el personal. Se llegaron a poner 3 caracteres mínimos y se quitaron: no cierra nada (3 caracteres siguen siendo un comodín sobre una matrícula de 6-7) y rompía un contrato ya verificado (T-93: el comodín `%` va escapado y debe poder buscarse literal). El acotado que importa es el **listado global**.
+  2. `POST /vehicles`, `PATCH /vehicles/{id}` y `POST /vehicles/{id}/users` → sólo admin. El alta legítima la hace el cliente (`POST /users/me/vehicles`) o el operador con el alta manual de ticket (`POST /tickets/manual`, que resuelve y crea el vehículo).
+  3. **Endpoint nuevo** `GET /api/v1/parkings/{parking_id}/vehicles`: los vehículos con ticket en esa sucursal, con `parking_context` (un gestor de otra sucursal recibe 403, no una lista vacía). Lo usa la vista de movimientos del gestor, que antes descargaba la flota global para pintar un desplegable.
+- **Criterios de aceptación**:
+  - [x] Medido: `GET /vehicles` sin filtro → 403 para el gestor, 200 para el admin.
+  - [x] La búsqueda por matrícula sigue siendo del personal, y el comodín `%` no sirve para enumerar la flota (T-93 se mantiene).
+  - [x] Alta, edición y vínculo de vehículos → 403 para el personal.
+  - [x] `GET /parkings/{id}/vehicles` devuelve los vehículos de esa sucursal y 403 al gestor de otra.
+  - [x] Frontend: `MovementsView.vue` usa el endpoint acotado.
+  - [x] 5 tests nuevos; prueba inversa: sin el acotado, los tests **fallan**.
+
+### T-117 · P2 (decisión de producto) — las tarifas de cualquier sucursal son públicas
+
+- **Estado**: **refutado por medición** — es una decisión de producto, no un defecto
+- **Contexto**: `GET /api/v1/parkings/{parking_id}/tariffs` sólo exige `get_current_user`: cualquiera autenticado puede leer la tabla de precios de cualquier sucursal enumerando el `parking_id`. La escritura sí está acotada (`parking_context`).
+- **Por qué NO es un defecto**: el **cliente final necesita el precio antes de aparcar** (la app del cliente muestra el importe estimado). El precio es el precio que va a pagar quien aparca: no es dato personal ni secreto comercial. Cerrarlo rompería un caso de uso real de la app.
+- **Lo que sí se hace**: un test que **fija** el comportamiento actual (para que nadie lo cambie por error creyendo que es una fuga) y nota en el codemap de que la lectura de tarifas es deliberadamente abierta.
+- **Criterios de aceptación**:
+  - [x] Medido: `GET /parkings/{id}/tariffs` con un cliente → 200 (es lo que la app necesita).
+  - [x] La escritura de tarifas sigue acotada a la sucursal (403 al gestor de otra).
+  - [x] Test que fija el contrato.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.
