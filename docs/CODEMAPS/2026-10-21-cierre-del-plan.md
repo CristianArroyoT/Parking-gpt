@@ -2602,3 +2602,12 @@ plaza (que ya tiene su estado).
 El cierre por cámara y el alta manual publican en el bus SSE; el manual
 no, así que la app se enteraba hasta el poll de 30 s. **El arreglo**: el
 cierre manual publica `ticket_closed` con el `ticket_id` y el `total`.
+
+### 3-centésimodecimotercera. Un error de integridad que no era de la matrícula (2026-10-23)
+
+El `except IntegrityError` que rodea el flush del **vehículo** capturaba
+cualquier error de integridad (incluido el del INSERT del *ticket*):
+hacía rollback (que se llevaba el vehículo recién creado) y luego un
+`.one()` que lanzaba `NoResultFound`, con la causa original enterrada.
+**El arreglo**: `.one_or_none()` y, si no está, se propaga el
+`IntegrityError` original.
