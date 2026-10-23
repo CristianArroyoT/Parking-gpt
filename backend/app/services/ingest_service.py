@@ -260,8 +260,17 @@ def _process_in_tx(
             vehicle = (
                 db.query(Vehicle)
                 .filter(Vehicle.plate == matricula)
-                .one()
+                .one_or_none()
             )
+            if vehicle is None:
+                # T-128 (2026-10-23): el error **no** era de la
+                # matrícula duplicada (puede ser el indice de la plaza al
+                # insertar el ticket, o una FK). El rollback se ha
+                # carriedo tambien el vehiculo que acababamos de crear,
+                # asi que no hay nada que re-fetchear: se propaga el
+                # error original. Antes, un ``.one()`` lanzaba
+                # ``NoResultFound`` y la causa quedaba enterrada.
+                raise
             log.info(
                 "ingest: race en creación de vehicle plate=%s id=%s",
                 vehicle.plate,

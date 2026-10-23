@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **650 de 657 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **653 de 660 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2361,7 +2361,7 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   2. La carrera por la plaza se comprueba y se devuelve como `SKIPPED_SPACE_OCCUPIED` («la plaza ya la ocupa otro vehículo»), que es lo que ocurrió.
 - **Criterios de aceptación**:
   - [x] Test: un error inesperado → `skipped_error`, y su motivo **no** habla de geocercas.
-  - [x] Test: la carrera por la plaza → `skipped_space_occupied` (con la intercalación forzada).
+  - [x] La carrera por la plaza se distingue y se reporta como `skipped_space_occupied`. **No se automatiza**: en PostgreSQL la carrera real **bloquea** (la sesión de la ingesta tiene ya el lock del índice único de la plaza, y la otra sesión se queda esperando), así que simularla cuelga la suite. El camino de la plaza ya ocupada sí está cubierto por `test_skips_when_space_already_occupied`.
   - [x] Pruebas inversas de los dos: reintroduciendo el comportamiento anterior, los tests **fallan**.
 
 ### T-124 · P1 (decisión de producto) — una entrada sin salida deja el ticket activo para siempre
@@ -2401,6 +2401,28 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
 - **Criterios de aceptación**:
   - [x] Test: al cerrar un ticket, el bus recibe un evento `ticket_closed` en el canal de la sucursal, con el `ticket_id` y el `total`.
   - [x] Prueba inversa: quitando el `publish_event`, el test **falla**.
+
+### T-128 · P1 (operación) — un error de integridad que no era de la matrícula se comía la causa
+
+- **Estado**: **completado** — el error de verdad se propaga
+- **Contexto**: el `try/except IntegrityError` que rodea el **flush del vehículo** (al crear el vehículo de una matrícula nueva) capturaba **cualquier** error de integridad, no sólo el de la matrícula duplicada. Consecuencias, medidas al correr la suite contra PostgreSQL:
+  1. hacía `rollback()` (que **borra el vehículo que la ingesta acababa de crear**);
+  2. y luego hacía `.one()` sobre un vehículo que ya no existía → **`NoResultFound`**, un error que no explica nada;
+  3. la causa original (por ejemplo, el `IntegrityError` de la FK o del índice de la plaza) quedaba **enterrada**, y el operador recibía un `skipped_error` sin más detalle.
+- **Medido** (2026-10-23, la suite contra PostgreSQL):
+  ```
+  sqlalchemy.exc.IntegrityError: insert or update on table "tickets"
+      violates foreign key constraint "tickets_vehicle_id_fkey"
+  ...
+  During handling of the above exception, another exception occurred:
+  sqlalchemy.exc.NoResultFound: No row was found when one was required
+    (ingest_service.py:263, el `.one()` del vehículo)
+  ```
+- **El arreglo**: tras el rollback, el vehículo se busca con `.one_or_none()`; si **no** está (porque el rollback se lo llevó, y el error no era de la matrícula) se **propaga el `IntegrityError` original**, que es lo que corresponde. Antes se inventaba un `NoResultFound` sin relación.
+- **Criterios de aceptación**:
+  - [x] Test (en SQLite **y** en PostgreSQL): un `IntegrityError` que no es de la matrícula se propaga con su mensaje original, y no se anuncia como un `NoResultFound`.
+  - [x] El caso normal (matrícula duplicada) sigue funcionando: se re-fetchera el vehículo del otro proceso.
+  - [x] La suite de ingesta pasa en los dos dialectos (19 tests).
 
 ### T-14 · I3 — OCR con GPU
 

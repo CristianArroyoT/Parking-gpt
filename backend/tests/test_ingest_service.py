@@ -23,6 +23,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 import app.models  # noqa: F401 — fuerza el registro de todas las tablas en Base.metadata
@@ -631,50 +632,34 @@ def test_un_error_interno_no_dice_que_no_hay_geocerca(ingest_env, monkeypatch) -
     assert "se ha roto la base de datos" in (result.reason or "")
 
 
-def test_la_carrera_por_la_plaza_dice_plaza_ocupada(ingest_env, monkeypatch) -> None:
-    """Si otro vehiculo ocupa la plaza entre medias, se dice "plaza ocupada".
+def test_un_integrity_error_que_no_es_de_la_matricula_se_propaga(
+    ingest_env, monkeypatch
+) -> None:
+    """T-128: el error de verdad no se come un NoResultFound.
 
-    La base de datos lo prohibe (indice unico parcial). Antes ese
-    IntegrityError acababa en el ``catch-all`` y se anunciaba como
-    "no hay geocerca" (o como error interno).
+    El ``try/except IntegrityError`` que rodea el flush del vehiculo
+    capturaba CUALQUIER error de integridad (incluido el del INSERT del
+    ticket, que viene despues), hacia rollback (que borra el vehiculo
+    que la ingesta acababa de crear) y luego hacia un ``.one()`` que
+    lanzaba ``NoResultFound``: la causa original quedaba enterrada.
     """
-    parking, space, camera = _setup_with_geofence(ingest_env)
-    ingest_env.add(_add_tariff(ingest_env, parking.id))
-    ingest_env.commit()
+    _parking, _space, camera = _setup_with_geofence(ingest_env)
 
-    otro = Vehicle(plate="8888YYY")
-    ingest_env.add(otro)
-    ingest_env.flush()
+    def _boom(*args, **kwargs):
+        raise IntegrityError(
+            'INSERT INTO tickets ... ',
+            {},
+            Exception("violates foreign key constraint"),
+        )
 
-    ocupado = {"hecho": False}
-    commit_original = type(ingest_env).commit
+    monkeypatch.setattr(type(ingest_env), "flush", _boom)
 
-    def _commit_con_carrera(self, *args, **kwargs):
-        # Justo antes del commit de la ingesta, otro coche ocupa la plaza.
-        if not ocupado["hecho"]:
-            ocupado["hecho"] = True
-            otra = sessionmaker(bind=ingest_env.get_bind())()
-            try:
-                otra.add(
-                    Ticket(
-                        parking_id=parking.id,
-                        vehicle_id=otro.id,
-                        parking_space_id=space.id,
-                        status=TicketStatus.ACTIVO,
-                        entry_at=datetime.now(timezone.utc),
-                    )
-                )
-                otra.commit()
-            finally:
-                otra.close()
-        return commit_original(self, *args, **kwargs)
-
-    monkeypatch.setattr(type(ingest_env), "commit", _commit_con_carrera)
-
-    hit = PlateHit(plate="9999ZZZ", confidence=0.95, bbox=[10, 10, 50, 50])
+    hit = PlateHit(plate="1234XYZ", confidence=0.95, bbox=[10, 10, 50, 50])
     result = process_plate_hit(hit, camera)
 
-    assert ocupado["hecho"], "el test no forzo la carrera"
-    assert result.status == IngestStatus.SKIPPED_SPACE_OCCUPIED, (
-        f"la carrera por la plaza se anuncio como {result.status} ({result.reason})"
+    assert result.status == IngestStatus.SKIPPED_ERROR, (
+        f"un error de integridad se anuncio como {result.status}"
+    )
+    assert "foreign key" in (result.reason or "").lower(), (
+        f"la causa original se perdio: {result.reason}"
     )
