@@ -120,7 +120,7 @@ Ver [`docs/adr/0001-orquestacion-produccion.md`](docs/adr/0001-orquestacion-prod
 D:\Parking\
 ├── backend/                 # FastAPI + SQLAlchemy 2.0
 │   ├── app/
-│   │   ├── api/v1/          # routers REST (101 endpoints en 24 routers)
+│   │   ├── api/v1/          # routers REST (101 endpoints en 25 routers)
 │   │   ├── core/            # config, db, security, deps
 │   │   ├── models/          # 19 modelos SQLAlchemy
 │   │   ├── schemas/         # Pydantic v2

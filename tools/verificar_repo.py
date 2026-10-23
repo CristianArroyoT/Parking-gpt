@@ -75,6 +75,11 @@ def _comprobaciones() -> list[Comprobacion]:
             patron=r"(El inventario coincide con el codigo.*)",
         ),
         Comprobacion(
+            "Los endpoints acotan la sucursal",
+            [py, "tools/verificar_aislamiento_sucursal.py"],
+            patron=r"(OK: todos los endpoints acotan la sucursal.*)",
+        ),
+        Comprobacion(
             "Cobertura: todo endpoint con test",
             [py, "tools/cobertura_api.py"],
             patron=r"(SIN ningun test: +\d+)",

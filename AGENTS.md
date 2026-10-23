@@ -41,11 +41,11 @@ Hace falta una **tercera** fuente: el caso de mentira escrito a mano.
 ## Comandos que funcionan (verificados)
 
 ```bash
-# La salud del repo en un comando: 25 comprobaciones (~2 min)
+# La salud del repo en un comando: 26 comprobaciones (~2 min)
 python tools/verificar_repo.py
 python tools/verificar_repo.py --completo      # + CI local y QA en 5 anchos (~40 min)
 
-# Las 24 autopruebas de las puertas
+# Las 25 autopruebas de las puertas
 python tools/autopruebas.py
 python tools/autopruebas.py --estricto          # lo "no comprobado" tambien falla
 
@@ -64,6 +64,7 @@ python tools/ejecutar_ci_local.py --list
 
 # Puertas sueltas
 python tools/verificar_api_doc.py --autoprueba
+python tools/verificar_aislamiento_sucursal.py --autoprueba
 python tools/verificar_roles_frontend.py --autoprueba
 python tools/verificar_contrato_frontend.py --autoprueba
 python tools/verificar_cuentas_demo.py --autoprueba
@@ -147,6 +148,9 @@ OJO: `role_in_parking` (la columna «de qué rol es en **esta** sucursal»)
 **se escribe y no se lee**: hoy el alcance es por rol global. Es una
 decisión de producto pendiente (RBAC por sucursal).
 
+La decisión y sus alternativas están en
+[`docs/adr/0003-aislamiento-por-sucursal.md`](docs/adr/0003-aislamiento-por-sucursal.md).
+
 La puerta que vigila el patrón está en
 `tools/verificar_aislamiento_sucursal.py` (con su autoprueba: reintroduce
 los cuatro defectos y comprueba que los detecta).
@@ -200,8 +204,8 @@ los cuatro defectos y comprueba que los detecta).
   una vez por rol, así que **no la lances 5 veces seguidas** (15 inicios →
   429): usa `python frontend/scripts/qa_visual.py --anchos
   "414,768,1024,1232,1440"`, que recorre los 5 anchos con 3 inicios.
-- La suite da **732 passed, 9 skipped** en SQLite y **741 passed** en PostgreSQL
-  en el host (lo que ve el CI), y **731 passed, 10 skipped** / **740 passed, 1 skipped** en el
+- La suite da **745 passed, 9 skipped** en SQLite y **754 passed** en PostgreSQL
+  en el host (lo que ve el CI), y **744 passed, 10 skipped** / **753 passed, 1 skipped** en el
   contenedor de desarrollo: allí sólo se monta `backend/`, así que el test
   que comprueba la nota del README sobre el reconocimiento facial se salta
   (el contenedor no tiene el README). No es una deriva.

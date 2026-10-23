@@ -1105,7 +1105,7 @@ y cada eslabón se comprueba contra el anterior:
 ```
 
 - `verificar_api_doc.py` compara el extractor contra el OpenAPI **antes**
-  de comparar el documento, y dice las tres cifras: **101 / 101 / 101**.
+  de comparar el documento, y dice las tres cifras: **103 / 103 / 103**.
 - La comparación se extrae a una función pura, para que la autoprueba
   pueda probarla **sin** la app instalada (importa la app en el camino
   normal, no en la autoprueba: el job `backend` corre las autopruebas
@@ -2460,6 +2460,9 @@ Un rol que no es de personal recibe 403 aunque tenga la membresía.
 dice «de qué rol es en **esta** sucursal») **se escribe y no se lee** en
 ningún sitio: hoy el alcance no es por sucursal, es por rol global.
 
+La decisión (y la alternativa que sigue pendiente) están escritas en
+[`docs/adr/0003-aislamiento-por-sucursal.md`](../adr/0003-aislamiento-por-sucursal.md).
+
 ### 3-centésimo. Las geocercas no se cruzaban con la sucursal de la cámara (2026-10-23)
 
 El router de cámaras validaba la membresía del `parking_id` del path,
@@ -2510,3 +2513,23 @@ está acotada a la sucursal.
 
 **Lo que se hace**: un test que fija el comportamiento actual, para que
 nadie lo cambie creyendo que es una fuga.
+
+### 3-centésimotercera. Una puerta vigila el aislamiento por sucursal (2026-10-23)
+
+Los tests cubren los endpoints que ya están escritos. Lo que falta es el
+**endpoint que alguien escriba mañana**, que no tendrá test todavía: por
+eso `tools/verificar_aislamiento_sucursal.py` es **estática** (mira el
+código, no el comportamiento) y comprueba tres reglas: un body con
+`parking_id` tiene que validar la membresía (R1), un router con
+`{parking_id}` tiene que acotar (R2), y un recurso con sucursal tiene que
+comprobarse contra el `parking_id` del path (R3).
+
+**El fallo que encontró su propia prueba inversa**: la primera versión
+buscaba `parking_context(` **en el texto** del endpoint, y el docstring
+del endpoint lo menciona («el patrón correcto ya estaba…
+`parking_context(...)`»): la puerta daba el visto bueno a un endpoint que
+**no acotaba**. Verde sobre mentira. Ahora las llamadas y las
+comparaciones se leen del **AST**, no del texto.
+
+**97 endpoints analizados, 0 problemas.** Las exenciones llevan su motivo
+(`GET /parkings/{id}/tariffs` es deliberado: T-117).

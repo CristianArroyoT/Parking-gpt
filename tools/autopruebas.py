@@ -67,6 +67,10 @@ AUTOPRUEBAS: list[tuple[str, list[str]]] = [
         [sys.executable, "tools/extraer_api.py", "--autoprueba"],
     ),
     (
+        "La puerta de aislamiento por sucursal sigue viendo los tres patrones",
+        [sys.executable, "tools/verificar_aislamiento_sucursal.py", "--autoprueba"],
+    ),
+    (
         "La clasificacion del CI remoto sigue distinguiendo",
         [sys.executable, "tools/estado_ci.py", "--autoprueba"],
     ),

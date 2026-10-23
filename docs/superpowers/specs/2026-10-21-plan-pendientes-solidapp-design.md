@@ -4,14 +4,14 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **602 de 603 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **627 de 628 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
-> | Suite completa | **732 passed, 9 skipped** en SQLite · **741 passed** en PostgreSQL (medido el 2026-10-23) |
+> | Suite completa | **745 passed, 9 skipped** en SQLite · **754 passed** en PostgreSQL (medido el 2026-10-23; la línea base del commit anterior era 732/741: +13 tests nuevos) |
 > | QA visual (Chromium) | **26 pantallas** a **5 anchos** (414, 768, 1024, 1232, 1440 px): 130 capturas, **0 desbordes, 0 errores de consola, 0 errores de login** |
 > | PWA | verificado: instalable y **arranca sin red** |
-> | API | **101 rutas** inventariadas (coinciden con el código) y **99 de 99 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
+> | API | **103 rutas** inventariadas (coinciden con el código) y **101 de 101 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
 > | Esquema | Los modelos y las migraciones coinciden: `alembic check` limpio y **el CI migra una base vacía** |
 > | Stack | `docker compose up -d` → los **11 servicios** aparecen `(healthy)` |
 > | Carga / SLO | **Revalidado** con el código final: 467 peticiones, 0 fallos → **14 de 14 reglas** (informe `2026-10-21-revalidacion.json`) |
@@ -2179,7 +2179,7 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
 
   El de las tarifas es el peor: un conductor podía **fijar el precio por hora** de la sucursal (fraude de ingresos directo).
 - **El arreglo**: `enforce_parking_membership` exige, además de la membresía, que el rol global sea de personal (`ROLES_STAFF`: admin, gestor, operador). El rol único de personal vive ahora en `app/core/deps.py` (antes estaba duplicado como `_STAFF` en `vehicles.py`).
-- **Consecuencia documentada**: `role_in_parking` (la columna que dice «de qué rol es en **esta** sucursal») **se escribe y no se lee** en ningún sitio: el alcance lo decide el rol global. Está pendiente de una decisión de producto (RBAC por sucursal) y queda anotado en el codemap.
+- **Consecuencia documentada**: `role_in_parking` (la columna que dice «de qué rol es en **esta** sucursal») **se escribe y no se lee** en ningún sitio: el alcance lo decide el rol global. Está pendiente de una decisión de producto (RBAC por sucursal) y queda anotado en el codemap. La decisión y sus alternativas están en [`docs/adr/0003-aislamiento-por-sucursal.md`](../../adr/0003-aislamiento-por-sucursal.md).
 - **Criterios de aceptación**:
   - [x] Medido: cliente con membresía → 403 en los tres POST y en los tres GET.
   - [x] El gestor con membresía sigue gestionando su sucursal (201).
@@ -2245,6 +2245,32 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Medido: `GET /parkings/{id}/tariffs` con un cliente → 200 (es lo que la app necesita).
   - [x] La escritura de tarifas sigue acotada a la sucursal (403 al gestor de otra).
   - [x] Test que fija el contrato.
+
+### T-118 · P1 (puerta) — una puerta que vigila el aislamiento por sucursal
+
+- **Estado**: **completado** — la puerta está en verde sobre el código real y su autoprueba demuestra que detecta los tres patrones
+- **Contexto**: los cuatro defectos de T-113…T-116 están cubiertos por tests, pero un test sólo cubre el endpoint que ya existe. Lo que falta es el **endpoint que alguien escriba mañana**, que no tendrá test todavía. Esa es la razón de una puerta **estática** (mira el código, no el comportamiento).
+- **Qué comprueba** (`tools/verificar_aislamiento_sucursal.py`, AST sobre `backend/app/api/v1/*.py`):
+  - **R1**: un endpoint cuyo cuerpo acepta `parking_id` tiene que validar la membresía (salvo que sea de admin solamente).
+  - **R2**: un router cuyo prefijo lleva `{parking_id}` tiene que acotar: con `parking_context` en las dependencias del router, o endpoint a endpoint.
+  - **R3**: un endpoint que carga un recurso con sucursal tiene que comprobar de qué sucursal es (cruzarlo con el `parking_id` del path, o validar la membresía sobre el recurso).
+- **El fallo que encontró su propia prueba inversa**: la primera versión buscaba `parking_context(` **en el texto** del endpoint. El **docstring** del endpoint la menciona («el patrón correcto ya estaba… `parking_context(...)`»), así que la puerta daba el visto bueno a un endpoint que **no acotaba**: **verde sobre mentira**. Ahora las llamadas y las comparaciones se leen del **AST** (el código), no del texto (que incluye la prosa).
+- **La prueba inversa** (`D:\tmp\prueba_inversa_puerta.py`, y reproducible): reintroduce los defectos en el código real y comprueba que la puerta los marca:
+
+  | defecto reintroducido | regla que lo detecta |
+  |---|---|
+  | `POST /tickets` sin `parking_context` | **R1** |
+  | `GET .../geofences` sin la comprobación cruzada | **R3** |
+  | `PATCH .../geofences/{id}` sin la comprobación cruzada | **R3** |
+  | `parking_context` sólo **mencionado** en el docstring | **R1** |
+
+- **Exenciones con motivo** (una exención sin motivo es una opinión): `GET /parkings/{parking_id}/tariffs` (T-117: el precio es público para quien va a aparcar).
+- **Criterios de aceptación**:
+  - [x] Autoprueba: detecta los tres patrones con casos de mentira **escritos a mano** (en runtime, con sus propios schemas y modelos).
+  - [x] Autoprueba: **no grita** con el código correcto (una puerta que grita de más es una puerta que nadie mira).
+  - [x] Prueba inversa: los cuatro casos reintroducidos los detecta (incluido el de la prosa).
+  - [x] Verde sobre el código real: **97 endpoints analizados, 0 problemas**.
+  - [x] Registrada en `tools/autopruebas.py` (meta-puerta) y en `tools/verificar_repo.py`.
 
 ### T-14 · I3 — OCR con GPU
 

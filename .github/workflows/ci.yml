@@ -103,6 +103,21 @@ jobs:
         # tienen que comprobarse de verdad.
         run: python ../tools/autopruebas.py --estricto
 
+      - name: Los endpoints acotan la sucursal
+        # POR QUE (2026-10-23, T-118): el aislamiento entre sucursales lo
+        # aplica cada endpoint a mano, y cuatro se lo saltaron (T-113...T-116):
+        # un alta de tickets en la sucursal que le dijeran, un cliente con
+        # membresia que fijaba el precio de la sucursal, geocercas de otra
+        # sucursal que un gestor leia y modificaba, y la flota de vehiculos
+        # entera para cualquier gestor.
+        #
+        # Los tests cubren los endpoints que YA estan escritos; esta puerta
+        # (que es estatica: mira el codigo con `ast`, no importa la app)
+        # cubre el endpoint que se escriba manana. Por eso va aqui, antes
+        # del `pip install`: si un endpoint nuevo no acota, el CI se pone
+        # rojo en el primer minuto.
+        run: python ../tools/verificar_aislamiento_sucursal.py
+
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
