@@ -134,6 +134,12 @@ docker run --rm -v "D:\Parking:/repo" -w /repo rhysd/actionlint:latest .github/w
   al coste del bcrypt (un ratio) y no con un umbral en segundos: así da el
   mismo veredicto en un portátil lento y en un servidor, y la mutación
   (quitar el hash señuelo) sigue detectándose (el ratio pasa de ~1 a ~0,07).
+- **No edites el frontend mientras corre la QA visual**: el dev-server de
+  Vite recarga al cambiar un fichero y **resetea las conexiones abiertas**
+  (`ERR_CONNECTION_RESET` en el WebSocket del HMR y en los módulos que
+  Vite estaba sirviendo). Medido el 2026-10-23: 20 peticiones fallidas
+  y 18 errores de consola que no eran de la app, sino del servidor de
+  desarrollo reiniciándose. Repetida sin tocar nada: 0 y 0.
 - **Dos suites del host sí pueden ir en paralelo** (SQLite y PostgreSQL a
   la vez): la base de Redis de cada una se **toma con un lock** (`SET NX`).
   Antes se elegía con `8 + (pid % 8)`, y dos PIDs que difieren en un
