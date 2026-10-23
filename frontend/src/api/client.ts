@@ -72,7 +72,16 @@ async function doRefresh(): Promise<string | null> {
     setTokens(data.access_token, data.refresh_token)
     return data.access_token
   } catch {
+    // T-110: la sesion esta MUERTA (el refresh no se pudo renovar).
+    // Antes solo se borraban los tokens: el store de Pinia se quedaba
+    // con el usuario, el guard del router dejaba navegar y el operador
+    // se quedaba en una pagina muerta donde cada llamada daba 401
+    // (sin mensaje). Con el evento, el store se limpia y el guard
+    // manda a /login.
     clearTokens()
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('solidapp:sesion-caducada'))
+    }
     return null
   }
 }

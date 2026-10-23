@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **590 de 591 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **598 de 599 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2087,6 +2087,39 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] La vía OAuth2 se comporta igual (comparten `_build_tokens`).
   - [x] Un login que salió con 503 **no** se audita como `login_success`.
   - [x] 3 tests nuevos; prueba inversa: con el fail-open, los tests **fallan**.
+
+
+### T-110 · P1 (seguridad) — tras «cerrar sesión», el refresh token seguía vivo 7 días
+
+- **Estado**: **completado** — el logout revoca el refresh, y una sesión muerta cierra la app
+- **Contexto** (auditoría del frontend, 2026-10-23): el logout del frontend llamaba a `POST /auth/logout` **sin cuerpo**. El backend solo blacklistea el refresh **si viene en el body** (`LogoutRequest.refresh_token`); sin él, solo se blacklistea el access.
+- **Medido** (2026-10-23, contra la API real):
+  | paso | resultado |
+  |---|---|
+  | login → logout **sin** body | 200 |
+  | `POST /auth/refresh` con el refresh capturado | **200** (¡sigue sirviendo!) |
+  | login → logout **con** `refresh_token` | 200 |
+  | `POST /auth/refresh` con el refresh capturado | **401** (revocado ✓) |
+  Es decir: «cerrar sesión» mataba el access pero **el refresh seguía vivo 7 días** (su TTL), y quien lo hubiera copiado (un XSS, una copia de sesión, un backup del navegador) podía **rotar access tokens nuevos** durante una semana.
+- **El arreglo** (dos cosas):
+  1. el logout del frontend **manda el `refresh_token`** en el cuerpo ✓ (el backend ya lo soportaba y lo blacklistea);
+  2. cuando el refresh **no** se puede renovar, la sesión está **muerta**: el interceptor limpia los tokens y **avisa con un evento** (`solidapp:sesion-caducada`), y el store de autenticación limpia el perfil → el guard del router manda a `/login`. Antes el operador se quedaba en una página muerta: cada llamada daba 401 y la vista en vivo enseñaba una tabla vacía **sin ningún mensaje** (solo un F5 lo arreglaba).
+- **Criterios de aceptación**:
+  - [x] Medido: sin el arreglo, el refresh capturado seguía sirviendo (200) tras el logout.
+  - [x] Medido: con el arreglo (el logout manda el refresh), el refresh capturado da **401**.
+  - [x] Una sesión que no se puede renovar limpia el estado y lleva a `/login` (en vez de dejar la página muerta).
+  - [x] `lint` y `vue-tsc` en verde; la QA visual recorre las 26 pantallas × 5 anchos sin fallos.
+
+### T-111 · P2 (operación) — en la vista en vivo del operador, un fallo de la API era indistinguible de «no hay datos»
+
+- **Estado**: **completado** — los tres fallos muestran un aviso
+- **Contexto** (auditoría del frontend, 2026-10-23): la vista en vivo del operador (`/vivo`) tenía **tres `catch` mudos**: si la API fallaba (401, 500, backend caído), las plazas, los tickets y las alertas se quedaban **vacíos** y el operador no tenía forma de distinguir «falló la API» de «no hay tickets».
+- **El arreglo**: los tres fallos muestran un aviso (`ui.pushToast('error', …)`). El gestor ya lo hacía (el mapa avisa); el operador no.
+- **Criterios de aceptación**:
+  - [x] Un fallo al cargar las plazas avisa (y no solo deja la lista vacía).
+  - [x] Un fallo al cargar los tickets avisa.
+  - [x] Un fallo al cargar las alertas avisa.
+  - [x] La QA visual sigue pasando (26 pantallas × 5 anchos, 0 errores de consola).
 
 ### T-14 · I3 — OCR con GPU
 

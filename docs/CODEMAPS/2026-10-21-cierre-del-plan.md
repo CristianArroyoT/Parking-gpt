@@ -2231,6 +2231,30 @@ revocaba**: sobrevivía al reset.
 construir los tokens (para no decir `login_success` de un 503).
 
 
+### 3-nonagésimoquinta. «Cerrar sesión» revoca también el refresh (2026-10-23)
+
+3-{.}. «Cerrar sesión» revoca también el refresh (2026-10-23)
+
+El logout llamaba a `POST /auth/logout` **sin cuerpo**, y el backend solo
+blacklistea el refresh si viene en el body. Medido: tras «cerrar sesión»,
+el refresh capturado **seguía sirviendo** (200) y podía rotar access
+tokens nuevos durante **7 días**.
+
+**El arreglo**: el logout manda el `refresh_token` (medido: después, el
+refresh capturado da 401). Y cuando la sesión ya no se puede renovar, el
+interceptor avisa y el store se limpia: antes el operador se quedaba en
+una página muerta donde cada llamada daba 401 sin mensaje.
+
+
+### 3-nonagésimosexta. La vista en vivo avisa de los fallos (2026-10-23)
+
+3-{.}. La vista en vivo avisa de los fallos (2026-10-23)
+
+Tres `catch` mudos en la vista en vivo del operador: si la API fallaba,
+las plazas, los tickets y las alertas quedaban **vacíos** y era
+indistinguible de «no hay datos». Ahora los tres muestran un aviso.
+
+
 ## 5. Variables de entorno nuevas
 
 | Variable | Default | Para qué |

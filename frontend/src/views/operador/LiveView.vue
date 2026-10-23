@@ -61,7 +61,11 @@ async function loadContext(parkingId: number): Promise<void> {
     const { data } = await http.get<Space[]>(`/parkings/${parkingId}/spaces`)
     spaces.value = data
   } catch {
+    // T-111: un fallo de la API se ve IGUAL que "no hay plazas". Con la
+    // tabla vacia y sin aviso, el operador no puede distinguir un fallo
+    // del backend de un parking sin datos.
     spaces.value = []
+    ui.pushToast('error', 'No se han podido cargar las plazas')
   }
 }
 
@@ -73,7 +77,9 @@ async function refreshTickets(): Promise<void> {
     })
     tickets.value = data
   } catch {
-    /* silencioso */
+    // T-111: idem: un 401/500 aqui era indistinguible de "no hay
+    // tickets activos".
+    ui.pushToast('error', 'No se han podido cargar los tickets')
   }
 }
 
@@ -97,6 +103,8 @@ async function refreshRecentAlerts(): Promise<void> {
     }
   } catch {
     recentAlerts.value = []
+    // T-111: se avisa del fallo (antes era una lista vacia sin más).
+    ui.pushToast('error', 'No se han podido cargar las alertas')
   }
 }
 
