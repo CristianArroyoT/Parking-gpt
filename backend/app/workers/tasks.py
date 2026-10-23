@@ -36,6 +36,7 @@ from app.models.parking import Camera
 from app.models.password_reset_token import PasswordResetToken
 from app.models.plates_detected import PlatesDetected
 from app.services.alerts import (
+    una_vez_por_hora,
     record_camera_offline,
     record_ocr_failure,
     reset_camera_offline,
@@ -465,6 +466,10 @@ def cleanup_failed_frames() -> dict[str, int]:
     return {"deleted": deleted, "kept": kept}
 
 
+#: Filas que borra cada lote la purga de auditoria (T-104).
+AUDIT_PURGE_LOTE = 5000
+
+
 @celery_app.task(name="solidapp.purge_audit_logs")  # type: ignore[untyped-decorator]
 def purge_audit_logs(retention_days: int | None = None) -> dict[str, Any]:
     """Borra ``audit_logs`` con ``created_at < now - retention_days``.
@@ -483,10 +488,30 @@ def purge_audit_logs(retention_days: int | None = None) -> dict[str, Any]:
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     db = SessionLocal()
     try:
-        deleted = db.query(AuditLog).filter(
-            AuditLog.created_at < cutoff,
-        ).delete(synchronize_session=False)
-        db.commit()
+        # T-104: la purga va **en lotes**. Un solo DELETE sobre millones
+        # de filas deja un WAL enorme, una transaccion larga y bloquea
+        # la tabla (con el indice de created_at no es un seq scan, pero
+        # el problema es el volumen).
+        deleted = 0
+        while True:
+            lote = (
+                db.query(AuditLog.id)
+                .filter(AuditLog.created_at < cutoff)
+                .limit(AUDIT_PURGE_LOTE)
+                .all()
+            )
+            if not lote:
+                break
+            ids = [fila[0] for fila in lote]
+            borrados = (
+                db.query(AuditLog)
+                .filter(AuditLog.id.in_(ids))
+                .delete(synchronize_session=False)
+            )
+            db.commit()
+            deleted += borrados
+            if borrados == 0:
+                break
         log.info(
             "purge_audit_logs: days=%s cutoff=%s deleted=%s",
             days, cutoff.isoformat(), deleted,
@@ -704,22 +729,30 @@ def probe_heartbeats() -> dict[str, Any]:
                 # disparó), omite.
                 record_camera_offline(cam, kind="heartbeat")
                 # Sprint Fase 3B: audit del evento crítico con ip="worker".
-                try:
-                    record_audit_worker(
-                        db,
-                        action="camera_offline_heartbeat",
-                        parking_id=cam.parking_id,
-                        resource=f"cameras/{cam.id}",
-                        payload={"code": cam.code},
-                        result="failure",
-                        correlation_id=cid,
-                    )
-                except Exception as exc:
-                    log.warning(
-                        "probe_heartbeats: audit no persistido camera=%s: %s",
-                        cam.id, exc,
-                        extra={"correlation_id": cid, "camera_id": cam.id},
-                    )
+                #
+                # T-104: la fila se escribe **una vez por hora** y no en
+                # cada ronda. Medido: en la base de QA, 5.928 de 8.763
+                # filas (el 68 %) eran de este tipo, y ningun panel las
+                # usa; con 50 camaras caidas serian 72.000 filas al dia.
+                if not una_vez_por_hora(f"camera:{cam.id}:offline_audit_una_vez"):
+                    pass
+                else:
+                    try:
+                        record_audit_worker(
+                            db,
+                            action="camera_offline_heartbeat",
+                            parking_id=cam.parking_id,
+                            resource=f"cameras/{cam.id}",
+                            payload={"code": cam.code},
+                            result="failure",
+                            correlation_id=cid,
+                        )
+                    except Exception as exc:
+                        log.warning(
+                            "probe_heartbeats: audit no persistido camera=%s: %s",
+                            cam.id, exc,
+                            extra={"correlation_id": cid, "camera_id": cam.id},
+                        )
 
         # Commit batch de los health fields. Si falla, se hace rollback
         # silencioso: el worker NUNCA propaga, y la siguiente ronda del

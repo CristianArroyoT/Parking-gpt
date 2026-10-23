@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **576 de 577 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **581 de 582 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2027,6 +2027,28 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
 - **Criterios de aceptación**:
   - [x] Medido: el PDF se genera con `& < > ' "` en la matrícula y en la marca (2701 bytes, `%PDF-`).
   - [x] Test que fija el comportamiento (1 test nuevo).
+
+
+### T-104 · P1 (operación) — la auditoría crecía sola con las cámaras caídas
+
+- **Estado**: **completado** — la fila se escribe una vez por hora y la purga va en lotes
+- **Contexto** (auditoría del 2026-10-23): la ronda de heartbeat escribía una fila de auditoría **por cada cámara caída y cada ronda** (la ronda va cada 60 s).
+- **Medido** (2026-10-23, en la base de QA):
+  | acción | filas | % del total |
+  |---|---|---|
+  | `camera_offline_heartbeat` | **5.928** | **68 %** |
+  | el resto (logins, tickets, usuarios…) | 2.835 | 32 % |
+  Y **ningún panel de Grafana usa `camera_offline_heartbeat`**: el 68 % de la tabla de auditoría (que tiene una retención de 365 días) era ruido. En producción, con 50 cámaras caídas, serían **72.000 filas al día**.
+- **Y la purga** (`purge_audit_logs`) las borraba de una sentada: un solo `DELETE` sobre millones de filas deja un WAL enorme, una transacción larga y bloquea la tabla.
+- **El arreglo** (dos cosas):
+  1. la fila de auditoría del heartbeat se escribe **la primera vez** y luego **una vez por hora** mientras la cámara siga caída (un `SET NX EX 3600` en Redis, el mismo patrón que el lock de la alerta). El rastro se conserva; la tabla deja de crecer sola. Y cuando la cámara vuelve, el freno se borra (la próxima caída se anota enseguida);
+  2. la purga va **en lotes** de 5.000 filas (cada lote con su `commit`), en vez de un `DELETE` masivo.
+- **Criterios de aceptación**:
+  - [x] Medido: el 68 % de la tabla de auditoría es ruido del heartbeat, y ningún panel lo usa.
+  - [x] Tres rondas seguidas escriben **una sola** fila (no una por ronda).
+  - [x] La purga borra todo lo caducado **y va en lotes** (probado con lotes de dos y cinco filas: borra las cinco y no toca lo vigente).
+  - [x] 2 tests nuevos; prueba inversa: sin el freno, el test **falla**.
+  - [x] El conftest limpia también la clave del freno (si no, un test hereda la de otro: los ids de la BD se reinician, los de Redis no).
 
 ### T-14 · I3 — OCR con GPU
 

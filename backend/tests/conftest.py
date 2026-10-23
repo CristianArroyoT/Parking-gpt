@@ -437,6 +437,11 @@ def _clean_redis_counters():
             client.delete(
                 _consecutive_key(cam_id), _lock_key(cam_id),
                 _consecutive_offline_key(cam_id), _offline_lock_key(cam_id),
+                # T-104: el freno que hace que la fila de auditoria del
+                # heartbeat se escriba una vez por hora. Sin limpiarlo, un
+                # test que usa la camara id=1 hereda el freno de otro (los
+                # ids de la BD se reinician, los de Redis no).
+                f"camera:{cam_id}:offline_audit_una_vez",
             )
         # Sprint Fase 3C: rate-limit de login. Las claves usan como
         # sufijo la IP y el email (no el cam_id), pero las borramos

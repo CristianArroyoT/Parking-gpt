@@ -2181,6 +2181,17 @@ hecho es **fijarlo con un test**, para que el falso positivo no vuelva
 como avería ni se «arregle» algo que no está roto.
 
 
+### 3-nonagésimoprimera. La auditoría del heartbeat no crece sola (2026-10-23)
+
+La ronda escribía una fila de auditoría **por cada cámara caída y cada
+ronda** (la ronda va cada 60 s). Medido: **5.928 de 8.763 filas (el
+68 %)** de la tabla de auditoría, y **ningún panel las usa**.
+
+**El arreglo**: la fila se escribe la primera vez y luego **una vez por
+hora** (un `SET NX EX 3600`), y la **purga va en lotes** de 5.000 filas
+(en vez de un `DELETE` masivo).
+
+
 ## 5. Variables de entorno nuevas
 
 | Variable | Default | Para qué |

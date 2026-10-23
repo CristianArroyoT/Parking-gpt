@@ -96,6 +96,30 @@ def _resolve_manager_email(db: Session, parking_id: int) -> str | None:
     return row.email if row else None
 
 
+def una_vez_por_hora(clave: str, ttl: int = 3600) -> bool:
+    """¿Es la primera vez dentro de la ventana? (para no escribir una fila por ronda)
+
+    T-104 (2026-10-23): la ronda de heartbeat escribia una fila de
+    auditoria **por cada camara caida y cada ronda** (la ronda va cada
+    60 s). Medido en la base de QA: **5.928 de 8.763 filas (el 68 %)**
+    eran ``camera_offline_heartbeat``, y **ningun panel de Grafana las
+    usa**. En produccion, con 50 camaras caidas, son 72.000 filas al dia
+    (y la purga las borra de una sentada, sin lotes).
+
+    Con esta comprobacion la fila se escribe **la primera vez** (y
+    luego una vez por hora mientras la camara siga caida): el rastro se
+    conserva y la tabla deja de crecer sola.
+
+    Si Redis no responde, se escribe (no se pierde el rastro).
+    """
+    try:
+        rds = _redis_client()
+        return bool(rds.set(clave, "1", nx=True, ex=ttl))
+    except RedisError as exc:
+        log.warning("una_vez_por_hora: Redis no disponible (%s)", exc)
+        return True
+
+
 def _resolve_admin_email(db: Session) -> str | None:
     """Email del primer admin activo. Usado para alertas CRITICAL
     (cámara caída) — el operador no siempre tiene gestor asignado y
@@ -406,7 +430,13 @@ def reset_camera_offline(camera_id: int) -> None:
     """Borra el contador y el lock de offline cuando la cámara vuelve."""
     try:
         rds = _redis_client()
-        rds.delete(_consecutive_offline_key(camera_id), _offline_lock_key(camera_id))
+        rds.delete(
+            _consecutive_offline_key(camera_id),
+            _offline_lock_key(camera_id),
+            # T-104: tambien el freno de la auditoria, para que la
+            # proxima caida se vuelva a anotar (y no una hora depois).
+            f"camera:{camera_id}:offline_audit_una_vez",
+        )
     except RedisError as exc:
         log.warning(
             "alerts: Redis no disponible en reset offline camera=%s: %s",
@@ -416,6 +446,7 @@ def reset_camera_offline(camera_id: int) -> None:
 
 
 __all__ = [
+    "una_vez_por_hora",
     "record_ocr_failure",
     "reset_ocr_failure",
     "record_camera_offline",
