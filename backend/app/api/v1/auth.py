@@ -114,6 +114,31 @@ def _comprobar_rate_limit_login(
     )
 
 
+def _cuenta_demo_bloqueada(email: str) -> bool:
+    """¿Es una cuenta de demostracion que no puede entrar en produccion?
+
+    POR QUE (T-98, 2026-10-23): el seed ya se niega a crear estas
+    cuentas fuera de desarrollo (T-83), pero **el login no las
+    filtraba**: si la base de datos arrastraba cuentas de una
+    instalacion de desarrollo (un dump, una copia, una restauracion
+    vieja), las credenciales **publicas de este repositorio** (y del
+    README) servirian para entrar como administrador.
+
+    El rechazo es un **401 como el de cualquier contrasena incorrecta**:
+    un 403 distinto ("cuenta de demostracion") dira que ese correo
+    existe, que es justo el oraculo que T-86 acaba de tapar.
+
+    En ``development`` y ``test`` no se bloquea: la QA visual y el
+    ``fillDemo()`` de la pantalla de login las usan a proposito.
+    """
+    if get_settings().environment not in ("production", "staging"):
+        return False
+    from app.scripts.seed import DEMO_USERS
+
+    normalizado = email.strip().lower()
+    return any(normalizado == str(demo[0]).strip().lower() for demo in DEMO_USERS)
+
+
 def _autenticar(
     request: Request,
     db: Session,
@@ -150,6 +175,19 @@ def _autenticar(
                 "reason": "invalid_credentials",
                 **extra_payload,
             },
+            result="failure",
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas"
+        )
+    if _cuenta_demo_bloqueada(user.email):
+        # T-98: mismo 401 que una contrasena incorrecta (no un 403: no
+        # se revela que el correo existe), pero auditado con su motivo.
+        record_audit_from_request(
+            request, db,
+            action="login_failure",
+            payload={"email": email, "reason": "demo_account", **extra_payload},
             result="failure",
         )
         db.commit()
