@@ -65,15 +65,35 @@ def _build_tokens(user: User) -> TokenPair:
     refresh = create_refresh_token(user.id)
     # Sprint R2-followup: trackea los jtis (access + refresh) en el set
     # ``user:{id}:active_jtis`` para que ``POST /auth/logout/all`` pueda
-    # invalidarlos. ``track_session`` es fail-OPEN: si Redis cae, los
-    # tokens se devuelven igualmente (el blacklist por-token vía logout
-    # normal sigue funcionando).
-    session_tracker.track_session(
+    # invalidarlos.
+    #
+    # T-109: antes esto era FAIL-OPEN (si Redis caia, los tokens se
+    # devolvian igualmente). El problema: el middleware de auditoria ya es
+    # fail-CLOSED (si Redis cae, toda peticion con token devuelve 401), asi
+    # que un token emitido con Redis caido no servia para nada... hasta
+    # que Redis volvia. Y entonces ese token **no estaba registrado**, de
+    # modo que un cambio de contrasena (que revoca las sesiones
+    # registradas) no lo revocaba: sobrevivia al reset.
+    #
+    # Ahora es fail-CLOSED, como el middleware: si no se puede registrar
+    # la sesion, no se emite el token (503). El usuario recibe un mensaje
+    # claro ("el servicio de autenticacion no esta disponible") en vez de
+    # un token que no funciona, y no queda ningun token sin rastrear.
+    access_registrado = session_tracker.track_session(
         user_id=user.id, jti=decode_token(access)["jti"],
     )
-    session_tracker.track_session(
+    refresh_registrado = session_tracker.track_session(
         user_id=user.id, jti=decode_token(refresh)["jti"],
     )
+    if not (access_registrado and refresh_registrado):
+        log.error(
+            "login: no se pudo registrar la sesion de user=%s; no se emite "
+            "el token (Redis no disponible)", user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Servicio de autenticación no disponible",
+        )
     return TokenPair(
         access_token=access,
         expires_in=settings.access_token_ttl_minutes * 60,
@@ -238,6 +258,11 @@ def login_json(
     # (``_autenticar``). Antes cada una repetia el codigo y la via
     # OAuth2 se quedo sin la comprobacion de ``is_active``.
     user = _autenticar(request, db, payload.email, payload.password)
+    # T-109: los tokens se construyen PRIMERO (ahi es donde se registra
+    # la sesion, y puede fallar si Redis no esta). Si el aviso se
+    # escribiera antes, diria "login_success" de un login que en
+    # realidad salio con 503.
+    tokens = _build_tokens(user)
     # Login OK: audit.
     # El middleware no puede saber quién entra (no hay token en la
     # request), así que le damos el user_id que el handler sí conoce.
@@ -250,7 +275,7 @@ def login_json(
         result="success",
     )
     db.commit()
-    return _build_tokens(user)
+    return tokens
 
 
 @router.post("/login/oauth", response_model=TokenPair)
@@ -277,6 +302,10 @@ def login_oauth(
         request, db, form.username, form.password,
         extra={"grant_type": "oauth_form"},
     )
+    # T-109: igual que en el login JSON, los tokens se construyen
+    # primero (ahi se registra la sesion y puede fallar si Redis no
+    # esta): el aviso tiene que reflejar lo que de verdad paso.
+    tokens = _build_tokens(user)
     # Mismo enrichment que en el login JSON: el handler sabe quién
     # entra, el middleware no (no hay token en la request de login).
     _bind_audit_user(request, user)
@@ -288,7 +317,7 @@ def login_oauth(
         result="success",
     )
     db.commit()
-    return _build_tokens(user)
+    return tokens
 
 
 @router.post("/refresh", response_model=TokenPair)

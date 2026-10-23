@@ -2218,6 +2218,19 @@ escaneos completos.
 de Seq Scan a **Bitmap Index Scan**.
 
 
+### 3-nonagésimocuarta. El login es fail-closed: sin sesión registrada, no hay token (2026-10-23)
+
+El registro de la sesión era fail-open: con Redis caído se emitían tokens
+igualmente. No era el token inútil (el middleware ya es fail-closed), sino
+que, **al recuperarse Redis**, ese token no estaba registrado y un
+cambio de contraseña (que revoca las sesiones registradas) **no lo
+revocaba**: sobrevivía al reset.
+
+**El arreglo**: si la sesión no se puede registrar, el login responde
+**503** y no emite token. Y el aviso de auditoría se escribe después de
+construir los tokens (para no decir `login_success` de un 503).
+
+
 ## 5. Variables de entorno nuevas
 
 | Variable | Default | Para qué |

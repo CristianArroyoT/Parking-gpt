@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **586 de 587 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **590 de 591 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2071,6 +2071,22 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
 - **Criterios de aceptación**:
   - [x] Medido: Seq Scan antes; Bitmap Index Scan después.
   - [x] La puerta de migraciones: «el esquema migrado coincide con los modelos».
+
+
+### T-109 · P2 (seguridad) — un token emitido con Redis caído sobrevivía al cambio de contraseña
+
+- **Estado**: **completado** — el login es fail-closed, como el middleware
+- **Contexto** (auditoría del 2026-10-23): el registro de la sesión era **fail-open** (documentado como decisión deliberada: «si Redis cae, los tokens se devuelven igualmente»). El problema real no era el token inútil —el middleware de auditoría ya es fail-closed y devuelve 401 a todo lo que lleva token mientras Redis está caído—, sino lo que pasaba **cuando Redis volvía**:
+  - ese token **no estaba registrado** en `user:{id}:active_jtis`;
+  - un cambio de contraseña revoca las sesiones **registradas** (`revoke_all`);
+  - o sea: **el token sobrevivía al reset**, y el atacante que lo tuviera seguía entrando con la contraseña nueva.
+- **El arreglo**: el login pasa a ser **fail-closed**, igual que el middleware: si la sesión no se puede registrar, se responde **503** y **no se emite ningún token**. El usuario recibe un mensaje claro («el servicio de autenticación no está disponible») en vez de un token que no funciona, y no queda ningún token sin rastrear.
+- **Y el aviso de auditoría se escribe después** de construir los tokens, para que no diga `login_success` de un login que en realidad salió con 503.
+- **Criterios de aceptación**:
+  - [x] Sin registro de sesión, el login responde 503 y **no emite** token (vía JSON).
+  - [x] La vía OAuth2 se comporta igual (comparten `_build_tokens`).
+  - [x] Un login que salió con 503 **no** se audita como `login_success`.
+  - [x] 3 tests nuevos; prueba inversa: con el fail-open, los tests **fallan**.
 
 ### T-14 · I3 — OCR con GPU
 
