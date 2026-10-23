@@ -1,6 +1,6 @@
 # Plan de trabajo — pendientes de solidAPP
 
-**Fecha**: 2026-10-21 · **Rama de trabajo**: `feat/live-preview-cameras` · **Estado del repo**: 8 ficheros modificados sin commitear, PR #13 y PR #14 abiertos.
+**Fecha**: 2026-10-21 · **Rama de trabajo**: `main` (los PR #13 y #14 ya están fusionados) · **Estado del repo**: `main` sincronizada con `origin/main`.
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
@@ -8,7 +8,7 @@
 >
 > | Comprobación | Resultado |
 > |---|---|
-> | Suite completa | **745 passed, 9 skipped** en SQLite · **754 passed** en PostgreSQL (medido el 2026-10-23; la línea base del commit anterior era 732/741: +13 tests nuevos) |
+> | Suite completa | **755 passed, 9 skipped** en SQLite · **764 passed** en PostgreSQL (medido el 2026-10-23; la línea base del commit 305e1e9 era 732/741: +23 tests nuevos) |
 > | QA visual (Chromium) | **26 pantallas** a **5 anchos** (414, 768, 1024, 1232, 1440 px): 130 capturas, **0 desbordes, 0 errores de consola, 0 errores de login** |
 > | PWA | verificado: instalable y **arranca sin red** |
 > | API | **103 rutas** inventariadas (coinciden con el código) y **101 de 101 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |
