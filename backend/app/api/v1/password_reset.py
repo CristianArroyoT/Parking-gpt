@@ -429,7 +429,33 @@ def reset_password(
             detail="Servicio de autenticación no disponible",
         ) from exc
 
-    # 4) Cambiar la contraseña, consumir el token e invalidar el resto.
+    # 4) RECLAMAR el token de forma ATOMICA (T-107).
+    #
+    # Hasta aqui solo se ha MIRADO el token (``used_at is None``): dos
+    # peticiones con el mismo token a la vez (el usuario haciendo doble
+    # clic, o un atacante con el enlace) podian pasar las dos
+    # comprobaciones y las dos cambiar la contrasena: la segunda
+    # machacaba la primera y las dos respondian "contrasena actualizada".
+    #
+    # El UPDATE lleva la condicion ``used_at IS NULL``: solo una peticion
+    # lo consigue. La otra espera a que la primera confirme y se
+    # encuentra con 0 filas (``used_at`` ya no es NULL) -> se rechaza.
+    #
+    # Va DESPUES de revocar los JWT (para que un fallo de Redis no
+    # consuma el token) y ANTES de cambiar la contrasena.
+    consumidos = (
+        db.query(PasswordResetToken)
+        .filter(
+            PasswordResetToken.id == fila.id,
+            PasswordResetToken.used_at.is_(None),
+        )
+        .update({"used_at": ahora}, synchronize_session=False)
+    )
+    if consumidos == 0:
+        db.rollback()
+        _rechazar("token_already_used")
+
+    # 5) Cambiar la contraseña, consumir el token e invalidar el resto.
     user.hashed_password = hash_password(payload.new_password)
     fila.used_at = ahora
     _invalidar_tokens_pendientes(db, user_id=user.id, excluir_id=fila.id)

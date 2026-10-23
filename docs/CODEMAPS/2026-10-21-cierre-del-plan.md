@@ -2192,6 +2192,32 @@ hora** (un `SET NX EX 3600`), y la **purga va en lotes** de 5.000 filas
 (en vez de un `DELETE` masivo).
 
 
+### 3-nonagésimosegunda. El token de reset se reclama de forma atómica (2026-10-23)
+
+3-{.}. El token de reset se reclama de forma atómica (2026-10-23)
+
+El reset **miraba** el token (`used_at is None`) y lo consumía al final:
+dos peticiones con el mismo token a la vez podían pasar las dos
+comprobaciones y las dos cambiar la contraseña (la segunda machacaba la
+primera, y las dos decían «contraseña actualizada»).
+
+**El arreglo**: el token se reclama con un UPDATE condicional
+(`WHERE used_at IS NULL`): solo una petición lo consigue.
+
+
+### 3-nonagésimotercera. La purga de adjuntos ya no escanea la tabla entera (2026-10-23)
+
+3-{.}. La purga de adjuntos ya no escanea la tabla entera (2026-10-23)
+
+La comprobación de «¿otro adjunto apunta al mismo fichero?» se hacía sobre
+`storage_path` y `thumbnail_path`, **sin índice**: el plan era un **Seq
+Scan** y, con 1.000 adjuntos caducados, la tarea de las 3:17 hacía 2.000
+escaneos completos.
+
+**El arreglo**: dos índices (migración `0017`). Medido con 20.000 filas:
+de Seq Scan a **Bitmap Index Scan**.
+
+
 ## 5. Variables de entorno nuevas
 
 | Variable | Default | Para qué |

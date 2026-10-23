@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **581 de 582 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **586 de 587 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2049,6 +2049,28 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] La purga borra todo lo caducado **y va en lotes** (probado con lotes de dos y cinco filas: borra las cinco y no toca lo vigente).
   - [x] 2 tests nuevos; prueba inversa: sin el freno, el test **falla**.
   - [x] El conftest limpia también la clave del freno (si no, un test hereda la de otro: los ids de la BD se reinician, los de Redis no).
+
+
+### T-107 · P2 (seguridad) — el token de reset no era de un solo uso ante una carrera
+
+- **Estado**: **completado** — el token se reclama con un UPDATE condicional
+- **Contexto**: el endpoint de reset **miraba** el token (`used_at is None`) y lo consumía al final. Entre el «mirar» y el «consumir» hay una ventana (revocar sesiones, hacer el bcrypt…), así que **dos peticiones con el mismo token a la vez** podían pasar las dos comprobaciones y las dos cambiar la contraseña: la segunda machacaba la primera y **las dos respondían «contraseña actualizada»**.
+- **El arreglo**: el token se **reclama** con un UPDATE condicional (`WHERE used_at IS NULL`): solo una petición lo consigue; la otra espera a que la primera confirme y se encuentra con 0 filas → se rechaza. Va **después** de revocar los JWT (para que un fallo de Redis no consuma el token) y **antes** de cambiar la contraseña (si algo falla después, el `rollback` lo devuelve al estado consumible).
+- **Criterios de aceptación**:
+  - [x] El UPDATE condicional: dos consumidores del mismo token, el segundo **no toca ninguna fila**.
+  - [x] Si otra petición consumió el token entre medias, esta se rechaza con 400 **y la contraseña no cambia**.
+  - [x] 2 tests nuevos; prueba inversa: sin el reclamo atómico, el test de la carrera **falla**.
+
+### T-108 · P2 (operación) — la purga de adjuntos hacía un escaneo de la tabla entera por adjunto
+
+- **Estado**: **completado** — índices en `storage_path` y `thumbnail_path`
+- **Contexto**: al purgar los adjuntos caducados, el código comprueba por cada adjunto si **otro** adjunto apunta al mismo fichero (para no borrar un fichero que otro sigue usando). Esa comprobación se hacía sobre `storage_path` y `thumbnail_path`, que **no tenían índice**.
+- **Medido** (2026-10-23): el plan de la consulta era un **Seq Scan** sobre `incident_attachments`. Con 1.000 adjuntos caducados, la tarea de las 3:17 hacía **2.000 escaneos completos** de la tabla.
+- **El arreglo**: dos índices (`ix_incident_attachments_storage_path`, `ix_incident_attachments_thumbnail_path`, migración `0017_adjuntos_rutas_idx`).
+- **Medido después** (con 20.000 filas de prueba, en una transacción revertida): el plan pasa de **Seq Scan** a **Bitmap Index Scan** sobre los dos índices (5 búferes leídos en vez de la tabla entera).
+- **Criterios de aceptación**:
+  - [x] Medido: Seq Scan antes; Bitmap Index Scan después.
+  - [x] La puerta de migraciones: «el esquema migrado coincide con los modelos».
 
 ### T-14 · I3 — OCR con GPU
 

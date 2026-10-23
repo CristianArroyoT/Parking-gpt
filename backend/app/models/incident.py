@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -62,6 +62,18 @@ class IncidentAttachment(Base, TimestampMixin):
     # absoluta ataría la base de datos a un host concreto.
     storage_path: Mapped[str] = mapped_column(String(512), nullable=False)
     thumbnail_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    # T-108 (2026-10-23): la purga de adjuntos busca, por cada adjunto
+    # caducado, si **otro** adjunto apunta al mismo fichero (para no
+    # borrar un fichero que otro sigue usando). Sin estos indices, esa
+    # busqueda es un **Seq Scan** de la tabla entera: medido el
+    # 2026-10-23, el plan era "Seq Scan on incident_attachments"; con
+    # 1.000 adjuntos caducados serian 2.000 escaneos completos (en la
+    # tarea de las 3:17).
+    __table_args__ = (
+        Index("ix_incident_attachments_storage_path", "storage_path"),
+        Index("ix_incident_attachments_thumbnail_path", "thumbnail_path"),
+    )
     # Fin de la retención (LOPDGDD). Lo calcula el servicio al crear la
     # foto; si está a NULL se usa la retención global por defecto.
     expires_at: Mapped[datetime | None] = mapped_column(
