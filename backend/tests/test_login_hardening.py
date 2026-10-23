@@ -230,11 +230,23 @@ def test_login_inexistente_no_es_mas_rapido_que_el_real(
 
     t_inexistente = mediana("nadie-este-existe@test.es", "LoQueSea1!")
     t_real = mediana(usuario.email, "ContrasenaIncorrecta1!")
-    diferencia = abs(t_real - t_inexistente)
-    assert diferencia < 0.10, (
+
+    # La comparacion es RELATIVA al coste del bcrypt (un login con
+    # contrasena incorrecta es, sobre todo, un bcrypt): asi el test no
+    # depende de lo rapido que sea la maquina ni de la carga que tenga
+    # (un umbral absoluto en segundos hacia que el test fallara por
+    # culpa de otro proceso: se vio fallar en el contenedor con la
+    # suite de PostgreSQL corriendo en paralelo).
+    #
+    # Con el hash senuelo, los dos login tardan lo mismo (ratio ~1). Sin
+    # el, el login de un email inexistente es casi instantaneo (ratio
+    # ~0,07) y el tiempo delata que la cuenta no existe.
+    assert t_real > 0, "la medicion no sirve de nada"
+    ratio = t_inexistente / t_real
+    assert ratio >= 0.7, (
         f"el login de un email inexistente tardo {t_inexistente:.3f}s y el de "
-        f"un email real {t_real:.3f}s (diferencia {diferencia:.3f}s): el "
-        "tiempo de respuesta filtra que cuentas existen"
+        f"un email real {t_real:.3f}s (ratio {ratio:.2f}): el tiempo de "
+        "respuesta filtra que cuentas existen"
     )
 
 
