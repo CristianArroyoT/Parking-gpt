@@ -721,3 +721,51 @@ def test_la_orientacion_de_la_foto_se_conserva(client, db_session, datos) -> Non
         assert servida.size == (48, 64), (
             f"la foto sale girada: {servida.size} en vez de (48, 64)"
         )
+
+
+# ── T-134 (2026-10-23): un adjunto caducado no tiene metadata legible ──
+def test_la_metadata_de_un_adjunto_caducado_no_se_sirve(
+    client, db_session, datos
+) -> None:
+    """La retencion (90 dias) caduca los BYTES; la metadata tambien.
+
+    Antes, la metadata (nombre, tamaño, ruta) de un adjunto caducado
+    seguia servida y el listado lo seguia enseñando.
+    """
+    token = datos["tokens"]["operador"]
+    headers_gestor = {"Authorization": f"Bearer {datos['tokens']['gestor']}"}
+    alert_id = _crear_incidente(client, token, datos["parking_a"].id)
+
+    r = _subir(
+        client, token, alert_id,
+        [("foto.jpg", _imagen(), "image/jpeg")],
+    )
+    assert r.status_code == 201, r.text
+    adjunto_id = r.json()[0]["id"]
+
+    # Caducar el adjunto (lo que hace la purga por retencion).
+    caducado = datetime.now(timezone.utc) - timedelta(days=1)
+    db_session.query(IncidentAttachment).filter(
+        IncidentAttachment.id == adjunto_id
+    ).update({"expires_at": caducado}, synchronize_session=False)
+    db_session.commit()
+
+    # Los bytes: 410 (ya estaba desde el T-95).
+    descarga = client.get(
+        f"/api/v1/incidents/attachments/{adjunto_id}/download",
+        headers=headers_gestor,
+    )
+    assert descarga.status_code == 410, descarga.text
+
+    # La metadata: tambien 410 (esto es lo nuevo).
+    meta = client.get(
+        f"/api/v1/incidents/attachments/{adjunto_id}", headers=headers_gestor
+    )
+    assert meta.status_code == 410, meta.text
+
+    # Y el listado no lo enseña.
+    listado = client.get(
+        f"/api/v1/incidents/{alert_id}/attachments", headers=headers_gestor
+    )
+    assert listado.status_code == 200, listado.text
+    assert listado.json() == [], f"el adjunto caducado sigue en el listado: {listado.text}"

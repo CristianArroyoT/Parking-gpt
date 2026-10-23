@@ -67,7 +67,6 @@ from app.services.plans import (
     ahora_utc,
     dias_restantes,
     estado_suscripcion,
-    suscripcion_en_periodo,
     suscripcion_para_mostrar,
 )
 
@@ -134,9 +133,22 @@ def list_plans(
         Query(description="Si se omite: el admin ve todos y el cliente sólo los activos."),
     ] = None,
 ) -> list[Plan]:
-    """Catálogo de planes, del más barato al más caro."""
+    """Catálogo de planes, del más barato al más caro.
+
+    T-132 (2026-10-23): un plan **desactivado** no se puede comprar, asi
+    que el cliente no debe verlo. El parámetro ``only_active`` sólo lo
+    puede **endurecer** para el admin (que por defecto los ve todos);
+    para el resto de roles se ignoraba y se veian los desactivados
+    (basta con pasar ``?only_active=false``).
+    """
+    es_admin = _rol(current) == UserRole.ADMIN.value
     if only_active is None:
-        only_active = _rol(current) != UserRole.ADMIN.value
+        # Por omision: el admin ve todos y el resto, solo los activos.
+        only_active = not es_admin
+    elif not es_admin:
+        # Para el resto de roles, el parametro solo puede endurecer el
+        # filtro: nunca se ven los planes desactivados.
+        only_active = True
     query = db.query(Plan).order_by(Plan.monthly_price.asc(), Plan.id.asc())
     if only_active:
         query = query.filter(Plan.is_active.is_(True))
@@ -258,7 +270,25 @@ def create_subscription(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="ends_at debe ser posterior a starts_at",
         )
-    if suscripcion_en_periodo(db, user_id=user.id) is not None:
+    # T-133 (2026-10-23): la regla es "como mucho una suscripción
+    # vigente", y lo que hay que comprobar es el **solape de periodos**.
+    # Antes se miraba la suscripción que estaba en periodo *ahora*, asi
+    # que se podian crear dos suscripciones **solapadas** (la nueva
+    # empieza antes de que caduque la otra, o empieza en el futuro y se
+    # solapa cuando llegue): con dos solapadas, el descuento que se
+    # aplica es el maximo y "/plans/me" solo enseña una, de modo que la
+    # otra se queda en la contabilidad sin que nadie la vea.
+    solapada = (
+        db.query(Subscription)
+        .filter(
+            Subscription.user_id == user.id,
+            Subscription.is_active.is_(True),
+            Subscription.starts_at < ends_at,
+            Subscription.ends_at > starts_at,
+        )
+        .first()
+    )
+    if solapada is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="El usuario ya tiene una suscripción vigente",
@@ -303,11 +333,20 @@ def cancel_subscription(
 def get_plan(
     plan_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[User, Depends(require_role(*ROLES_CONSULTA))],
+    current: Annotated[User, Depends(require_role(*ROLES_CONSULTA))],
 ) -> Plan:
-    """Detalle de un plan."""
+    """Detalle de un plan.
+
+    T-132 (2026-10-23): un plan desactivado no se puede comprar, asi que
+    para el cliente (y el operador) es un 404, como si no existiera. El
+    admin si lo ve (lo tiene que poder reactivar).
+    """
     plan = db.get(Plan, plan_id)
     if plan is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Plan no encontrado"
+        )
+    if not plan.is_active and _rol(current) != UserRole.ADMIN.value:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Plan no encontrado"
         )

@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **670 de 674 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **685 de 689 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2458,6 +2458,61 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Test: la salida manual, con la intercalación forzada, recibe **409** y el ticket conserva el importe del primer cierre.
   - [x] Prueba inversa: volviendo al `commit()` a ciegas, el test **falla**.
   - [x] Los tres caminos usan el helper (no queda ninguna copia del patrón).
+
+### T-131 · P2 (contabilidad) — el importe del ticket no cuadraba: 2,67 − 1,34 ≠ 1,34
+
+- **Estado**: **completado** — se redondea una sola vez y en orden
+- **Contexto**: `calculate_ticket_total` (`app/services/pricing.py`) calculaba el total con los valores **sin redondear** y después redondeaba `amount` y `discount` por separado. El resultado no cuadraba.
+- **Medido** (2026-10-23, con una tarifa de 2,50 €/hora + 0,175 € por fracción de 15 min y un plan del 50 %):
+
+  | | importe | descuento | total |
+  |---|---|---|---|
+  | antes | 2,67 € | 1,34 € | **1,34 €** (2,67 − 1,34 = 1,33) |
+  | ahora | 2,67 € | 1,33 € | **1,33 €** ✓ |
+
+  Es decir, el PDF del ticket enseñaba una cuenta que no sumaba.
+- **El arreglo**: se redondea **una sola vez y en este orden**: el importe, luego el descuento (calculado sobre el importe ya redondeado) y por último el total, que es la diferencia de los dos valores redondeados. Así la propiedad «importe − descuento = total» se cumple siempre.
+- **Criterios de aceptación**:
+  - [x] Test: el caso que descuadraba → importe 2,67, descuento 1,33, total 1,33 ✓.
+  - [x] Test: la propiedad se cumple en 10 estancias distintas (de 5 min a 10 h).
+  - [x] Prueba inversa: volviendo al orden viejo, el test **falla**.
+
+### T-132 · P2 (contrato) — un cliente podía ver los planes desactivados
+
+- **Estado**: **completado** — el cliente sólo ve los planes que puede comprar
+- **Contexto**: un plan desactivado no se puede suscribir (`POST /plans/subscriptions` lo rechaza con 409), así que el cliente no debería verlo. Pero `GET /plans` respects el parámetro `only_active` tal cual ⇒ bastaba con pasar `?only_active=false` para ver los planes retirados, y `GET /plans/{id}` no filtraba nada.
+- **Medido** (2026-10-23): un cliente con `?only_active=false` recibía el plan desactivado en el catálogo, y `GET /plans/{id}` de un plan desactivado devolvía 200 con su ficha completa (precio, descuento, vehicles incluidos).
+- **El arreglo**: para el admin, `only_active` funciona como antes (por omisión ve todos). Para el resto de roles, **siempre** se filtran los desactivados. Y el detalle de un plan desactivado es un **404** para el cliente (el admin lo sigue viendo, para poder reactivarlo).
+- **Criterios de aceptación**:
+  - [x] Test: el catálogo del cliente sólo tiene los activos.
+  - [x] Test: `?only_active=false` no le enseña al cliente los desactivados.
+  - [x] Test: el detalle de un plan desactivado es un 404 para el cliente.
+  - [x] Test: el admin los sigue viendo (catálogo y detalle).
+  - [x] Prueba inversa: dejando el parámetro invertible, el test **falla**.
+
+### T-133 · P1 (contabilidad) — se podían crear dos suscripciones **solapadas**
+
+- **Estado**: **completado** — la guarda mira el solape de periodos
+- **Contexto**: la regla de negocio («un usuario tiene como mucho una suscripción vigente») estaba escrita en el propio endpoint, pero la guarda miraba la suscripción que estaba en periodo **en ese instante**. Una suscripción que empieza antes de que caduque la otra (o que empieza en el futuro y se solapa cuando llegue) pasaba el filtro.
+- **Medido** (2026-10-23): con dos suscripciones solapadas, el descuento que se aplica es el **mayor** de los dos, y `GET /plans/me` sólo enseña **una**: la otra se queda en la contabilidad sin que nadie la vea (y su importe contable no aparece en ninguna parte).
+- **El arreglo**: la guarda comprueba el **solape de periodos** (`starts_at < ends_at` y `ends_at > starts_at`) con cualquier suscripción activa del usuario. La renovación justa (empieza justo cuando caduca la otra) sigue valiendo.
+- **Residual documentado**: dos altas simultáneas (dos admins a la vez) todavía pueden colarse: no hay índice que impida el solape, porque el producto permite renovar antes de que caduque. Es la misma categoría que el T-121 (lo que no se puede saltar con una carrera es la base de datos) y el impacto es acotado (un descuento doble, no un cobro indebido).
+- **Criterios de aceptación**:
+  - [x] Test: una suscripción que se solapa con la vigente → **409**.
+  - [x] Test: una suscripción futura que se solapa → **409**.
+  - [x] Test: la renovación justa (empieza al caducar la otra) → **201**.
+  - [x] Prueba inversa: volviendo a la guarda anterior, el test **falla**.
+
+### T-134 · P2 (privacidad) — un adjunto caducado seguía teniendo metadata legible
+
+- **Estado**: **completado** — lo que no se puede descargar tampoco se lista
+- **Contexto**: el T-95 hizo que los **bytes** de un adjunto caducado dieran un 410, pero su **metadata** (nombre del fichero, tamaño, ruta en el volumen) se seguía sirviendo, y el listado de adjuntos de un incidente los seguía enseñando.
+- **Medido** (2026-10-23): con el `expires_at` vencido, `GET /incidents/attachments/{id}` devolvía 200 con la ficha, y el listado los incluía.
+- **El arreglo**: la metadata de un adjunto caducado es un **410** (igual que los bytes) y el listado **no** enseña los caducados.
+- **Criterios de aceptación**:
+  - [x] Test: la metadata de un adjunto caducado → 410.
+  - [x] Test: el listado no lo enseña.
+  - [x] El `DELETE` sigue pudiendo borrar un adjunto caducado (para limpiarlo).
 
 ### T-14 · I3 — OCR con GPU
 

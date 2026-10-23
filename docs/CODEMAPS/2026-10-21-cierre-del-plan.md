@@ -2638,3 +2638,25 @@ El T-121 arregló el cierre por cámara, pero el cierre manual del servicio y
 el del endpoint tenían cada uno su copia de «comprueba al leer y commitea a
 ciegas». **El arreglo**: `app/services/ticket_closing.py` — un solo helper
 condicional para los tres caminos.
+
+### 3-centésimodecimosexta. El importe del ticket no cuadraba (2026-10-23)
+
+El total se calculaba con los valores **sin redondear** y despues
+`amount` y `discount` se redondeaban por separado: el PDF enseñaba
+"2,67 - 1,34 = 1,34". **El arreglo**: redondear una sola vez y en orden
+(importe, descuento, total), de modo que la propiedad siempre se cumple.
+
+### 3-centésimodecimoséptima. Dos suscripciones solapadas y el plan retirado a la vista (2026-10-23)
+
+La guarda de "una sola suscripción vigente" miraba la que estaba en
+periodo *ahora*, así que se podían crear dos **solapadas** (el descuento
+que se aplica era el mayor y la otra se quedaba sin ver). Y un cliente
+podía ver los planes **desactivados** (bastaba con `?only_active=false`).
+**El arreglo**: la guarda mira el solape de periodos, y el cliente sólo
+ve los planes que puede comprar.
+
+### 3-centésimodecimoctava. La metadata de un adjunto caducado seguía servida (2026-10-23)
+
+El T-95 hacía que los *bytes* de un adjunto caducado dieran un 410, pero su
+metadata se seguía sirviendo y el listado lo seguía enseñando. **El
+arreglo**: la metadata también es un 410 y el listado no los enseña.

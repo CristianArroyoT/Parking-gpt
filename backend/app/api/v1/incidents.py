@@ -371,8 +371,15 @@ def ver_adjunto_incidente(
     db: Session = Depends(get_db),
     current_user: User = Depends(_gestor_o_admin),
 ) -> IncidentAttachmentRead:
-    """Metadata de un adjunto (sin el binario)."""
+    """Metadata de un adjunto (sin el binario).
+
+    T-134 (2026-10-23): la retencion (90 dias por minimizacion,
+    LOPDGDD) ya hacia que los **bytes** de un adjunto caducado dieran un
+    410, pero su **metadata** (nombre, tamaño, ruta) seguia servida.
+    Lo que ya no se puede descargar tampoco debe poder listarse.
+    """
     adjunto = _adjunto_de_sucursal(attachment_id, db, current_user)
+    _exigir_no_caducado(adjunto)
     return adjuntos.a_esquema(adjunto)
 
 
@@ -529,7 +536,17 @@ def listar_adjuntos_incidente(
         .order_by(IncidentAttachment.id)
         .all()
     )
-    return [adjuntos.a_esquema(fila) for fila in filas]
+    # T-134 (2026-10-23): los adjuntos caducados (retencion de 90 dias)
+    # no se listan: si ya no se pueden descargar, tampoco se enseñan.
+    ahora = datetime.now(timezone.utc)
+    vivas = []
+    for fila in filas:
+        caducidad = fila.expires_at
+        if caducidad is not None and caducidad.tzinfo is None:
+            caducidad = caducidad.replace(tzinfo=timezone.utc)
+        if caducidad is None or caducidad > ahora:
+            vivas.append(fila)
+    return [adjuntos.a_esquema(fila) for fila in vivas]
 
 
 __all__ = ["router"]

@@ -57,10 +57,17 @@ def calculate_ticket_total(
             f"No hay tarifa vigente para la sucursal {parking_id} en {entry_at.isoformat()}"
         )
 
-    amount = _compute_amount(tariff, entry_at, exit_at)
-    discount = _compute_discount(db, vehicle_id=vehicle_id, at=exit_at, amount=amount)
+    # T-131 (2026-10-23): se redondea **una sola vez y en este orden**.
+    # Antes el total se calculaba con los valores SIN redondear y despues
+    # `amount` y `discount` se redondeaban por separado: el ticket
+    # mostraba "2,67 - 1,34 = 1,34" (no cuadraba) y el PDF del ticket
+    # enseñaba una cuenta que no suma.
+    amount = round(_compute_amount(tariff, entry_at, exit_at), 2)
+    discount = round(
+        _compute_discount(db, vehicle_id=vehicle_id, at=exit_at, amount=amount), 2
+    )
     total = round(amount - discount, 2)
-    return TicketTotal(amount=round(amount, 2), discount=round(discount, 2), total=total)
+    return TicketTotal(amount=amount, discount=discount, total=total)
 
 
 # ── Internos ──────────────────────────────────────────────────────────
