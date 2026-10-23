@@ -2364,16 +2364,6 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Test: la carrera por la plaza → `skipped_space_occupied` (con la intercalación forzada).
   - [x] Pruebas inversas de los dos: reintroduciendo el comportamiento anterior, los tests **fallan**.
 
-### T-127 · P2 (operación) — el cierre manual no publicaba nada en el bus de eventos
-
-- **Estado**: **completado** — el cierre manual publica `ticket_closed` como los demás
-- **Contexto**: el cierre por cámara y el alta manual publican en el bus SSE (para que el mapa del gestor se actualice al instante). El cierre **manual** (`POST /tickets/{id}/close`) no publicaba nada: la app se enteraba hasta el poll de 30 s.
-- **Medido** (2026-10-23, con un Redis falso): al cerrar un ticket a mano, el canal `parking:{id}:events` **no recibía nada**.
-- **El arreglo**: el cierre manual publica `TICKET_CLOSED` con el `ticket_id` y el `total`, igual que los otros dos caminos.
-- **Criterios de aceptación**:
-  - [x] Test: al cerrar un ticket, el bus recibe un evento `ticket_closed` en el canal de la sucursal, con el `ticket_id` y el `total`.
-  - [x] Prueba inversa: quitando el `publish_event`, el test **falla**.
-
 ### T-124 · P1 (decisión de producto) — una entrada sin salida deja el ticket activo para siempre
 
 - **Estado**: **medido, pendiente de decisión** — no se arregla sin decidir la política de cobro
@@ -2401,6 +2391,16 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [ ] Tarea de purga en el beat, con su criterio de antigüedad.
   - [ ] Test de la tarea (no borra un vehículo con tickets, sí uno huérfano y viejo).
   - [ ] La puerta `verificar_tareas_celery.py` la da por buena (tarea registrada y ejecutable).
+
+### T-127 · P2 (operación) — el cierre manual no publicaba nada en el bus de eventos
+
+- **Estado**: **completado** — el cierre manual publica `ticket_closed` como los demás
+- **Contexto**: el cierre por cámara y el alta manual publican en el bus SSE (para que el mapa del gestor se actualice al instante). El cierre **manual** (`POST /tickets/{id}/close`) no publicaba nada: la app se enteraba hasta el poll de 30 s.
+- **Medido** (2026-10-23, con un Redis falso): al cerrar un ticket a mano, el canal `parking:{id}:events` **no recibía nada**.
+- **El arreglo**: el cierre manual publica `TICKET_CLOSED` con el `ticket_id` y el `total`, igual que los otros dos caminos.
+- **Criterios de aceptación**:
+  - [x] Test: al cerrar un ticket, el bus recibe un evento `ticket_closed` en el canal de la sucursal, con el `ticket_id` y el `total`.
+  - [x] Prueba inversa: quitando el `publish_event`, el test **falla**.
 
 ### T-14 · I3 — OCR con GPU
 

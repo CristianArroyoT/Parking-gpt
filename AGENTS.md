@@ -13,7 +13,7 @@ Docker Compose, CI en GitHub Actions (`.github/workflows/ci.yml`).
 El estado del plan de trabajo (criterios verificados, qué queda, por qué)
 está en **`docs/superpowers/specs/2026-10-21-plan-pendientes-solidapp-design.md`**.
 El mapa de lo que se ha ido construyendo está en
-**`docs/CODEMAPS/2026-10-21-cierre-del-plan.md`** (102 secciones `3-…`).
+**`docs/CODEMAPS/2026-10-21-cierre-del-plan.md`** (109 secciones `3-…`).
 
 ## La convención que más importa
 
