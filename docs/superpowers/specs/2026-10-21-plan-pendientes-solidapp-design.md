@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **529 de 530 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **544 de 545 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -1848,6 +1848,56 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] 5 tests nuevos; prueba inversa: sin la comprobación de caducidad, el test **falla**.
   - [x] Ojo con las fechas: SQLite no guarda la zona horaria, así que el `datetime` vuelve «naive» y hay que normalizarlo antes de compararlo (el mismo ajuste que hace el resto del repo).
 
+
+
+### T-96 · P1 (dato personal) — la lectura de las fotos de incidentes no dejaba rastro
+
+- **Estado**: **completado** — la descarga y la miniatura se auditan
+- **Contexto**: la auditoría registraba la **subida** (`incident_attachment_uploaded`) y el **borrado** (`incident_attachment_deleted`) de las fotos de un incidente, pero **no la lectura**.
+- **Por qué no era cosmético**: una foto de un incidente es dato personal (matrícula, y a veces personas). La auditoría decía quién subió una foto y quién la borró, pero **no quién la vio** — y en un incidente por una matrícula, esa es justamente la pregunta que se hace en una revisión (LOPDGDD).
+- **El arreglo**: los dos endpoints que sirven los bytes (el original y la miniatura) dejan una fila de auditoría con **quién** (`user_id`), **desde dónde** (la IP real del cliente, no la del proxy: T-62) y **qué** foto (`attachment_id`, `alert_id`, mime y tamaño). Lo que **no** se sirve (un 403 por ser de otra sucursal) **no** se audita: ni ruido ni rastro falso.
+- **Criterios de aceptación**:
+  - [x] La descarga deja una fila `incident_attachment_downloaded` con el usuario, la IP y la foto.
+  - [x] La miniatura deja `incident_attachment_thumbnail_viewed` (es la misma foto, reducida).
+  - [x] Un intento que no pasa (403 por sucursal) **no** deja rastro.
+  - [x] 3 tests nuevos; prueba inversa: sin la llamada a la auditoría, los tests **fallan**.
+
+### T-97 · P2 (fuga de información) — la API devolvía la ruta del PDF en el disco del servidor
+
+- **Estado**: **completado** — el PDF se sirve por la API y la ruta interna no sale
+- **Contexto**: la respuesta de los tickets incluía `pdf_path`: la ruta **del servidor** (`/tmp/solidapp-tickets/ticket-1.pdf`). El botón «Descargar PDF» del panel del cliente apuntaba a esa ruta, así que:
+  1. **daba 404** (ese fichero vive en el contenedor del backend y no lo servía nadie): la función estaba rota;
+  2. la respuesta de la API enseñaba la estructura de ficheros del servidor (dónde están los temporales y cómo se llaman).
+- **El arreglo** (tres piezas):
+  1. **un endpoint** `GET /tickets/{id}/pdf` que **genera el PDF al vuelo** y lo sirve con `application/pdf`, `Content-Disposition: attachment` y `nosniff`. El scope es el **mismo** que el detalle del ticket: un cliente solo descarga los PDF de sus vehículos;
+  2. la API ya **no devuelve la ruta**: en su lugar, `pdf_available` (si el ticket está cerrado, hay PDF);
+  3. el frontend **pide el PDF a la API** con `fetch` (un `<a href>` no puede mandar la cabecera `Authorization`), en vez de enlazar el fichero.
+- **Medido** (2026-10-23, contra la API real en marcha): antes, la respuesta del ticket traía `pdf_path`; ahora trae `pdf_available: true` y `GET /tickets/1/pdf` → **200**, `application/pdf`, 2669 bytes que empiezan por `%PDF`.
+- **Criterios de aceptación**:
+  - [x] La API no devuelve `pdf_path` ni en el ticket ni en el panel del cliente.
+  - [x] `GET /tickets/{id}/pdf` devuelve el PDF (200, `%PDF`, `attachment`, `nosniff`).
+  - [x] Un cliente **no** puede descargar el PDF de otro (404, y no se revela ni que existe).
+  - [x] El botón del panel del cliente funciona (descarga con la cabecera `Authorization`).
+  - [x] `lint`, `vue-tsc` y `mypy` en verde.
+  - [x] 5 tests nuevos; prueba inversa: devolver `pdf_path` o quitar el scope **hacen fallar** los tests.
+
+### T-98 · P2 (seguridad) — las cuentas de demostración se podían loguear en producción
+
+- **Estado**: **completado** — en staging/producción no entran
+- **Contexto**: el seed ya se niega a crear las cuentas de demostración fuera de desarrollo (T-83), pero **el login no las filtraba**: si la base de datos de una sucursal arrastraba cuentas de una instalación de desarrollo (un dump, una copia, una restauración vieja), las credenciales **públicas de este repositorio** (y del README: `admin@solidapp.es` / `admin12345`) servirían para entrar como administrador.
+- **El arreglo**: el login rechaza esas cuentas en `staging`/`production`. El rechazo es un **401 como el de cualquier contraseña incorrecta** (un 403 distinto, tipo «cuenta de demostración», diría que ese correo existe: el mismo oráculo que T-86 tapa). En `development`/`test` no se bloquea: la QA visual y el botón «rellenar demo» de la pantalla de login las usan a propósito.
+- **Medido** (2026-10-23, backend real levantado con `ENVIRONMENT=production`):
+  | login | antes | ahora |
+  |---|---|---|
+  | `admin@solidapp.es` / `admin12345` | **200** (con token de administrador) | **401** |
+  | `admin.real@solidapp.es` (una cuenta normal) | 200 | **200** (no se bloquea de más) |
+  Y el intento queda auditado con `reason=demo_account`.
+- **Criterios de aceptación**:
+  - [x] En `production` y `staging` la cuenta demo da 401 (y no un 403, para no revelar que existe).
+  - [x] En `development` la cuenta demo **sí** entra (la QA depende de ello).
+  - [x] Un correo que no es de demo no se bloquea.
+  - [x] El intento queda auditado con su motivo (`demo_account`).
+  - [x] 5 tests nuevos; prueba inversa: sin el bloqueo, el test **falla**.
 
 ### T-14 · I3 — OCR con GPU
 

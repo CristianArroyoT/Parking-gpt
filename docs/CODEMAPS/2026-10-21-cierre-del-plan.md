@@ -2055,6 +2055,43 @@ adjunto caducó (el `DELETE` sí puede borrarlo), y una tarea de Celery
 diariamente. Los dos usan **el mismo criterio** (`expires_at`).
 
 
+### 3-octogésimoprimera. Leer una foto de incidente deja rastro (2026-10-23)
+
+3-{.}. Leer una foto de incidente deja rastro (2026-10-23)
+
+La auditoría registraba la subida y el borrado de las fotos, pero **no
+la lectura**: no había forma de saber quién vio la foto de una
+matrícula.
+
+**El arreglo**: la descarga y la miniatura dejan fila de auditoría (con
+el usuario, la IP real y la foto). Lo que no se sirve, no se audita.
+
+
+### 3-octogésimosegunda. El PDF del ticket se sirve por la API (2026-10-23)
+
+3-{.}. El PDF del ticket se sirve por la API (2026-10-23)
+
+La API devolvía `pdf_path` (la ruta del PDF en el disco del servidor) y
+el botón «Descargar PDF» del cliente **daba 404**.
+
+**El arreglo**: `GET /tickets/{id}/pdf` genera el PDF al vuelo con el
+mismo scope que el detalle del ticket; la API ya no devuelve la ruta
+(`pdf_available` en su lugar) y el frontend lo pide con `fetch`.
+
+
+### 3-octogésimotercera. Las cuentas de demostración no entran en producción (2026-10-23)
+
+3-{.}. Las cuentas de demostración no entran en producción (2026-10-23)
+
+El seed se negaba a crearlas (T-83), pero el login no las filtraba: si
+la base de datos arrastraba cuentas de una instalación de desarrollo,
+las credenciales públicas del README servían como administrador.
+
+**El arreglo**: en `staging`/`production` el login las rechaza con un
+**401** (no un 403: no se revela que el correo existe) y lo audita con
+`reason=demo_account`.
+
+
 ## 5. Variables de entorno nuevas
 
 | Variable | Default | Para qué |
