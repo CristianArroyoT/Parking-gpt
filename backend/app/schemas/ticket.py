@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import Field
+from pydantic import Field, computed_field
 
 from app.models.enums import ManualEntryReason, TicketOrigin
 from app.schemas import ORMModel, TimestampMixinSchema
@@ -53,5 +53,20 @@ class TicketRead(TimestampMixinSchema):
     discount: Optional[float]
     total: Optional[float]
     payment_method: Optional[str]
-    pdf_path: Optional[str] = None
     origin: TicketOrigin = TicketOrigin.AUTOMATIC
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def pdf_available(self) -> bool:
+        """¿Hay PDF descargable de este ticket? (T-97)
+
+        Antes la API devolvia ``pdf_path``: la ruta **del disco del
+        servidor** (``/tmp/solidapp-tickets/ticket-1.pdf``). Eso no solo
+        enseña la estructura de ficheros a quien llama: ademas el
+        enlace que hacia el frontend **daba 404**, porque ese fichero
+        no lo sirve nadie (vive en el contenedor del backend).
+
+        Ahora el PDF se pide a la API (``GET /tickets/{id}/pdf``), que
+        lo genera al vuelo, y aqui solo se dice si lo hay.
+        """
+        return self.exit_at is not None

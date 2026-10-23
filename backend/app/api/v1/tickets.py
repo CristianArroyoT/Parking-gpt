@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import Response
 from sqlalchemy.orm import Query as SAQuery
 from sqlalchemy.orm import Session
 
@@ -19,7 +20,7 @@ from app.models.user import ParkingMembership, User
 from app.models.vehicle import Vehicle, VehicleUser
 from app.schemas.ticket import TicketClose, TicketCreate, TicketManualCreate, TicketRead
 from app.services.manual_tickets import create_manual_ticket as _create_manual_ticket
-from app.services.pdf import save_ticket_pdf
+from app.services.pdf import render_ticket_pdf, save_ticket_pdf
 from app.services.pricing import PricingError, calculate_ticket_total
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
@@ -130,6 +131,40 @@ def get_ticket(
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket no encontrado")
     return ticket
+
+
+@router.get("/{ticket_id}/pdf")
+def descargar_pdf_ticket(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    """Descarga el PDF del ticket (T-97).
+
+    El PDF se **genera al vuelo**, no se sirve el fichero de ``/tmp``:
+    asi la API no tiene que exponer la ruta del servidor (que ademas
+    no la servia nadie: el enlace del cliente daba 404) y el PDF
+    corresponde siempre a los datos actuales del ticket.
+
+    El scope es el MISMO que ``GET /tickets/{id}``: un cliente solo
+    descarga los PDF de sus vehiculos y un gestor los de su sucursal.
+    """
+    ticket = (
+        _scoped_query(db, user, None).filter(Ticket.id == ticket_id).one_or_none()
+    )
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket no encontrado")
+    vehicle = db.get(Vehicle, ticket.vehicle_id)
+    pdf = render_ticket_pdf(ticket, vehicle)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="ticket-{ticket.id}.pdf"',
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 @router.post("/{ticket_id}/close", response_model=TicketRead)

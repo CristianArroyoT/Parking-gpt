@@ -56,7 +56,8 @@ export interface ClienteTicket {
   discount: number | null
   total: number | null
   payment_method: string | null
-  pdf_path: string | null
+  /** T-97: el PDF se pide a la API; la ruta interna del servidor ya no sale. */
+  pdf_available: boolean
   pending_payment: boolean
   days_pending: number | null
 }
@@ -73,4 +74,27 @@ export async function listarTickets(
     params: soloPendientes ? { solo_pendientes: true } : {},
   })
   return data
+}
+
+/**
+ * Descarga el PDF de un ticket (T-97).
+ *
+ * Va con `fetch` (y no con un `<a href>`) por dos motivos:
+ *  1. el PDF **no** se puede enlazar en el HTML: necesita la cabecera
+ *     `Authorization`, y un `<a>` no la manda;
+ *  2. antes el enlace apuntaba a `pdf_path`, que era la ruta del PDF en
+ *     el **disco del servidor** (`/tmp/solidapp-tickets/ticket-1.pdf`):
+ *     un 404 de manual y, de paso, la estructura de ficheros del
+ *     servidor en la respuesta de la API.
+ */
+export async function descargarPdfTicket(ticketId: number): Promise<void> {
+  const r = await http.get(`/tickets/${ticketId}/pdf`, { responseType: 'blob' })
+  const url = URL.createObjectURL(r.data as Blob)
+  const enlace = document.createElement('a')
+  enlace.href = url
+  enlace.download = `ticket-${ticketId}.pdf`
+  document.body.appendChild(enlace)
+  enlace.click()
+  enlace.remove()
+  URL.revokeObjectURL(url)
 }

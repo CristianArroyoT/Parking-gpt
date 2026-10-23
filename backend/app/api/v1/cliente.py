@@ -105,7 +105,9 @@ class ClienteTicketRead(BaseModel):
     discount: Optional[float] = None
     total: Optional[float] = None
     payment_method: Optional[str] = None
-    pdf_path: Optional[str] = None
+    #: T-97: no se expone la ruta del PDF en el disco del servidor; el
+    #: PDF se pide a ``GET /tickets/{id}/pdf``.
+    pdf_available: bool = False
     pending_payment: bool = False
     days_pending: Optional[int] = None
 
@@ -315,7 +317,7 @@ def listar_tickets(
                 discount=t.discount,
                 total=t.total,
                 payment_method=t.payment_method,
-                pdf_path=t.pdf_path,
+                pdf_available=t.exit_at is not None,
                 pending_payment=pendiente,
                 days_pending=_dias_pendientes(t, ahora),
             )

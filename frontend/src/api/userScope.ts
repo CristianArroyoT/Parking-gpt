@@ -82,7 +82,8 @@ export interface UserScopedTicket {
   discount: number | null
   total: number | null
   payment_method: string | null
-  pdf_path: string | null
+  /** T-97: el PDF se pide a la API; la ruta interna del servidor ya no sale. */
+  pdf_available: boolean
   origin: string
 }
 

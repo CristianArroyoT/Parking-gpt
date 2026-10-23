@@ -12,6 +12,7 @@
 import { onMounted, ref } from 'vue'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { http } from '@/api/client'
+import { descargarPdfTicket } from '@/api/cliente'
 import { useUiStore } from '@/stores/ui'
 
 // Tipos espejo de ``app/schemas/ticket.py::TicketRead``.
@@ -30,7 +31,7 @@ interface Ticket {
   discount: number | null
   total: number | null
   payment_method: string | null
-  pdf_path: string | null
+  pdf_available: boolean
   origin: TicketOrigin
 }
 
@@ -42,6 +43,27 @@ const loading = ref(true)
 const selected = ref<Ticket | null>(null)
 const detailLoading = ref(false)
 const detailError = ref<string | null>(null)
+const descargandoPdf = ref(false)
+
+/**
+ * Descarga el PDF del ticket (T-97).
+ *
+ * Va contra la API (``GET /tickets/{id}/pdf``) en vez de enlazar el
+ * fichero: un `<a href>` no puede mandar la cabecera `Authorization`,
+ * y antes el enlace apuntaba a ``pdf_path``, que era la ruta del PDF
+ * en el disco del servidor (un 404 y, de paso, la estructura de
+ * ficheros del servidor en la respuesta de la API).
+ */
+async function descargarPdf(ticketId: number): Promise<void> {
+  descargandoPdf.value = true
+  try {
+    await descargarPdfTicket(ticketId)
+  } catch {
+    ui.pushToast('error', 'No se ha podido generar el PDF')
+  } finally {
+    descargandoPdf.value = false
+  }
+}
 
 async function openDetail(t: Ticket): Promise<void> {
   // Carga perezosa del detalle completo. El listado ya tiene casi todo
@@ -281,15 +303,16 @@ const cerrados = (): Ticket[] => tickets.value.filter((t) => t.status === 'cerra
               </div>
             </div>
 
-            <div v-if="selected.pdf_path" class="border-t border-slate-200 pt-3">
-              <a
-                :href="selected.pdf_path"
-                target="_blank"
-                rel="noopener"
+            <div v-if="selected.pdf_available" class="border-t border-slate-200 pt-3">
+              <button
+                type="button"
                 class="btn-secondary inline-flex items-center gap-2"
+                :disabled="descargandoPdf"
+                @click="descargarPdf(selected.id)"
               >
-                <span>📄</span> Descargar PDF
-              </a>
+                <span>📄</span>
+                {{ descargandoPdf ? 'Generando PDF…' : 'Descargar PDF' }}
+              </button>
             </div>
           </div>
 
