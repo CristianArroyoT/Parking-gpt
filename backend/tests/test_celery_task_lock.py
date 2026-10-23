@@ -56,6 +56,26 @@ def test_sin_lock_la_ronda_se_ejecuta(db_session: Session, monkeypatch) -> None:
     assert "probed" in resultado, resultado
 
 
+def test_el_lock_se_suelta_al_terminar_la_ronda(
+    db_session: Session, monkeypatch,
+) -> None:
+    """Al terminar, el lock se suelta: la ronda siguiente puede correr.
+
+    Sin esto el lock se quedaba hasta caducar (120 s) y, como el beat
+    lanza cada 60 s, **se perdia una ronda de cada tres**. Es lo que
+   TABLA::devolvian los tests de ``probe_heartbeats`` (``{"omitida":
+    True}`` en vez del resultado normal).
+    """
+    monkeypatch_tasks_session(monkeypatch, db_session)
+    r = _redis()
+    r.delete(CLAVE_LOCK)
+    tasks_mod.probe_heartbeats()
+    assert r.get(CLAVE_LOCK) is None, (
+        "el lock deberia soltarse al terminar la ronda: si no, la ronda "
+        "siguiente (60 s despues) se omite"
+    )
+
+
 def test_el_lock_se_toma_con_nx_y_caduca(db_session: Session) -> None:
     """El lock es ``SET NX``: dos rondas no lo toman las dos."""
     r = _redis()

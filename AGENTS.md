@@ -189,6 +189,29 @@ docker run --rm -v "D:\Parking:/repo" -w /repo rhysd/actionlint:latest .github/w
   (el patrón ya está en `app/api/v1/cliente.py`, `app/services/cost.py`,
   `app/api/v1/password_reset.py`, `app/services/pricing.py`,
   `app/services/reports.py` y `app/services/plans.py`).
+- **Un `+00:00` en una query string llega como un espacio.** Al pasar
+  fechas ISO por la URL (los informes, por ejemplo), `isoformat()` da
+  `2026-09-23T02:38:47.709521+00:00` y el `+` se convierte en un
+  espacio: el 422 que sale ("unexpected extra characters at the end of
+  the input") no dice nada del `+`. Usa el sufijo `Z` (`isoformat()
+  .replace("+00:00", "Z")`).
+- **Los informes tienen topes (T-100)**: ventana de 366 días como máximo
+  (422) y 20.000 filas (413, sin recortar en silencio). Si añades un
+  informe nuevo, que herede esos topes: el patrón es
+  `MAX_FILAS_INFORME` en `app/services/reports.py` y `MAX_DIAS_VENTANA` en
+  `app/api/v1/reports.py`.
+- **Las tareas periódicas toman un lock (T-102)**: `probe_heartbeats` se
+  omite si ya hay una ronda en curso (`celery:lock:probe_heartbeats`).
+  Sin ese lock, dos rondas a la vez contaban los fallos por duplicado y
+  la alerta de cámara caída saltaba antes de tiempo.
+- **Todos los servicios del compose tienen `restart: unless-stopped`**
+  (T-101), y `tools/verificar_compose_produccion.py` lo vigila. Sin eso,
+  un servicio que se cae se queda caído hasta que alguien lo levanta a
+  mano (y en el worker, las tareas en curso no se reintentan).
+- **El correo tiene una sola forma canónica (T-99)**: se guarda en
+  minúsculas (`app/core/emails.py`) y se compara en minúsculas (login,
+  reset, altas). El índice único de la migración `0015` lo prohíbe en la
+  base de datos.
 - **La puerta de dependencias necesita red.** `tools/verificar_dependencias.py`
   consulta **OSV** (la base que alimenta `pip-audit` y `npm audit`). Si OSV no
   responde devuelve el **código 3** ("no comprobado"), que **no** es verde: en

@@ -457,7 +457,7 @@ def purge_audit_logs(retention_days: int | None = None) -> dict[str, Any]:
 LOCK_TTL_SEGUNDOS = 120
 
 
-def _tomar_lock(nombre: str, ttl: int = LOCK_TTL_SEGUNDOS) -> bool:
+def _tomar_lock(nombre: str, ttl: int = LOCK_TTL_SEGUNDOS) -> str | None:
     """Toma el lock de la tarea para que no se solape consigo misma.
 
     POR QUE (T-102, 2026-10-23): el beat lanza la ronda de heartbeat
@@ -472,20 +472,50 @@ def _tomar_lock(nombre: str, ttl: int = LOCK_TTL_SEGUNDOS) -> bool:
       borrar contador -> INSERT`` no lo es, y si el INSERT fallaba la
       camara se quedaba muda una hora.
 
-    Devuelve ``False`` si ya hay una ejecucion en curso. Si Redis no
-    responde, **no** se bloquea la tarea: sin Redis no hay ni colas ni
-    rate-limit, y es preferible avisar y seguir que no hacer nada.
+    Devuelve el **token** del lock (un identificador unico de esta
+    ejecucion) o ``None`` si ya hay otra ronda en curso. Si Redis no
+    responde, **no** se bloquea la tarea (sin Redis no hay ni colas ni
+    rate-limit): se avisa y se sigue.
     """
+    token = make_worker_correlation_id()
     try:
         rds = redis.Redis.from_url(
             get_settings().redis_url, decode_responses=True,
         )
-        return bool(rds.set(f"celery:lock:{nombre}", "1", nx=True, ex=ttl))
+        if rds.set(f"celery:lock:{nombre}", token, nx=True, ex=ttl):
+            return token
+        return None
     except RedisError as exc:
         log.warning(
             "_tomar_lock: Redis no disponible (%s); se sigue sin lock", exc,
         )
-        return True
+        return token
+
+
+def _soltar_lock(nombre: str, token: str) -> None:
+    """Suelta el lock **solo si es el nuestro**.
+
+    Sin esto, el lock se queda hasta que caduca (120 s) y la ronda se
+    pierde una de cada tres: el beat lanza cada 60 s, la primera ronda
+    toma el lock, la segunda lo encuentra tomado y la tercera lo vuelve
+    a tomar (ya caducado). Con la suelta al terminar, la ronda siguiente
+    puede correr enseguida.
+
+    La comparacion es **atomica** (Lua): si el lock es de otra
+    ejecucion, no se toca.
+    """
+    clave = f"celery:lock:{nombre}"
+    try:
+        rds = redis.Redis.from_url(
+            get_settings().redis_url, decode_responses=True,
+        )
+        rds.eval(
+            "if redis.call('get', KEYS[1]) == ARGV[1] "
+            "then return redis.call('del', KEYS[1]) else return 0 end",
+            1, clave, token,
+        )
+    except RedisError as exc:
+        log.warning("_soltar_lock: Redis no disponible (%s)", exc)
 
 
 @celery_app.task(name="solidapp.probe_heartbeats")  # type: ignore[untyped-decorator]
@@ -526,7 +556,8 @@ def probe_heartbeats() -> dict[str, Any]:
     de esta ronda (coherente con ``ping_camera``).
     """
     # T-102: si hay otra ronda en curso, esta se omite (no se solapan).
-    if not _tomar_lock("probe_heartbeats"):
+    token_lock = _tomar_lock("probe_heartbeats")
+    if token_lock is None:
         log.info("probe_heartbeats: ya hay una ronda en curso; se omite esta")
         return {"omitida": True, "motivo": "ronda_en_curso"}
     cid = make_worker_correlation_id()
@@ -646,6 +677,10 @@ def probe_heartbeats() -> dict[str, Any]:
                 db.rollback()
     finally:
         db.close()
+        # T-102: el lock se suelta al terminar la ronda (si no, se pierde
+        # una de cada tres: el beat lanza cada 60 s y el lock dura 120).
+        if token_lock is not None:
+            _soltar_lock("probe_heartbeats", token_lock)
 
     # Sprint O2 (2026-07-06): publicar cambios de health en bus SSE.
     # Fire-and-forget (publish ya es defensivo: un fallo de Redis no

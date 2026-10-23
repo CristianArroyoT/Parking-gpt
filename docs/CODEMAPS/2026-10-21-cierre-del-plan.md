@@ -2138,7 +2138,9 @@ más: dos rondas a la vez contaban los fallos por duplicado (la alerta
 saltaba antes de tiempo) y duplicaban la auditoría.
 
 **El arreglo**: lock por tarea en Redis (`SET NX EX 120`); si ya hay
-una ronda en curso, la nueva se omite.
+una ronda en curso, la nueva se omite. Y el lock **se suelta** al
+terminar (si no, con el beat cada 60 s se perdía una ronda de cada
+tres).
 
 
 ## 5. Variables de entorno nuevas

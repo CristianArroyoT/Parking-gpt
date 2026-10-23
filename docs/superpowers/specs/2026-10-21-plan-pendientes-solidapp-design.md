@@ -1971,11 +1971,13 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - se duplicaban las filas de auditoría y los eventos publicados;
   - dos rondas podían tomar a la vez el lock de alerta de una cámara: el `SET NX` es atómico, pero la secuencia `INCR → comprobar → SET NX → borrar contador → INSERT` **no lo es**, y si el `INSERT` fallaba la cámara se quedaba muda una hora.
 - **El arreglo**: la tarea toma un lock en Redis (`SET NX EX 120`, dos veces el intervalo del beat) y, si ya hay una ronda en curso, **se omite** y lo dice (`{"omitida": True, "motivo": "ronda_en_curso"}`). Si Redis no responde, la tarea **no** se bloquea (sin Redis no hay ni colas ni rate-limit): avisa y sigue.
+- **Y el lock se suelta al terminar** (comparación atómica con Lua: solo se suelta el nuestro). Sin esa suelta, el lock se quedaba hasta caducar y, como el beat lanza cada 60 s, **se perdía una ronda de cada tres**. Lo cazaron los tests de `probe_heartbeats` (devolvían `{"omitida": True}` en vez del resultado normal).
 - **Criterios de aceptación**:
   - [x] Con el lock tomado, la ronda se omite y lo dice.
   - [x] Sin lock, la ronda se ejecuta como siempre (no se ha roto nada).
   - [x] El lock es `SET NX` (dos rondas no lo toman las dos) y **caduca** (para que un worker muerto no bloquee las rondas siguientes).
-  - [x] 3 tests nuevos; prueba inversa: sin el lock, el test **falla**.
+  - [x] 4 tests nuevos; prueba inversa: sin el lock, el test **falla**.
+  - [x] El lock **se suelta** al terminar la ronda: si no, se perdía una de cada tres (lo cazaron los tests de `probe_heartbeats`).
 
 ### T-14 · I3 — OCR con GPU
 
