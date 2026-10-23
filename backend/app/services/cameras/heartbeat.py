@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import cv2
 
@@ -37,7 +37,34 @@ log = logging.getLogger(__name__)
 DEFAULT_TIMEOUT_S: float = 5.0
 
 
-def _probe_sync(rtsp_url: str) -> bool:
+def _abrir_captura(rtsp_url: str, timeout_s: float) -> Any:
+    """Abre la captura RTSP **con timeout de apertura y de lectura**.
+
+    T-112 (2026-10-23): sin esto, el timeout de FFmpeg era el suyo por
+    defecto (30 s), asi que el ``timeout_s`` del probe (5 s) **no se
+    cumplia**: medido, una camara colgada hacia que el probe tardase
+    30,12 s en vez de 5. Y como la ronda espera a los hilos del executor
+    (Python 3.11 espera hasta 300 s), la ronda entera se alargaba:
+    con el healthcheck del worker en 20 s, el contenedor se marcaba
+    unhealthy y Docker lo reiniciaba (con ``restart: unless-stopped``,
+    T-101) -> bucle de reinicios mientras una camara colgase.
+
+    Los parametros se pasan en la **apertura** (en OpenCV, ``cap.set()``
+    despues de abrir ya no cambia el tiempo de espera).
+    """
+    params = []
+    if hasattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC"):
+        params.append(int(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC))
+        params.append(int(timeout_s * 1000))
+    if hasattr(cv2, "CAP_PROP_READ_TIMEOUT_MSEC"):
+        params.append(int(cv2.CAP_PROP_READ_TIMEOUT_MSEC))
+        params.append(int(timeout_s * 1000))
+    if params:
+        return cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG, params)
+    return cv2.VideoCapture(rtsp_url)
+
+
+def _probe_sync(rtsp_url: str, timeout_s: float = DEFAULT_TIMEOUT_S) -> bool:
     """Abre RTSP, llama ``grab()`` y devuelve True si el frame está en cola.
 
     Helper síncrono ejecutado en thread pool. Devuelve ``False`` ante
@@ -51,7 +78,7 @@ def _probe_sync(rtsp_url: str) -> bool:
             # inválido, no un fallo de red.
             log.warning("heartbeat: la cámara no tiene URL de RTSP")
             return False
-        cap = cv2.VideoCapture(rtsp_url)
+        cap = _abrir_captura(rtsp_url, timeout_s)
         if not cap.isOpened():
             log.warning(
                 "heartbeat: stream no abierto (URL inválida o sin red): %s", rtsp_url
@@ -87,7 +114,7 @@ async def probe_camera(
     """
     try:
         return await asyncio.wait_for(
-            asyncio.to_thread(_probe_sync, camera.rtsp_url),
+            asyncio.to_thread(_probe_sync, camera.rtsp_url, timeout_s),
             timeout=timeout_s,
         )
     except asyncio.TimeoutError:

@@ -2255,6 +2255,22 @@ las plazas, los tickets y las alertas quedaban **vacíos** y era
 indistinguible de «no hay datos». Ahora los tres muestran un aviso.
 
 
+### 3-nonagésimoséptima. El probe de cámara respeta su timeout (2026-10-23)
+
+`probe_camera` envolvía el sondeo en `wait_for(5 s)`, pero el trabajo
+real estaba en un hilo que `wait_for` no puede cancelar: mandaba el
+timeout de **FFmpeg (30 s)**, y la ronda (`asyncio.run`, que en Python
+3.11 espera a los hilos del executor) se alargaba igual.
+
+Medido con una cámara colgada: **30,12 s → 5,02 s**. No era un
+detalle: el healthcheck del worker (20 s) fallaba y Docker reiniciaba
+el contenedor en bucle.
+
+**El arreglo**: la captura se abre con el timeout de apertura y de
+lectura (los parámetros van en la apertura: `cap.set()` después ya no
+cambia nada).
+
+
 ## 5. Variables de entorno nuevas
 
 | Variable | Default | Para qué |

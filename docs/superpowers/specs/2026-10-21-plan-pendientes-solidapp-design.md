@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **598 de 599 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **602 de 603 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2120,6 +2120,24 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Un fallo al cargar los tickets avisa.
   - [x] Un fallo al cargar las alertas avisa.
   - [x] La QA visual sigue pasando (26 pantallas × 5 anchos, 0 errores de consola).
+
+
+### T-112 · P1 (operación) — el timeout del probe de cámara no se cumplía (la ronda tardaba 30 s)
+
+- **Estado**: **completado** — la captura se abre con el timeout de apertura y de lectura
+- **Contexto** (auditoría de Celery, 2026-10-23): `probe_camera` envuelve el sondeo en `asyncio.wait_for(..., timeout=5 s)`, pero el trabajo real ocurre en un **hilo** (`asyncio.to_thread`) que `wait_for` **no puede cancelar**. El timeout que mandaba era el de **FFmpeg (30 s)**, no el de 5 s del código. Y como la ronda usa `asyncio.run`, que en Python 3.11 **espera a los hilos del executor** (hasta 300 s), la ronda entera se alargaba con el mismo tiempo.
+- **Medido** (2026-10-23, con una cámara colgada: una IP que no contesta):
+  | | antes | después |
+  |---|---|---|
+  | el probe | **30,12 s** | **5,02 s** |
+  | la ronda completa | 30,09 s | 5,07 s |
+- **Por qué no era un detalle**: el healthcheck del worker es `celery inspect ping -t 20` → con una cámara colgada el contenedor se marcaba **unhealthy** y Docker lo reiniciaba (con `restart: unless-stopped`, T-101) → **bucle de reinicios** mientras la cámara siguiera colgando, y sin detecciones de cámara caída.
+- **El arreglo**: la captura se abre **con el timeout** (los parámetros van en la apertura: en OpenCV, `cap.set()` después de abrir ya no cambia el tiempo de espera).
+- **Criterios de aceptación**:
+  - [x] Medido: 30,12 s → 5,02 s.
+  - [x] La captura se abre con el timeout de apertura y de lectura (5 s).
+  - [x] Una cámara colgada devuelve False en menos de 15 s (el test que lo vigila).
+  - [x] 2 tests nuevos; prueba inversa: sin el timeout, los tests **fallan** (y tardan 30 s: el propio bug se nota).
 
 ### T-14 · I3 — OCR con GPU
 
