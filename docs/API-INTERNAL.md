@@ -42,7 +42,7 @@ Dependencias de autorización (en `backend/app/core/deps.py`):
 
 ## 3. Mapa de recursos y RBAC
 
-103 endpoints en 26 grupos. La columna «Quién» tiene dos partes, las dos leídas del código con `tools/extraer_api.py`:
+106 endpoints en 26 grupos. La columna «Quién» tiene dos partes, las dos leídas del código con `tools/extraer_api.py`:
 
 1. **El RBAC de dependencia**: quién puede llamar al endpoint (`parking_context`, `require_role(...)`, el token por `?token=`, el middleware de auditoría…).
 2. **El ámbito de datos** que el endpoint aplica *en el cuerpo* (`ámbito: membresías de sucursal`, `ámbito: sus vehículos`): varios endpoints filtran por rol y por membresía a mano, para no duplicar el JOIN con `parking_context`.
@@ -60,7 +60,7 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 | Método | Ruta | Quién |
 |---|---|---|
 | GET | `/parkings/{parking_id}/alerts` | `parking_context` |
-| POST | `/parkings/{parking_id}/alerts/{alert_id}/acknowledge` | Autenticado + ámbito: membresías de sucursal |
+| POST | `/parkings/{parking_id}/alerts/{alert_id}/acknowledge` | Autenticado |
 
 ### 3.3 Autenticación — `auth` (`auth.py`)
 
@@ -138,13 +138,13 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 
 | Método | Ruta | Quién |
 |---|---|---|
-| POST | `/incidents/parkings/{parking_id}` | `require_role('admin', 'gestor', 'operador')` + Autenticado + `parking_context` |
+| POST | `/incidents/parkings/{parking_id}` | `require_parking_role` + Autenticado |
 | DELETE | `/incidents/attachments/{attachment_id}` | `require_role('admin', 'gestor')` + Autenticado |
 | GET | `/incidents/attachments/{attachment_id}/download` | `_gestor_o_admin` |
 | GET | `/incidents/attachments/{attachment_id}/thumbnail` | `_gestor_o_admin` |
 | GET | `/incidents/attachments/{attachment_id}` | `_gestor_o_admin` |
-| POST | `/incidents/{alert_id}/attachments` | `require_role('admin', 'gestor', 'operador')` + Autenticado + `enforce_parking_membership` |
-| GET | `/incidents/{alert_id}/attachments` | `require_role('admin', 'gestor')` + Autenticado + `enforce_parking_membership` |
+| POST | `/incidents/{alert_id}/attachments` | `require_role('admin', 'gestor', 'operador')` + Autenticado |
+| GET | `/incidents/{alert_id}/attachments` | `require_role('admin', 'gestor')` + Autenticado |
 
 ### 3.13 Cierre de sesión global — `logout_all` (`logout_all.py`)
 
@@ -200,17 +200,17 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 
 | Método | Ruta | Quién |
 |---|---|---|
-| GET | `/admin/reports/margins` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
-| GET | `/admin/reports/margins.csv` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
-| GET | `/admin/reports/ingresos.csv` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
-| GET | `/admin/reports/ingresos.pdf` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
-| GET | `/admin/reports/ocupacion.csv` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
-| GET | `/admin/reports/ocupacion.pdf` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
-| GET | `/admin/reports/tickets.csv` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
-| GET | `/admin/reports/tickets.pdf` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
-| GET | `/admin/reports/alertas.csv` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
-| GET | `/admin/reports/alertas.pdf` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
-| GET | `/admin/reports/margins.pdf` | Autenticado + rate-limit por actor + ámbito: membresías de sucursal |
+| GET | `/admin/reports/margins` | Autenticado + rate-limit por actor |
+| GET | `/admin/reports/margins.csv` | Autenticado + rate-limit por actor |
+| GET | `/admin/reports/ingresos.csv` | Autenticado + rate-limit por actor |
+| GET | `/admin/reports/ingresos.pdf` | Autenticado + rate-limit por actor |
+| GET | `/admin/reports/ocupacion.csv` | Autenticado + rate-limit por actor |
+| GET | `/admin/reports/ocupacion.pdf` | Autenticado + rate-limit por actor |
+| GET | `/admin/reports/tickets.csv` | Autenticado + rate-limit por actor |
+| GET | `/admin/reports/tickets.pdf` | Autenticado + rate-limit por actor |
+| GET | `/admin/reports/alertas.csv` | Autenticado + rate-limit por actor |
+| GET | `/admin/reports/alertas.pdf` | Autenticado + rate-limit por actor |
+| GET | `/admin/reports/margins.pdf` | Autenticado + rate-limit por actor |
 
 ### 3.20 Plazas — `spaces` (`spaces.py`)
 
@@ -265,6 +265,9 @@ El `admin` salta el filtro de membresías salvo que la propia dependencia lo res
 | PATCH | `/users/{user_id}` | `require_role('admin')` |
 | DELETE | `/users/{user_id}` | `require_role('admin')` |
 | POST | `/users/{user_id}/memberships` | `require_role('admin')` |
+| GET | `/users/{user_id}/memberships` | `require_role('admin')` + ámbito: membresías de sucursal |
+| PATCH | `/users/{user_id}/memberships/{membership_id}` | `require_role('admin')` + ámbito: membresías de sucursal |
+| DELETE | `/users/{user_id}/memberships/{membership_id}` | `require_role('admin')` + ámbito: membresías de sucursal |
 
 ### 3.25 Vehículos — `vehicles` (`vehicles.py`)
 

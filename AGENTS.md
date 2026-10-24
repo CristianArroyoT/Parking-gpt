@@ -191,11 +191,36 @@ una costó un bug real:
    sigue siendo una búsqueda dirigida del personal. Para los vehículos de
    una sucursal: `GET /parkings/{id}/vehicles`.
 
-OJO: `role_in_parking` (la columna «de qué rol es en **esta** sucursal»)
-**se escribe y no se lee**: hoy el alcance es por rol global. Es una
-decisión de producto pendiente (RBAC por sucursal).
+## El RBAC por sucursal (T-178, decisión del usuario del 2026-10-24)
 
-La decisión y sus alternativas están en
+`role_in_parking` (la columna «de qué rol es en **esta** sucursal») **ya se
+lee**: es la fuente de la autorización por sucursal. El modelo (decidido por
+el usuario y documentado en
+[`docs/adr/0005-rbac-por-sucursal.md`](docs/adr/0005-rbac-por-sucursal.md)):
+
+> **El rol global es el TECHO; el rol de la sucursal es el PODER real.**
+> Jerarquía: `admin > gestor > operador > cliente`.
+
+1. `admin` global ⇒ poder **global** (sin membresía), como antes.
+2. Para el resto, el **rol efectivo** en la sucursal X es el **más
+   restrictivo** entre su rol global y `role_in_parking` de esa sucursal.
+3. Si el rol efectivo no es de personal ⇒ esa sucursal queda **vedada**
+   (403), aunque tenga la membresía (sigue siendo cierto lo del T-114).
+4. `role_in_parking` **nunca** da más poder que el rol global: un `cliente`
+   global con `role_in_parking='gestor'` sigue siendo cliente.
+
+El helper único es `effective_parking_role(user, parking_id, db)`
+(`backend/app/core/deps.py`): `enforce_parking_membership` y
+`require_parking_role(...)` lo usan. **Un endpoint acotado a una sucursal
+tiene que mirar el rol de ESA sucursal, no el global**: un `operador`
+global que es `gestor` en la sucursal A puede hacer lo de gestor en A y no
+en B.
+
+OJO: `admin` **no** es un rol por sucursal: mandarlo en `role_in_parking` es
+**422** (el admin es global). Y las membresías se gestionan desde la
+interfaz del admin (T-179).
+
+La decisión anterior (el aislamiento por sucursal) está en
 [`docs/adr/0003-aislamiento-por-sucursal.md`](docs/adr/0003-aislamiento-por-sucursal.md).
 
 La puerta que vigila el patrón está en
@@ -395,6 +420,16 @@ por las buenas. Ver T-124 y T-125 en el plan.
   informe nuevo, que herede esos topes: el patrón es
   `MAX_FILAS_INFORME` en `app/services/reports.py` y `MAX_DIAS_VENTANA` en
   `app/api/v1/reports.py`.
+- **`ping_camera` se despacha cada 10 minutos por cámara (T-177,
+  decisión del usuario)**: el beat encola un `solidapp.ping_camera` por
+  **cámara activa** (`PING_CAMERA_INTERVAL_SECONDS`, 600 s por defecto) y
+  un **lock con TTL** evita que se acumulen pings de la misma cámara. OJO:
+  el **heartbeat** (`probe_heartbeats`, cada 60 s) ya cubre la liveness de
+  la cámara (alerta `CAMERA_OFFLINE`); lo que aporta el ping es el **viaje
+  al OCR** (despierta la alarma `OCR_FAILED`, que llevaba dormida) y una
+  segunda fuente de matrículas. El TTL de esa alarma se deriva del
+  intervalo real (T-167). Al añadir o cambiar una tarea de Celery hay que
+  **reiniciar el worker**: `docker compose restart celery-worker`.
 - **Las tareas periódicas toman un lock (T-102)**: `probe_heartbeats` se
   omite si ya hay una ronda en curso (`celery:lock:probe_heartbeats`).
   Sin ese lock, dos rondas a la vez contaban los fallos por duplicado y

@@ -3061,3 +3061,76 @@ a poner el defecto y exige que la QA falle por el motivo correcto):
   recibía un 429 que no tenía nada que ver con lo que vigilaba. En
   **desarrollo** el límite es 50 (`LOGIN_RATE_LIMIT_MAX_ATTEMPTS` en
   `docker-compose.yml`); **en producción sigue siendo 10**.
+### 3-centésimosesentésimocuarenta y cuatro. Las cámaras ya se leen solas (2026-10-24)
+
+Decisión del usuario (D7): **`ping_camera` se despacha cada 10 minutos por
+cámara**. Antes la tarea existía pero **nadie la encolaba**: el único camino
+de datos era el push del fabricante, y la alarma `OCR_FAILED` (que
+detecta el motor OCR muerto) llevaba **dormida** desde su creación.
+
+- El beat publica `solidapp.ping_cameras` con el **ajuste**
+  `PING_CAMERA_INTERVAL_SECONDS` (600 s), que encola un `solidapp.ping_camera`
+  por **cámara activa**.
+- Un **lock por cámara** en Redis (TTL = intervalo) evita que los pings se
+  acumulen con una cámara colgada; otro lock de **ronda** evita dos rondas
+  a la vez.
+- Medido: el beat dispara a las 18:35:13 → 18:45:13 → 18:55:13 (**10 min
+  exactos**) y una ronda de 51 cámaras tarda **9,7 s** (~1/50 del intervalo).
+- El cliente OCR ahora distingue **«no respondió»** de **«respondió y no leyó
+  nada»**: el primero **no** cuenta como fallo de OCR (si no, un servicio OCR
+  caído generaría una alarma falsa por cada cámara). Medido: `ocr_failed`
+  sigue en 1 antes y después de cuatro rondas.
+- El TTL de la alarma `OCR_FAILED` se deriva del intervalo real
+  (`ttl_contador_fallos(5, 600) = 6000` s) y se renueva en cada fallo.
+- **Las dos sondas de cámara respetan la misma lista de URLs que se saltan**
+  (`HEARTBEAT_SKIP_URL_PREFIXES`, que trae `rtsp://demo.invalid` por
+  defecto): sin eso, el ping generaba 49 alertas `CAMERA_OFFLINE` por hora
+  en desarrollo para las cámaras de mentira del seed. En producción la lista
+  está vacía: allí se comprueban **todas** las cámaras.
+- La puerta de tareas ya **no** exime a `ping_camera`, y su autoprueba mete
+  el defecto real (sin entrada en el beat y sin `.delay()`) y comprueba que
+  la puerta lo canta.
+
+### 3-centésimosesentésimocuarenta y cinco. El RBAC por sucursal (2026-10-24)
+
+Decisión del usuario (D8) y ADR 0005: **el rol global es el techo y el rol
+de la sucursal es el poder real**. Antes, `role_in_parking` (el rol que tiene
+un usuario **en cada** sucursal) **se escribía y no se leía**: mandaba el rol
+global, así que un gestor lo era con los mismos poderes en todas las
+sucursales donde era miembro.
+
+Medido contra la API en marcha (un gestor de MAD-A con `operador` en MAD-B):
+antes sacaba los **operadores de MAD-B** y los **márgenes de MAD-B** (200);
+después, **403** en los dos.
+
+- `effective_parking_role(user, parking_id, db)`: el rol efectivo = el **más
+  restrictivo** entre el global y `role_in_parking`. Sin membresía → 403. El
+  `admin` global conserva poder global.
+- `require_parking_role(...)` (resuelve el `parking_id` del path) y
+  `enforce_parking_role(...)` (para los endpoints cuyo `parking_id` va en el
+  cuerpo o se deduce del recurso): el rol que se comprueba es **el de esa
+  sucursal**.
+- El **T-114** sigue intacto: un `cliente` global con `role_in_parking='gestor'`
+  sigue siendo cliente (asignar de menos, nunca de más).
+- Tres endpoints nuevos de membresía (**sólo admin**): listar, cambiar el rol
+  y quitar. `role_in_parking='admin'` → **422** (el admin es global).
+- La puerta de aislamiento por sucursal tiene la regla nueva (**R4**) y su
+  autoprueba usa **dos casos de mentira escritos a mano**.
+
+### 3-centésimosesentésimocuarenta y seis. El admin gestiona las sucursales desde la pantalla (2026-10-24)
+
+Con el RBAC por sucursal, el rol de una membresía tenía que poder cambiarlo
+alguien: hasta ahora sólo se podía por API (la función existía en el
+frontend, pero **ninguna vista la usaba**).
+
+- Panel «Sucursales y roles» por usuario en `/admin/users`: listar, añadir,
+  cambiar el rol y quitar. El desplegable ofrece **sólo** `gestor`,
+  `operador` y `cliente` (el `admin` es global) y explica el techo del ADR.
+- El **422** del backend se muestra **con su mensaje** (el `detail` de un 422
+  de pydantic es una **lista**, no una cadena: la vista lo lee de las dos
+  formas).
+- QA de navegador que hace el ciclo completo **recargando** (lo que ve tiene
+  que venir del servidor), provoca el 422 y **limpia lo que crea**; y su
+  inversa, que vuelve a poner el defecto (el PATCH no se envía; el error del
+  backend se sustituye por uno genérico) y exige que la QA falle por el
+  motivo correcto.

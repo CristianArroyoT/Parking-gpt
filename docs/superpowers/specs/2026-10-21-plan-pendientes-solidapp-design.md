@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-24, tras la tanda T-165…T-176)
 >
-> El plan está **ejecutado**: **836 de 838 criterios** verificados. Los **2 que no están marcados** están documentados **con su motivo** (no son criterios olvidados): (1) la alarma `OCR_FAILED` sigue **dormida** porque `ping_camera` no se despacha (es una **decisión de producto**), y (2) del T-171 quedan **18 campos** más sin nombre accesible, medidos y **pendientes de decidir**. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **859 de 861 criterios** verificados. Los **2 que no están marcados** están documentados **con su motivo** (no son criterios olvidados): (1) la alarma `OCR_FAILED` sigue **dormida** porque `ping_camera` no se despacha (es una **decisión de producto**), y (2) del T-171 quedan **18 campos** más sin nombre accesible, medidos y **pendientes de decidir**. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > **Lo de esta tanda (2026-10-24)**: los **12 hallazgos** que dejaron las dos auditorías (frontend y pipeline de matrículas), repartidos entre **dos subagentes** y los que resolví yo. Cada uno con **su puerta** y **su prueba inversa**:
 >
@@ -1103,7 +1103,12 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Los comentarios de `tasks.py` y `celery_app.py` dicen la verdad sobre qué detector corre.
   - [x] Está en la meta-puerta (que pasa de 14 a **15 autopruebas**), en `tools/verificar_repo.py` (17 comprobaciones) y en el CI.
   - [x] `actionlint` exit 0 y `ruff` limpio.
-- **Decisión que queda para el usuario (no es un olvido)**: **despachar o no `ping_camera`**. Conectarla implica decisiones de producto que este repo no puede tomar solo:
+- **DECIDIDO el 2026-10-24** (decisión del usuario): **despachar `ping_camera` cada 10 minutos por cámara**. Se implementa en el **T-177**. Los puntos de debajo son los que había que decidir, y así se resolvieron:
+  - **Cómo**: una tarea de fan-out en el beat (como `probe_heartbeats`) que encola un `ping_camera` por **cámara activa**, con el intervalo en un **ajuste** (`PING_CAMERA_INTERVAL_SECONDS`, 600 s por defecto) y un **lock con TTL** para que no se acumulen pings de la misma cámara.
+  - **Cámaras de demo**: el seed apunta a `rtsp://demo.invalid` a propósito. La liveness de esas cámaras **ya** la cubre el heartbeat (`probe_heartbeats`, cada 60 s), que genera las alertas `CAMERA_OFFLINE` que ya hay en la base (204). El ping no cambia eso: lo que aporta es el **viaje al OCR**.
+  - **Carga**: decodificar un JPEG completo por cámara es más caro que el `grab()` sin decodificar del heartbeat, y el OCR (PaddleOCR) es la pieza más pesada del stack. Por eso el intervalo es de **10 minutos** (no de 1) y la ronda se mide para que **cabe** en él.
+  - **Alertas**: la alarma `OCR_FAILED` (que llevaba dormida porque la disparaba esta tarea) **despierta**; su TTL se deriva ahora del intervalo real (T-167).
+- **Lo que quedaba para el usuario (resuelto)**: **despachar o no `ping_camera`**. Conectarla implicaba decisiones de producto que este repo no podía tomar solo:
   - **Cómo**: `ping_camera` es *por cámara* (`ping_camera(camera_id)`), así que el beat tendría que despacharla una por cámara (una tarea batch que itere y encole, como hace `probe_heartbeats` con su sonda). Eso implica decidir cada cuánto y con qué concurrencia.
   - **Qué pasa con las cámaras de demo**: las del seed apuntan a `rtsp://demo.invalid` a propósito; `probe_heartbeats` las skipea (`heartbeat_skip_url_prefixes`), pero `ping_camera` **no**: abriría un RTSP inexistente por cámara y por minuto.
   - **Qué pasa con la carga**: decodificar un JPEG completo por cámara y por minuto es mucho más caro que el `grab()` sin decodificar del heartbeat, y el servicio OCR (PaddleOCR) es el piece más pesado del stack.
@@ -3468,8 +3473,515 @@ decisiones de producto y un despliegue real.
   - [x] En desarrollo, el backend arranca con `LOGIN_RATE_LIMIT_MAX_ATTEMPTS=50` (comprobado con `docker exec parking-backend-1 printenv LOGIN_RATE_LIMIT_MAX_ATTEMPTS`).
   - [x] El compose de producción **no** menciona esa variable (el límite sigue siendo el de por defecto, 10).
   - [x] `AGENTS.md` avisa del cambio y de que la ventana sigue siendo fija.
+### T-177 — Despachar `ping_camera` cada 10 minutos por cámara
+
+#### El defecto
+
+`solidapp.ping_camera` (agarra el frame RTSP, lo manda al OCR y crea el
+ticket) **existía y no se despachaba**: no estaba en el `beat_schedule`
+de `backend/app/workers/celery_app.py` y nadie la encolaba. La puerta
+`tools/verificar_tareas_celery.py` lo tenía **exento** con el motivo
+«despacharla es una decisión de producto, no un olvido». La última
+matrícula leída por el sistema era del **2026-06-30**.
+
+#### Qué se midió ANTES
+
+- **Cámaras (BD de desarrollo):** 51, todas `is_active`; 49 con
+  `rtsp://demo.invalid/...` (las pone el seed a propósito) y 2 «reales»:
+  la 81 (`rtsp://parking-mediamtx:8554/cam1`) y la 135
+  (`rtsp://192.168.18.55:8080/h264_pcm.sdp`).
+- **Worker:** pool *prefork*, `max-concurrency: 8` (8 CPUs). El compose
+  (`docker-compose.yml:290`) **no** pasa `--concurrency`: manda el
+  defecto de Celery (una CPU por proceso).
+- **Servicio OCR:** alcanzable desde el backend
+  (`GET http://ocr:8800/health` → **HTTP 200 en 0,005 s**), pero
+  `models_loaded: false`. El **primer** `/recognize` tardó **11,57 s**
+  (carga de PaddleOCR); los siguientes, **0,08–0,22 s**. El timeout del
+  cliente (`OCR_SERVICE_TIMEOUT=4`) está **por debajo** de esa primera
+  carga: ese primer ping habría dado timeout.
+- **Captura (`grab_frame`):** cámaras `demo.invalid` → **0,01–0,05 s**
+  (el DNS falla al instante); cámara 135 → **2,40 s** (connection
+  refused); cámara 81 sin publicador → 0,01 s (404 en `DESCRIBE`); con
+  el publicador levantado → **2,16 s** y un frame de **38 990 bytes**.
+- **TTL de la alarma:** `ttl_contador_fallos(5, 60) = 600 s` (el valor
+  por defecto de `OCR_PING_INTERVAL_SECONDS` era 60 s). Con el ping cada
+  **600 s**, el contador habría caducado **justo** al llegar el
+  siguiente fallo (ventana de 600 s, separación de 600 s) → la alarma
+  `OCR_FAILED` **no habría saltado nunca**.
+- **Ruido de alertas:** `camera_offline` = 206, `ocr_failed` = 1.
+
+#### El arreglo
+
+1. **`solidapp.ping_cameras`** (nueva, en `backend/app/workers/tasks.py`):
+   es la que vive en el `beat_schedule` y encola un `solidapp.ping_camera`
+   por **cada cámara activa**. El intervalo sale de un **ajuste**,
+   `PING_CAMERA_INTERVAL_SECONDS` (600 s), no de un número escrito a
+   fuego; el `beat_schedule` lo lee (`"schedule":
+   settings.ping_camera_interval_seconds`).
+2. **Fan-out resiliente:** cada cámara va por separado; una que falle al
+   encolarse **no** impide encolar las demás (una excepción por cámara se
+   registra y se sigue). Devuelve el recuento: `{"encoladas": 51,
+   "omitidas": 0, "camaras": 51, "intervalo": 600}`.
+3. **No se acumula:** lock **por cámara** en Redis
+   (`celery:lock:ping_camera:{id}`, `SET NX EX 600`, TTL igual al
+   intervalo). Si el ping de esa cámara ya está encolado o en marcha, no
+   se encola otro. El ping **suelta** su lock al terminar (comparación
+   atómica por token, como el resto de locks del worker), así que la
+   cámara vuelve a estar libre para la ronda siguiente.
+4. **«El OCR no respondió» ≠ «el OCR respondió y no leyó nada»:** el
+   cliente (`app/services/ocr/client.py`) tiene ahora `reconocer()`, que
+   devuelve `OcrResultado(hits, respondio, motivo)`. Si el OCR no da una
+   respuesta utilizable (timeout, red, 4xx/5xx, no-JSON), `ping_camera`
+   **no cuenta un fallo de OCR** (si no, un servicio caído daría una
+   alarma `OCR_FAILED` **por cámara**: 51 en este repo) y lo dice con
+   `status: "ocr_no_disponible"` + el motivo.
+5. **TTL coherente:** `OCR_PING_INTERVAL_SECONDS` pasa a **600 s** (el
+   intervalo real) → `ttl_contador_fallos(5, 600) = 6000 s`. El TTL se
+   renueva en cada fallo (ventana deslizante), así que la serie de
+   fallos llega al umbral. Un test vigila que los **dos** intervalos por
+   defecto no se desvíen.
+6. **La puerta:** `solidapp.ping_camera` **ya no está exento**; y su
+   `--autoprueba` **vuelve a meter el defecto** (sobre una **copia** del
+   código en un directorio temporal, nunca en el repositorio: T-135):
+   quita la entrada del beat → la puerta ve la tarea muerta; quita el
+   `.delay()` → la puerta ve el ping muerto.
+
+#### Qué se midió DESPUÉS (contra el sistema en marcha)
+
+- **El beat despacha cada 10 minutos:** rondas observadas en los logs
+  del worker a las **18:35:13**, **18:45:13** y **18:55:13** (10 min de
+  diferencia exacta), todas con
+  `ping_cameras: camaras=51 encoladas=51 omitidas=0 intervalo=600`.
+- **La ronda cabe de sobra en el intervalo:** **9,7 s** con las 51
+  cámaras caídas y **12,0 s** con la cámara 81 real (el frame tarda
+  2,16 s). Con la concurrencia real del worker (8) son ~1/50 del
+  intervalo de 600 s. Margen: aun con las 51 cámaras tardando 5 s
+  (timeout de `grab_frame`) + 4 s de OCR, la ronda sería
+  `51 × 9 / 8 ≈ 57 s` < 600 s.
+- **El lock por cámara funciona (Redis real):** tomando a mano el lock
+  de la cámara 81, el fan-out dio `encoladas=50 omitidas=1` y la cámara
+  81 **no** se pingeó. Al terminar la ronda, los locks quedan **sueltos**
+  (`KEYS celery:lock:ping_camera:*` → vacío), así que la cámara puede
+  volver a pingarse en la ronda siguiente.
+- **El TTL aguanta el intervalo real (Redis real, 20 min de reloj):**
+  serie de fallos separada **exactamente 600 s** (el intervalo real)
+  contra el Redis del stack, con el TTL de 6000 s: contador
+  **1 → 2 → 3** y TTL **renovado a 6000** en cada fallo (no caducó entre
+  fallos). Con el TTL de 60 s (el de antes) el contador se habría
+  perdido en el segundo fallo. Con el umbral por defecto (5) y el
+  intervalo real (600 s) el TTL es **6000 s ≥ 5 × 600 = 3000 s**.
+  La serie completa (5 fallos separados 600 s) **sí** dispara la
+  alarma: verificado en `test_ping_camera_despacho.py` con reloj
+  simulado a escala real (5 × 600 s, TTL 6000 s → 1 alerta, 1 correo).
+- **El viaje al OCR, medido en el worker:**
+  - OCR **alcanzable** → `{'status': 'ok', 'plates_found': 0,
+    'plates_descartadas': 2, ...}`: el OCR leyó 2 textos (quemados en la
+    imagen del vídeo de QA) que se descartaron por no ser matrículas, y
+    **no** se contó ningún fallo de OCR.
+  - OCR **inalcanzable** (`OCR_SERVICE_URL` a un puerto muerto) →
+    `{'status': 'ocr_no_disponible', ...}` y el contador
+    `camera:81:consecutive_fails` **no** se incrementa.
+- **Ruido de alarmas:** `ocr_failed` sigue en **1** (antes y después de
+  4 rondas): **ninguna alarma `OCR_FAILED` falsa**. `camera_offline` pasó
+  de 206 a 255: las **49** nuevas son de `kind='frame'` y las creó el
+  ping a las 18:35:13 — son las 49 cámaras `demo.invalid`, que el
+  **heartbeat skipea** (`HEARTBEAT_SKIP_URL_PREFIXES`), así que el ping
+  es el primero que avisa de ellas. En producción el heartbeat no las
+  skipea y el lock de 1 h de `CAMERA_OFFLINE` (compartido por los dos
+  detectores) hace que **no** haya alarmas de más: el ping no añade
+  ruido, sólo se adelanta a la primera alarma.
+- **La puerta:** `python tools/verificar_tareas_celery.py` →
+  `tareas definidas: 14 / en el beat: 10 / nunca ejecutadas: 0` y «el
+  worker en marcha tiene las 14 tareas del codigo». Su `--autoprueba`
+  pasa; y **falla** si se rompe la detección (refutado con una copia
+  rota a propósito: 2 casos fallan, salida 1).
+- **Tests nuevos:** 11 en `backend/tests/test_ping_camera_despacho.py`.
+  La **prueba inversa** (cada defecto reintroducido en una copia del
+  repo) confirma que **los 6 defectos detectados** hacen fallar su test:
+  sin la entrada del beat / sin el lock por cámara / el OCR que no
+  responde contado como fallo / el TTL derivado de 60 s / el ping que no
+  suelta el lock / el fan-out que no es resiliente.
+- **Lint y tipos:** `ruff check app tests ../tools` → «All checks
+  passed!». `mypy app` → 1 error en
+  `backend/app/api/v1/users.py:692`, **de otro agente** (RBAC por
+  sucursal): en mis ficheros, 0 errores.
+
+#### Criterios de aceptación
+
+- [x] `ping_camera` se despacha **cada 10 minutos por cámara activa**,
+      con el intervalo saliendo de un ajuste
+      (`PING_CAMERA_INTERVAL_SECONDS` = 600 s). Medido: rondas a las
+      18:35:13, 18:45:13 y 18:55:13.
+- [x] El fan-out **no se duplica** (lock por cámara con TTL = intervalo,
+      verificado contra el Redis real: `encoladas=50 omitidas=1`) y una
+      ronda **cabe** en el intervalo (medido: 12,0 s de 600 s).
+- [x] El TTL de la alarma `OCR_FAILED` es coherente con el intervalo real
+      (6000 s ≥ 5 × 600 s) y una serie de fallos espaciados como el
+      intervalo **sí** salta (medido contra el Redis real y con reloj
+      simulado a escala real).
+- [x] La puerta de tareas ya **no exime** a `ping_camera` y su autoprueba
+      **falla** si el despacho desaparece del beat (y se ha refutado con
+      una detección rota a propósito).
+- [x] El OCR inalcanzable **no** genera alarma `OCR_FAILED` por cámara
+      (medido en el worker: `status: ocr_no_disponible`, contador sin
+      tocar).
+- [x] Tests nuevos que fallan con el defecto y pasan con el arreglo
+      (11 tests + prueba inversa de 6 defectos), ruff en verde, escáner de
+      texto a 0 problemas.
+
+#### Pendiente de decidir (no aplicado)
+
+- **Las 49 cámaras `demo.invalid`**: el heartbeat las skipea
+  (`HEARTBEAT_SKIP_URL_PREFIXES`, valor por defecto `rtsp://demo.invalid`)
+  y el ping **no**: son las que generan las 49 alertas `kind='frame'` de
+  la última hora en el entorno de desarrollo (en producción no hay
+  cámaras de ese tipo y no hay ruido extra). Si se quiere que el ping
+  respete la misma lista, es una línea en `ping_cameras` + el test
+  correspondiente; **no se ha aplicado** porque cambia qué cámaras se
+  pingean (decisión de producto).
+- **La alarma `OCR_FAILED` tarda 50 min en saltar** con el ping cada
+  10 min (5 fallos × 10 min). Es coherente con el umbral por defecto
+  (`OCR_FRAMES_BEFORE_FAIL=5`), pero conviene decidir si el umbral debe
+  bajar al activarse el ping.
+### T-178 · RBAC por sucursal (ADR 0005) — el rol global es el techo, el de la sucursal es el poder
+
+#### Qué se midió ANTES (el hueco), contra la API en marcha
+
+El backend del compose monta `./backend` con `--reload`, así que el código del
+árbol es el que corre en `127.0.0.1:8000`. Para medir el «antes» selevantó un
+segundo contenedor **con la misma imagen** (`solidapp-backend:latest`, construida
+antes del arreglo) en `127.0.0.1:8001`, con el mismo Postgres y el mismo Redis:
+
+```bash
+docker run --rm --entrypoint sh solidapp-backend:latest \
+  -c "grep -c 'effective_parking_role' /app/app/core/deps.py"   # -> 0 (código viejo)
+```
+
+Escenario (cuentas del seed `backend/app/scripts/seed.py`): el gestor
+`gestor.madrid@solidapp.es` es `gestor` en **MAD-A** y el admin le asigna
+`role_in_parking='operador'` en **MAD-B** (`POST /users/2/memberships`).
+
+| Petición (nivel que exige) | ANTES (código viejo, :8001) | DESPUÉS (código nuevo, :8000) |
+|---|---|---|
+| `GET /parkings/MAD-A/operadores` (gestor) | 200 | 200 |
+| `GET /parkings/MAD-B/operadores` (gestor) | **200** ← el hueco | **403** |
+| `GET /parkings/MAD-B/alerts` (personal) | 200 | 200 |
+| `GET /admin/reports/margins?parking_id=MAD-B` (gestor) | **200** ← el hueco | **403** |
+
+El hueco medido: **`role_in_parking` no se leía en ningún sitio** (la columna se
+escribía y no se leía), así que el rol global mandaba en **todas** las
+sucursales: un gestor era gestor en MAD-A y en MAD-B, aunque en MAD-B el admin
+le hubiera puesto `operador`. Con los informes pasa lo mismo: el gestor se
+llevaba los márgenes de una sucursal en la que era simple operador.
+
+Defecto reproducido además **en local, con el defecto puesto en una copia**
+(sin tocar el repositorio): con `_rol_mas_restrictivo` sustituido por «manda el
+rol global», `tests/test_rbac_por_sucursal.py` falla **3 de 13**
+(`test_gestor_en_una_sucursal_y_operador_en_otra`,
+`test_rol_de_sucursal_cliente_veda_la_sucursal`,
+`test_el_informe_mira_el_rol_de_la_sucursal`) y
+`tests/test_aislamiento_sucursal.py` sigue en verde (13/13).
+
+#### Qué se cambió
+### T-179 — La interfaz para gestionar el RBAC por sucursal
+
+#### Qué se midió antes de tocar nada
+
+- **El backend ya estaba** (no lo he tocado): `GET/POST /api/v1/users/{id}/memberships`,
+  `PATCH/DELETE /api/v1/users/{id}/memberships/{mid}`, todos **admin-only**
+  (`backend/app/api/v1/users.py`).
+- **Medido con el backend en marcha** (`POST /api/v1/auth/login` como admin):
+  - `role_in_parking='admin'` → **422** con
+    `detail: [{msg: "Value error, 'admin' no es un rol por sucursal: el admin
+    es global (ADR 0005). Usa 'gestor', 'operador' o 'cliente'."}]`.
+    OJO: el `detail` de un 422 de pydantic es una **lista**, no una cadena.
+  - `GET /api/v1/parkings` con un admin devuelve **todas** las sucursales
+    (5 en el entorno de desarrollo: MAD-A, MAD-B, BCN-1, VAL-1, SEV-1).
+- **En el frontend no había nada**: `assignUserToParking()` y el tipo
+  `Membership` existían en `frontend/src/api/gestorOps.ts`, pero **ninguna
+  vista los usaba** (no había ninguna pantalla para cambiar el rol de una
+  membresía).
+
+#### Qué se cambió
+
+### 1. Capa de API (`frontend/src/api/gestorOps.ts`)
+
+- `export type MembershipRole = 'gestor' | 'operador' | 'cliente'` y
+  `export const ROLES_DE_SUCURSAL: MembershipRole[]`.
+  El `admin` **no** está: es un rol **global** (ADR 0005), no de sucursal.
+- `Membership.role_in_parking` pasa de `string` a `MembershipRole`.
+- `listMemberships(userId)`, `updateMembershipRole(userId, membershipId, role)`
+  y `removeMembership(userId, membershipId)`. El alta **reutiliza** el
+  `assignUserToParking()` que ya existía (no se duplicó).
+
+### 2. Interfaz (`frontend/src/views/admin/UsersView.vue`)
+
+Panel **«Sucursales y roles»** por usuario (se abre desde el botón de su
+fila, en `Teleport to="body"` como el modal de contraseña del layout):
+
+- **Lista** las membresías (sucursal + rol), con estado de carga.
+- **Añade** una membresía (elegir sucursal + rol). Las sucursales ya
+  asignadas salen **deshabilitadas** («— ya asignada»), para no pedirle al
+  backend un 409.
+- **Cambia el rol** de una membresía (desplegable por membresía).
+- **Quita** una membresía.
+- El desplegable de rol ofrece **sólo** `gestor`, `operador` y `cliente`.
+- Explica el **techo** del ADR 0005 con un texto corto: *«El rol global es el
+  techo… asignar «gestor» a un «operador» no lo convierte en gestor, y un
+  «cliente» sigue siendo cliente. El «admin» no se asigna por sucursal.»*
+- El **422** del backend se muestra **con su mensaje**, no uno genérico:
+  `extraerError()` lee `detail` tanto si es una cadena como si es la **lista**
+  de errores de pydantic (que es como llega un 422).
+
+**Accesibilidad** (T-169 y T-171): todos los campos nuevos con `<label for>`
+(«Sucursal», «Rol en la sucursal», «Rol en *<sucursal>*») y el error con
+`role="alert"` + `aria-live="assertive"`.
+
+### 3. QAs nuevas
+
+- `frontend/scripts/qa_membresias_rbac.py` — el ciclo completo con un
+  navegador de verdad (admin): listar → añadir → ver listada → cambiar el rol
+  → **recargar** (el estado tiene que venir del servidor) → quitar → el 422
+  con el mensaje del backend.
+  **Limpia lo que crea**: borra desde la propia pantalla y, además, al final
+  borra por API cualquier membresía que no estuviera antes.
+- `frontend/scripts/qa_membresias_rbac_inversa.py` — **vuelve a poner el
+  defecto** (sobre una copia en `D:\tmp\_copias_t179`, restaurando el
+  fichero al final), reinicia el frontend y exige que la QA **falle por el
+  motivo correcto**.
+
+#### Qué se comprobó (comandos y resultados)
+
+| Comprobación | Resultado |
+|---|---|
+| `docker compose restart frontend` + `http://127.0.0.1:5173` | HTTP 200 |
+| `python frontend/scripts/qa_membresias_rbac.py` | **OK** (10 comprobaciones, salida 0) |
+| `python frontend/scripts/qa_membresias_rbac_inversa.py` | **OK**: con el defecto 1 la QA falla con «no se envió el cambio de rol de MAD-A (no llegó el PATCH)»; con el defecto 2, con «el 422 no se muestra con el mensaje del backend (en la pantalla: 'No se pudo añadir la membresía')». Fichero restaurado **idéntico**. |
+| `cd frontend && npm run lint` | sin salida (verde) |
+| `cd frontend && npx vue-tsc --noEmit` | sin salida (verde) |
+| `python tools/escanear_texto.py <las 4 rutas>` | **0 problema(s)** |
+| `python tools/verificar_contrato_frontend.py` | OK (88 llamadas del frontend, todas contra endpoints que existen) |
+| `python tools/verificar_enums_frontend.py` | OK |
+| `python tools/verificar_roles_frontend.py` | OK («ninguna pantalla llama a un endpoint con un rol que no tenga») |
+| `python tools/verificar_cobertura_frontend.py` | OK (la QA visual recorre todas las pantallas) |
+| `python frontend/scripts/qa_labels_admin.py` | OK (los 7 campos de `/admin/users` siguen con nombre) |
+| Panel nuevo: nombres accesibles (medido a mano, como `qa_labels_admin.py`) | `Sucursal`, `Rol en la sucursal`, `Rol en Madrid Centro A (MAD-A)`: todos con nombre |
+| Base de datos de desarrollo tras la QA | `cliente.demo@solidapp.es` → **0 membresías** (la QA no deja basura) |
+
+#### Criterios
+
+- [x] El admin puede, **desde la interfaz**, ver las membresías de un usuario, añadir una, cambiar su rol y quitarla. *(medido con navegador: 201 → 200 → 204, y recargando para comprobar que persiste.)*
+- [x] El selector **no** ofrece `admin`. *(la QA lo comprueba: `['gestor', 'operador', 'cliente']`.)*
+- [x] Un **422** del backend se muestra con **su** mensaje. *(la QA lo provoca interceptando la petición con `role_in_parking='admin'`.)*
+- [x] La QA hace el ciclo completo **y limpia** lo que crea.
+- [x] La QA inversa **falla** con el defecto puesto (y restaura el fichero).
+- [x] `npm run lint` y `npx vue-tsc --noEmit` en verde; escáner de texto a 0.
+
+#### Lo que queda (NO lo he hecho: son ficheros de `tools/`, que no son míos)
+
+1. **Registrar la QA nueva en `tools/verificar_repo.py`** (ahí es donde
+   están las demás QAs de navegador: `qa_labels_admin.py`, `qa_login_redirect.py`…).
+   Lo que falta es una entrada como:
+
+   ```python
+   Comprobacion(
+       "El RBAC por sucursal se gestiona desde la pantalla",
+       [py, "frontend/scripts/qa_membresias_rbac.py"],
+       patron=r"(OK: el ciclo de membresías por sucursal.*)",
+       timeout=600,
+   ),
+   ```
+
+2. **Añadir la QA inversa a `tools/verificar_pruebas_inversas.py`**: esa
+   puerta copia el **backend** a un temporal y ejecuta las pruebas inversas
+   **de los arreglos del backend**. La de este T-179 es de frontend (copia
+   `frontend/src/views/admin/UsersView.vue` y reinicia el contenedor del
+   frontend), así que encaja mejor como puerta propia (tipo
+   `tools/verificar_cache_service_worker.py`) o como paso manual.
+   OJO: `verificar_pruebas_inversas.py` **no** se ha ejecutado en esta sesión
+   (tarda > 3 min y sólo cubre arreglos del backend, que otro agente está
+   cambiando a la vez).
+
+#### Supuestos
+
+- El usuario de prueba de la QA es `cliente.demo@solidapp.es` (lo crea el
+  seed). La QA **mide** cuántas membresías tiene al empezar y al final, así
+  que funciona aunque tuviera alguna de antes (las quita al terminar).
+- El texto del «techo» es un resumen del ADR 0005; no se ha inventado ninguna
+  regla nueva.
+- `role_in_parking` **siempre** es uno de los tres roles (el backend lo
+  valida al escribir, con 422 para `admin`), así que el tipo del frontend
+  `MembershipRole` es exacto.
 
 
+
+### El modelo del techo (`backend/app/core/deps.py`)
+
+- `JERARQUIA_ROLES = admin > gestor > operador > cliente` y
+  `ROLES_DE_SUCURSAL = (gestor, operador, cliente)`: el `admin` **no** es un rol
+  por sucursal (es global).
+- `effective_parking_role(user, parking_id, db)`: el rol **efectivo** de una
+  sucursal = el **más restrictivo** entre el rol global y `role_in_parking`
+  (regla 2). El `admin` global conserva poder global y no necesita membresía
+  (regla 1). Sin membresía → **403**.
+- `enforce_parking_membership` deja de decidir con el rol global: comprueba el
+  rol efectivo (y el docstring, que decía que `role_in_parking` «no se usa para
+  autorizar», queda actualizado).
+- `enforce_parking_role(user, parking_id, db, *roles)`: comprueba el rol
+  efectivo **de esa sucursal** (para los endpoints cuyo `parking_id` va en el
+  cuerpo o se deduce del recurso).
+- `require_parking_role(*roles)`: **factory** de dependencia que resuelve el
+  `parking_id` **del path** y exige el rol de esa sucursal (para los endpoints
+  con `{parking_id}` en la ruta).
+- `validar_rol_de_sucursal(valor)`: validación de forma (`ValueError` → **422**).
+
+### Los endpoints acotados a una sucursal
+
+| Fichero | Cambio |
+|---|---|
+| `api/v1/incidents.py` | `POST /incidents/parkings/{parking_id}` usa `require_parking_role(*ROLES_STAFF)`; los adjuntos (listar, descargar, miniatura, borrar) exigen **gestor/admin de la sucursal del adjunto** (`enforce_parking_role` dentro de `_adjunto_de_sucursal`); listar/subir adjuntos miran el rol de la sucursal del incidente. |
+| `api/v1/alerts.py` | `acknowledge` deja de comprobar «¿tiene membresía?» y comprueba el rol efectivo (un **cliente** con membresía ya no puede reconocer alertas). |
+| `api/v1/reports.py` | `_autorizar_informe` usa el rol efectivo de la sucursal del informe (admin o gestor **de esa** sucursal). |
+| `api/v1/gestor_operadores.py` | `_exigir_gestor` decide con el rol de la sucursal del path. |
+| `api/v1/tickets.py` | `_scoped_query` acota a las sucursales donde el rol **de la sucursal** es de personal (regla 3): un gestor que en una sucursal es `operador`/`cliente` no ve sus tickets. |
+| `api/v1/users.py` | Tres endpoints nuevos de membresía (abajo). |
+| `api/v1/{spaces,cameras,plates,parking_vehicles,ticket_summary,tariffs}.py` | Sin cambios: `parking_context` ya es «personal **de esa** sucursal» ahora que el rol efectivo manda. |
+
+Los listados **globales** (`GET /vehicles`, `GET /users`, `GET /parkings` como
+listado) siguen siendo de `admin` y no se han tocado.
+
+### Los endpoints de membresía (sólo `admin`)
+
+- `GET /users/{user_id}/memberships` → `[{"id":…, "user_id":…, "parking_id":…, "role_in_parking":"gestor"}]`
+  (el esquema `MembershipRead` que ya usaba el POST: los 4 campos de la interfaz
+  `Membership` del frontend + `created_at`/`updated_at`).
+- `PATCH /users/{user_id}/memberships/{membership_id}` → cambia `role_in_parking`.
+- `DELETE /users/{user_id}/memberships/{membership_id}` → **204**.
+- `role_in_parking` valida: sólo `gestor`/`operador`/`cliente`; `admin` → **422**
+  («'admin' no es un rol por sucursal: el admin es global (ADR 0005)…»).
+- Membresía de otro usuario en `PATCH`/`DELETE` → **404** (no 403: no se revela
+  que la fila existe).
+- El **techo no es un error al escribir**: pedir `gestor` para un `operador`
+  global se **acepta** y queda recortado al leer (el 422 es sólo para `admin` y
+  para valores que no son roles).
+
+### La puerta (`tools/verificar_aislamiento_sucursal.py`)
+
+- Nueva regla **R4**: un endpoint acotado a una sucursal que exige un rol
+  **concreto** («sólo gestor») tiene que decidirlo con el rol **de esa
+  sucursal** (`require_parking_role` / `enforce_parking_role`), no con el rol
+  global. Se eximen: el `admin` solo (es global, regla 1) y «cualquier
+  personal» (lo decide `parking_context`).
+- La puerta además sigue a los **helpers locales** que miran el rol de la
+  sucursal (p.ej. `_autorizar_informe`, `_adjunto_de_sucursal`), y distingue
+  `enforce_parking_role(recurso.parking_id, …)` de `enforce_parking_role(parking_id, …)`
+  (el primero acota el recurso, el segundo no).
+- Autoprueba con **dos casos de mentira escritos a mano** (no generados):
+  uno con `require_role('admin','gestor')` sobre una ruta de sucursal (tiene que
+  dar R4) y otro con el rol de sucursal (no tiene que dar nada).
+
+#### Criterios
+
+- [x] El ADR 0005 se cumple **por escrito**: el rol global es el techo y el rol
+      de la sucursal es el poder (medido antes/después, tabla de arriba).
+- [x] Los endpoints acotados miran el rol **de esa sucursal**: un gestor global
+      puede ser gestor en A y operador en B (`test_gestor_en_una_sucursal_y_operador_en_otra`).
+- [x] Un `cliente` global con `role_in_parking='gestor'` sigue siendo cliente
+      (T-114 intacto: `test_t114_cliente_con_membresia_sigue_sin_poder` y los
+      13 tests de `test_aislamiento_sucursal.py` en verde).
+- [x] La puerta de aislamiento vigila la regla nueva y su autoprueba **falla**
+      con el defecto reintroducido (medido: quitando R4, la autoprueba sale con
+      código 1 y «el caso de mentira del rol global no dio R4»).
+- [x] Tests nuevos que **fallan** con el defecto y **pasan** con el arreglo
+      (`backend/tests/test_rbac_por_sucursal.py`, 13 tests).
+- [x] `ruff` y `mypy` en verde (`ruff check app tests ../tools` y `mypy app`).
+- [x] Escáner de texto a 0 (`python tools/escanear_texto.py <mis rutas>` →
+      «0 problema(s)»).
+- [x] `tools/verificar_pruebas_inversas.py`: las 31 pruebas inversas siguen
+      detectando su defecto (se tuve que dejar el bloque del T-114 intacto y
+      sacar la comprobación de rol de sucursal a los sitios donde no duplica la
+      del filtro global).
+
+#### Lo que queda pendiente de integrar (no lo he tocado: no están en mi lista)
+
+1. **`docs/API-INTERNAL.md`** — la puerta `tools/verificar_api_doc.py` está en
+   **rojo** por 3 rutas nuevas sin documentar y 12 líneas de la columna «Quién»
+   que han cambiado. Se arregla con
+   `python tools/generar_seccion_api.py --escribir`.
+   (Es la única autoprueba que falla en `tools/autopruebas.py`.)
+2. **`tools/verificar_pruebas_inversas.py`** — falta el caso inverso del T-178
+   (el defecto reintroducible es «el rol de la sucursal no se lee»). Con el
+   defecto puesto en una **copia**, el test a vigilar es
+   `tests/test_rbac_por_sucursal.py::test_gestor_en_una_sucursal_y_operador_en_otra`.
+   Mutación sugerida en `backend/app/core/deps.py`:
+   `_rol_mas_restrictivo(rol_global, rol_sucursal)` → devolver `rol_sucursal`
+   (el rol de la sucursal manda) o, si se prefiere la mutación sobre el T-114,
+   quitar a la vez el filtro de rol global **y** el de rol de sucursal.
+3. **`docs/adr/0005-rbac-por-sucursal.md`** — hay una **contradicción interna**
+   en el ADR (ver abajo): el ejemplo de la regla 5 no se puede cumplir con las
+   reglas 2 y 4.
+4. **Frontend** — lo está haciendo otra sesión en paralelo
+   (`frontend/src/api/gestorOps.ts`, `UsersView.vue`,
+   `frontend/scripts/qa_membresias_rbac*.py`); las formas de la API encajan con
+   lo implementado (rutas, cuerpos y el 422 de `admin`).
+
+#### La contradicción del ADR 0005 (decisión de producto, la dejo anotada)
+
+El ADR dice, en la **regla 5**: «un `operador` global que es `gestor` en la
+sucursal A puede fijar tarifas en A, y no puede en B». Eso **no** puede ser a
+la vez la **regla 2** («el rol efectivo es el más restrictivo entre el rol
+global y `role_in_parking`») ni la **regla 4** («`role_in_parking` nunca da más
+poder del que ya tiene el rol global»): con el techo, un operador global es
+**operador** en A aunque su membresía diga `gestor`.
+
+Se ha implementado el **techo** (reglas 2, 3 y 4 + el apartado «Por qué el
+techo y no la unión»: «asignar de menos, nunca de más»), porque:
+
+- es lo que dicen **tres** reglas del ADR y su justificación;
+- es lo que **mantiene el T-114** y el invariant ya documentado en el repo
+  (`incidents.py`: «el operador que los sube no puede volver a listarlos»),
+  cuyo test (`test_operador_no_puede_ver`) usa un operador con
+  `role_in_parking='gestor'` (el valor por defecto de la columna) y espera
+  **403**: con la lectura «el rol de la sucursal manda», ese test daría 200 y
+  habría que cambiar un producto ya decidido;
+- la alternativa convierte una fila de `parking_memberships` en una escalada
+  de privilegios, que es justo lo que el ADR dice que quiere evitar.
+
+**Consecuencia práctica**: el poder de un usuario se puede **bajar** por
+sucursal (un gestor global puede ser operador en B), pero **no subir**. Si lo
+que se quería era que el rol de la sucursal **subiera** (un operador global
+gestor en A), la decisión es de producto y el cambio está en **una sola
+función**: `deps._rol_mas_restrictivo` (y el test
+`test_el_rol_global_es_el_techo`, que es el que fija esa lectura).
+
+
+
+
+
+
+
+### T-180 · P3 (proceso) — una puerta se rompía por saturación, no por un defecto
+
+- **Estado**: **completado** — la QA ya no se rompe cuando la máquina va cargada
+- **Contexto**: en la puerta completa del repo (40 comprobaciones, 2026-10-24), la
+  comprobación «La sesión caducada expulsa al login» falló con
+  `- element was detached from the DOM, retrying`.
+- **Lo que NO era**: un defecto de la app. La QA **sola** pasaba (verificado), y el
+  fallo salía justo después de la puerta de pruebas inversas (353 s de pytest):
+  o sea, con la máquina saturada.
+- **La causa**: el `LiveView` **re-pinta** el botón «Refrescar» en cada ronda de
+  polling, así que el nodo que Playwright iba a pulsar puede **despegarse** entre
+  la búsqueda y el clic; con la máquina cargada, los reintentos automáticos se
+  agotan y la QA cae. Una puerta que se rompe por ruido es una puerta que
+  nadie mira.
+- **El arreglo**: si el clic normal falla, se pulsa **por JavaScript** (mismo
+  manejador, mismo efecto). **No se toca la aserción**: lo que se comprueba
+  después (que la URL acabe en `/login` y que los tokens se borren) sigue igual.
+- **Criterios de aceptación**:
+  - [x] La QA pasa en verde al ejecutarse sola (medido el 2026-10-24).
+  - [x] El repliegue no cambia lo que la QA comprueba: sigue exigiendo la
+        redirección al login y el borrado de los tokens.
+  - [x] Escáner de texto a 0.
 
 ### T-14 · I3 — OCR con GPU
 
@@ -3718,8 +4230,9 @@ y T-24, con las decisiones D2/D4/D5 del propio documento aplicadas). Los
 arregle la **facturación de la cuenta de GitHub** para que el CI remoto pueda
 ejecutar jobs.
 
-Quedan además **dos decisiones de producto** que esta sesión dejó
-documentadas y no implementadas, porque son cambios de alcance:
+Quedaban además **dos decisiones de producto** que esta sesión dejó
+documentadas y no implementadas, porque eran cambios de alcance. **Las dos
+están tomadas el 2026-10-24**:
 
 1. **Cobro real** (T-18, T-24): con la decisión D2 el cobro es **contable**,
    sin pasarela. Cuando haya un cliente piloto habrá que añadir el cobro
@@ -3729,6 +4242,16 @@ documentadas y no implementadas, porque son cambios de alcance:
    administrador por diseño (un gestor no asigna usuarios a sucursales
    ajenas). El alta de operadores por parte del gestor sí está resuelta
    (T-20), con la API acotada por sucursal.
+
+### Decisiones tomadas el 2026-10-24 (y lo que abren)
+
+| Decisión | Qué se decided | Dónde se implementa |
+|---|---|---|
+| **D7** · `ping_camera` | **Despacharla cada 10 min por cámara**: el sistema lee las cámaras por RTSP, además de esperar al push del fabricante. Así, aunque el push siga llegando, se detecta que **una cámara o el motor OCR están muertos** | **T-177** |
+| **D8** · `role_in_parking` | **Implementar el RBAC por sucursal**: el rol global es el **techo** y el rol de la sucursal es el **poder real**. Hoy un gestor lo es con los mismos permisos en todas las sucursales donde es miembro | **T-178** (ADR 0005) |
+
+Las dos decisiones se tomaron **medidas**: no se deciden sobre lo que el código
+dicen, sino sobre lo que el sistema **hace** (y lo que dejaba hacer).
 
 
 
