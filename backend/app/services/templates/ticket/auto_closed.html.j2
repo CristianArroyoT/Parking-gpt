@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>solidAPP — Cierre automático de estancia</title>
+</head>
+<body style="font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; color: #1f2933; line-height: 1.5;">
+
+<h2 style="margin-bottom: 0.2em;">Cierre automático de estancia</h2>
+<p style="margin-top: 0; color: #52606d;">
+  <strong>{{ plate }}</strong> — {{ parking_name }}
+</p>
+
+<p>
+  Tu vehículo entró el <strong>{{ entry_at }}</strong> y no hemos detectado
+  su salida, así que hemos cerrado la estancia a las
+  <strong>{{ exit_at }}</strong> (24 horas después de la entrada).
+</p>
+
+<table cellpadding="6" style="border-collapse: collapse; margin: 1em 0;">
+  <tr>
+    <td style="border-bottom: 1px solid #e4e7eb;">Importe</td>
+    <td align="right" style="border-bottom: 1px solid #e4e7eb;">{{ amount }} €</td>
+  </tr>
+  <tr>
+    <td style="border-bottom: 1px solid #e4e7eb;">Descuento</td>
+    <td align="right" style="border-bottom: 1px solid #e4e7eb;">{{ discount }} €</td>
+  </tr>
+  <tr>
+    <td><strong>Total</strong></td>
+    <td align="right"><strong>{{ total }} €</strong></td>
+  </tr>
+</table>
+
+<p>
+  No se cobra ninguna penalización por dejar el vehículo: el importe es el
+  de la estancia, calculada con la tarifa que estaba vigente cuando entró.
+</p>
+
+<p style="color: #52606d; font-size: 0.9em;">
+  Si el vehículo sigue en el parking, no hace falta que hagas nada: el
+  importe ya está calculado. Y si crees que la salida no se detectó bien,
+  contesta a este correo y lo revisamos.
+</p>
+
+<p style="color: #9aa5b1; font-size: 0.8em;">ID interno: #{{ ticket_id }}</p>
+
+</body>
+</html>

@@ -86,6 +86,15 @@ celery_app.conf.beat_schedule = {
         "task": "solidapp.purge_orphan_attachments",
         "schedule": crontab(minute=47, hour=4),  # 4:47 AM, hora valle.
     },
+    # T-124 (2026-10-24): auto-cierre de las estancias sin salida
+    # detectada (decision de producto: 24 h con el importe estimado y
+    # aviso al cliente). Antes el ticket se quedaba activo para siempre,
+    # con importe 0, y los informes de ocupacion no cuadraban.
+    # Cada hora, al minuto 10 (hora valle).
+    "auto-close-tickets-hourly": {
+        "task": "solidapp.auto_close_tickets",
+        "schedule": crontab(minute=10),  # cada hora, al minuto 10.
+    },
     # Sprint Fase 3C: rotación de audit_logs (sprint 2026-07-01).
     # Borra ``audit_logs`` con ``created_at < now - audit_log_retention_days``
     # (default 365). Necesita el índice ``ix_audit_logs_created_at``

@@ -481,6 +481,63 @@ def purgar_adjuntos_huerfanos(min_age_hours: int = 1) -> dict[str, Any]:
     return dict(resultado)
 
 
+@celery_app.task(name="solidapp.auto_close_tickets")  # type: ignore[untyped-decorator]
+def auto_close_tickets(horas: int = 24) -> dict[str, Any]:
+    """Cierra las estancias cuya salida no se ha visto (T-124).
+
+    Decision de producto (2026-10-24): auto-cierre a las 24 h con el
+    importe estimado y aviso al cliente. Antes el ticket se quedaba
+    activo para siempre, con importe 0.
+
+    El cierre usa la **unica** implementacion del repo
+    (``cerrar_ticket``), que es condicional: si la camara se adelanta y
+    cierra el ticket, aqui no se pisa nada.
+    """
+    from app.services.email import encolar_correo_cierre_automatico
+    from app.services.ticket_auto_close import auto_cerrar_tickets_sin_salida
+
+    with SessionLocal() as db:
+        resultado = auto_cerrar_tickets_sin_salida(db, horas=horas)
+
+    for aviso in resultado.get("avisos", []):
+        encolar_correo_cierre_automatico(**aviso)
+
+    log.info("auto-cierre de estancias: %s", resultado)
+    return dict(resultado)
+
+
+@celery_app.task(  # type: ignore[untyped-decorator]
+    name="solidapp.enviar_correo_cierre_automatico", ignore_result=True
+)
+def enviar_correo_cierre_automatico(
+    *,
+    to_email: str,
+    plate: str,
+    parking_name: str,
+    ticket_id: int,
+    entry_at: str,
+    exit_at: str,
+    amount: float,
+    discount: float,
+    total: float,
+) -> dict[str, Any]:
+    """Manda al cliente el aviso de que su estancia se ha cerrado sola (T-124)."""
+    from app.services.email import send_auto_close_email
+
+    enviado = send_auto_close_email(
+        to_email=to_email,
+        plate=plate,
+        parking_name=parking_name,
+        entry_at=entry_at,
+        exit_at=exit_at,
+        amount=amount,
+        discount=discount,
+        total=total,
+        ticket_id=ticket_id,
+    )
+    return {"enviado": enviado, "ticket_id": ticket_id}
+
+
 @celery_app.task(name="solidapp.cleanup_failed_frames")  # type: ignore[untyped-decorator]
 def cleanup_failed_frames() -> dict[str, int]:
     """Purga /tmp/ocr-failed/*.jpg con mtime > N días.

@@ -1,0 +1,23 @@
+solidAPP — Cierre automático de estancia
+========================================
+
+{{ plate }} ({{ parking_name }})
+-------------------------------
+
+Tu vehículo entró el {{ entry_at }} y no hemos detectado su salida, así
+que hemos cerrado la estancia a las {{ exit_at }} (24 horas después de la
+entrada).
+
+Importe:  {{ amount }} €
+Descuento: {{ discount }} €
+Total:     {{ total }} €
+
+No se cobra ninguna penalización por dejar el vehículo: el importe es el
+de la estancia, calculada con la tarifa que estaba vigente cuando
+entró.
+
+Si el vehículo sigue en el parking, no hace falta que hagas nada: el
+importe ya está calculado. Y si crees que la salida no se detectó bien,
+contesta a este correo y lo revisamos.
+
+ID interno: #{{ ticket_id }}

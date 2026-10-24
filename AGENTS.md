@@ -64,6 +64,22 @@ Reglas:
 - una «refutación por medición» se anota **cómo** se midió, o no sirve
   para cerrar nada.
 
+Y un caso nuevo, que salió al **arrancar el CI remoto por primera vez**
+(2026-10-24, al hacer el repositorio público): **una puerta que corre
+en un job sin las dependencias del backend no puede importar la app**.
+La puerta del compose de producción importaba `app.core.config` (que
+necesita `pydantic`) para comprobar que sus variables cargan en
+`Settings`: en el job de las autopruebas (que va **antes** del
+`pip install`) y en el de las imágenes Docker (que no las instala) falló
+con «No module named 'pydantic'», es decir, **por el entorno y no por lo
+que vigila**. Reglas:
+- o la puerta no depende de la app (la del aislamiento por sucursal usa
+  `ast`, por eso puede ir antes del `pip install`), o el job donde corre
+  la instala;
+- y si de verdad no puede comprobar algo, que lo **diga** (un aviso), no
+  que lo calle: un verde silencioso sobre una comprobación que no se ha
+  hecho no vale.
+
 ## Comandos que funcionan (verificados)
 
 ```bash
@@ -241,6 +257,13 @@ por las buenas. Ver T-124 y T-125 en el plan.
 
 - `localhost` en Windows resuelve primero a IPv6 (`::1`) y `psycopg`
   tarda 8,4 s. Usa `127.0.0.1` (el CI local lo convierte solo).
+  **Ojo (2026-10-24, T-148)**: esto no es sólo un problema de `psycopg`.
+  El dev-server de Vite (en el contenedor, con `--host 0.0.0.0`) **no
+  escucha en IPv6**, así que una QA de navegador que apunte a
+  `localhost:5173` se queda **30 s en timeout** en `Page.goto` y parece
+  que la app está rota cuando el backend y el frontend están
+  perfectamente bien. Medido: por `127.0.0.1` responde en 0 ms; por
+  `::1`, timeout. Las QAS usan `127.0.0.1` por eso.
 - En Docker Desktop el bind mount **sí** sincroniza contenido; lo único
   que falla es el HMR de Vite. Tras tocar el frontend:
   `docker compose restart frontend`.

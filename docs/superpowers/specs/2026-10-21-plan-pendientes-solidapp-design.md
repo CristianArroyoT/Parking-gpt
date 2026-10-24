@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **731 de 735 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **743 de 744 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2378,8 +2378,9 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
 
 ### T-124 · P1 (decisión de producto) — una entrada sin salida deja el ticket activo para siempre
 
-- **Estado**: **medido, pendiente de decisión** — no se arregla sin decidir la política de cobro
-- **Contexto**: no hay **ningún** mecanismo que reconcilie una entrada cuya salida nunca se vio: ni auto-cierre, ni purga de tickets, ni alerta. El beat (`app/workers/celery_app.py`) sólo tiene tick, probe de cámaras y purgas de adjuntos, auditoría y frames fallidos: ninguna de tickets.
+- **Estado**: **completado** — decisión tomada (2026-10-24, del usuario) e implementada: auto-cierre a las 24 h con el importe estimado y aviso al cliente
+- **La decisión** (2026-10-24, del usuario): **auto-cierre a las 24 h**, con el **importe estimado** (la tarifa vigente, calculada como si la salida fuese a las 24 h de la entrada) y **aviso al cliente por correo**. No es una alerta: el ticket se cierra solo.
+- **Contexto**: no había **ningún** mecanismo que reconcilie una entrada cuya salida nunca se vio: ni auto-cierre, ni purga de tickets, ni alerta. El beat (`app/workers/celery_app.py`) sólo tiene tick, probe de cámaras y purgas de adjuntos, auditoría y frames fallidos: ninguna de tickets.
 - **Medido** (2026-10-23, sobre el código y con la suite): una entrada sin salida deja el ticket `ACTIVO` **para siempre**, y de ahí salen cuatro consecuencias:
   1. el KPI de espacios muestra `occupied=1` para siempre (la plaza consta ocupada);
   2. el vehículo no puede volver a entrar: la ingesta responde `skipped_already_inside` (T-105);
@@ -2387,10 +2388,25 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   4. si se cierra a mano 30 días después, `max_daily` se aplica **por estancia** (con la tarifa del seed, 25 €/día → 750 €; y `max_daily` es **opcional**: la UI ofrece «Sin tope», así que sin tope serían 30 días lineales).
 - **Por qué no se arregla aquí**: el «qué hacemos con un coche que no sale» es **política de producto**, no un bug: auto-cierre a las 24 h con el importe de esa estancia, con aviso al operador, o sin auto-cierre pero con alerta. Cada opción cambia lo que se cobra y hay que elegirla (y y hay que decidir si el cliente final recibe un aviso).
 - **Lo que sí se puede hacer sin decidir nada**: **avisar**. Una alerta cuando un ticket lleva activo más de X horas es informacional (no cobra nada) y deja al operador decidir. Está pendiente de la decisión del umbral.
-- **Criterios de aceptación** (pendientes):
-  - [ ] Decisión de producto: auto-cierre / alerta / nada.
-  - [ ] Si es auto-cierre: con qué importe y con qué aviso al cliente.
-  - [ ] Si es alerta: cada cuántas horas y a quién.
+- **El arreglo** (2026-10-24):
+  1. servicio nuevo `app/services/ticket_auto_close.py` (`auto_cerrar_tickets_sin_salida`): cierra los tickets `ACTIVO` sin salida cuya entrada es de hace más de 24 h, con el importe de `calculate_ticket_total` (la **misma** tarifa que el cierre manual) y con `cerrar_ticket` (la **única** implementación de cierre del repo, que es condicional: si la cámara se adelanta, el auto-cierre no pisa nada);
+  2. **sin tarifa no se inventa un precio**: el ticket se deja abierto y se cuenta en `omitidos` (cerrarlo a 0 sería inventarse un precio);
+  3. aviso al cliente por correo (`app/services/templates/ticket/auto_closed.{txt,html}.j2`), encolado como tarea para que el SMTP no esté en el hilo del cierre;
+  4. tarea `solidapp.auto_close_tickets` en el beat (cada hora, al minuto 10) y `solidapp.enviar_correo_cierre_automatico`.
+- **Medido** (2026-10-24, contra el stack de QA, con la tarea despachada por el broker de verdad): el ticket activo sin salida (id 3, entrada del 2026-06-30) se cerró con salida = entrada + 24 h y el importe de la tarifa vigente:
+  ```
+  RESULTADO: {'cerrados': 1, 'omitidos': 0, 'importe': 25.0, 'horas': 24, 'avisos': []}
+  # el ticket, despues:
+  id 3 | status cerrado | salida 2026-07-01 21:36:35.355885+00:00 | importe 25.0 | descuento 0.0 | total 25.0
+  ```
+  (`avisos: []` porque ese vehículo no tiene propietario con correo: se avisa en el log y no se manda nada.)
+- **Lo que NO hace** (para que no se entienda mal): no **cobra** (el cobro sigue siendo el que defina el producto: hoy es contable, D2), no **penaliza** por exceso de tiempo (el importe es el de la estancia) y no toca los tickets con salida detectada.
+- **Criterios de aceptación**:
+  - [x] Decisión de producto: **auto-cierre a las 24 h** (2026-10-24, del usuario).
+  - [x] Con qué importe: el de la **tarifa vigente** en el momento de la entrada, y **sin tarifa no se cierra** (se omite y se avisa).
+  - [x] Con qué aviso al cliente: **correo** con la matricula, la sucursal, las horas y el importe; encolado como tarea.
+  - [x] Test: un ticket de 25 h se cierra con salida = entrada + 24 h y el importe de la tarifa; uno de 2 h no se toca; sin tarifa se queda abierto; el aviso lleva el correo del propietario; un ticket ya cerrado no se pisa.
+  - [x] Prueba inversa en `tools/verificar_pruebas_inversas.py`.
 
 ### T-125 · P2 (operación) — los vehículos «fantasma» se acumulan sin purga
 
@@ -2816,6 +2832,43 @@ producto.
   (los mismos datos dan números distintos en SQLite y en PostgreSQL).
 - **[MEDIA] El backup no incluye los adjuntos** salvo que se configure
   `ATTACHMENTS_DIR` (el script lo avisa, pero el compose no lo pone).
+
+
+### T-147 · P1 (CI) — lo que el CI remoto enseñó al arrancar por primera vez
+
+- **Estado**: **completado** — el CI remoto vuelve a ejecutar pasos, y las dos puertas que fallaban están arregladas
+- **Contexto**: al hacer el repositorio **público** (decisión del usuario, 2026-10-24), el CI remoto **arrancó por primera vez en más de tres meses**: los 4 jobs pasaron de «0 pasos» a ejecutar sus pasos. `Integration` y `Frontend` salieron en **SUCCESS**; `Backend` y `Build de imágenes Docker` fallaron.
+- **Lo que enseñó** (los dos fallos eran de las puertas de ese mismo día, y los dos por la misma causa):
+  1. el job `Backend` corre las autopruebas **antes** del `pip install` (a propósito, para fallar en segundos) ⇒ la autoprueba de la puerta del compose falló con `No module named 'pydantic'`;
+  2. el job `Build de imágenes Docker` no instala el backend ⇒ la puerta del compose falló **por el mismo motivo**.
+  Es decir: la puerta fallaba **por el entorno**, no por lo que vigila. Era un fallo **latente desde el T-75** que sólo se ha podido ver cuando el CI ha arrancado de verdad.
+- **El arreglo**:
+  1. la puerta del compose **no falla** si no puede importar la configuración del backend: lo dice en un **aviso** (un verde silencioso sobre una comprobación que no se ha hecho no vale);
+  2. el workflow añade un paso en el job `backend`, **después** de instalar las dependencias, donde la comprobación de que las variables cargan en `Settings` **sí** se hace de verdad.
+- **Medido** (2026-10-24, en un venv **vacío**, que es lo que ve el job de Docker): la puerta y su autoprueba pasan sin las dependencias, y la puerta **avisa** de que la comprobación de `Settings` no se ha hecho ahí.
+- **Criterios de aceptación**:
+  - [x] La puerta del compose no depende de `pydantic` para vigilar el compose (medido en un venv vacío).
+  - [x] Si no puede comprobar la carga en `Settings`, **lo dice** en un aviso.
+  - [x] El workflow comprueba esa parte **después** de instalar las dependencias, donde sí se puede.
+  - [x] `actionlint` en verde con el paso nuevo.
+
+
+### T-148 · P2 (entorno) — las QAS de navegador apuntaban a `localhost` y el IPv6 las tumbaba
+
+- **Estado**: **completado** — las QAS apuntan a `127.0.0.1`
+- **Contexto**: las QAs de navegador (login, sesión caducada, gestor sin sucursales, visual) usaban `http://localhost:5173`.
+- **El defecto**: en Windows, `localhost` resuelve **primero a IPv6** (`::1`), y el dev-server de Vite (en el contenedor, con `--host 0.0.0.0`) **no escucha en IPv6**.
+- **Medido** (2026-10-24):
+  ```
+  por IPv4 (127.0.0.1):  HTTP 200 en 0 ms
+  por IPv6 ([::1]):      timeout
+  ```
+  El síntoma era un `Page.goto` que agotaba los 30 s al navegar a `/login`, con el backend y el frontend perfectamente sanos: cuatro comprobaciones del `verificar_repo.py` en rojo («un login que no puede cargar el perfil», «un gestor sin sucursales», «la sesión caducada…») sin que hubiera ningún defecto en la aplicación.
+- **El arreglo**: las cinco QAS usan `http://127.0.0.1:5173`. El AGENTS.md ya avisaba de la trampa (por `psycopg`); ahora está en el sitio donde se manifiesta (las QAs).
+- **Criterios de aceptación**:
+  - [x] Medido: por `127.0.0.1` responde en 0 ms; por `::1`, timeout.
+  - [x] Las cinco QAS usan `127.0.0.1`.
+  - [x] Las tres QAs que estaban en rojo vuelven a pasar.
 
 ### T-14 · I3 — OCR con GPU
 

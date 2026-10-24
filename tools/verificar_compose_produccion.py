@@ -65,6 +65,13 @@ VALOR_DE_PRUEBA = {
 #: ``${VAR:-valor}`` y ``${VAR:?mensaje}``.
 RE_INTERPOLACION = re.compile(r"^\$\{([A-Za-z0-9_]+)(:-|:\?)(.*)\}$")
 
+#: Avisos que no son fallos pero hay que decir. T-147 (2026-10-24): esta
+#: puerta corre en el CI en jobs **sin** las dependencias del backend (el de
+#: las autopruebas va ANTES del ``pip install``, y el de las imagenes Docker
+#: no las instala). Sin esto, la puerta fallaba por el entorno y no por el
+#: compose: el CI remoto, al arrancar por primera vez, enseño justo eso.
+AVISOS: list[str] = []
+
 
 def _resolver(clave: str, valor: str) -> str:
     """Resuelve una variable interpolada al valor que se usaria de verdad.
@@ -184,6 +191,8 @@ def comprobar(
 ) -> list[str]:
     """Devuelve la lista de problemas (vacía si todo está bien)."""
     problemas: list[str] = []
+
+    AVISOS.clear()
 
     if not servicios_prod:
         problemas.append(
@@ -404,7 +413,17 @@ def _cargar_en_settings(variables: dict[str, str]) -> str | None:
     try:
         from app.core.config import Settings
     except Exception as exc:  # noqa: BLE001
-        return f"no se pudo importar la configuracion: {exc}"
+        # T-147: no es un fallo de la puerta, es que este entorno no tiene
+        # las dependencias del backend. Se avisa (no se calla) y la
+        # comprobacion se hace en el job `backend`, tras instalar.
+        if not any("configuracion del backend" in a for a in AVISOS):
+            AVISOS.append(
+            "la configuracion del backend no se ha podido importar "
+            f"({exc}): NO se ha comprobado que las variables del compose "
+            "carguen en ella. Se comprueba en el job 'backend', despues de "
+            "instalar las dependencias."
+        )
+        return None
     try:
         Settings(**variables)
     except Exception as exc:  # noqa: BLE001
@@ -675,6 +694,10 @@ def main() -> int:
         for p in problemas:
             print(f"  FALLO  {p}")
         return 1
+    # T-147: los avisos no son fallos, pero se dicen (un verde silencioso
+    # sobre una comprobacion que no se ha hecho no vale).
+    for aviso in AVISOS:
+        print(f"  AVISO  {aviso}")
     print(
         f"OK: el compose de produccion exige el secreto, la URL publica y los "
         f"origenes, y los valores de los {len(servicios_dev) + len(servicios_prod)} "

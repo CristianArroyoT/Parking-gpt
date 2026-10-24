@@ -332,6 +332,147 @@ def send_alert_email(
         return False
 
 
+def send_auto_close_email(
+    *,
+    to_email: str,
+    plate: str,
+    parking_name: str,
+    entry_at: str,
+    exit_at: str,
+    amount: float,
+    discount: float,
+    total: float,
+    ticket_id: int,
+) -> bool:
+    """Avisa al cliente de que su estancia se ha cerrado sola (T-124).
+
+    Nunca lanza: si algo falla, devuelve ``False`` y lo deja en el log.
+    """
+    settings = get_settings()
+    contexto = {
+        "to_email": to_email,
+        "plate": plate,
+        "parking_name": parking_name,
+        "entry_at": entry_at,
+        "exit_at": exit_at,
+        "amount": f"{amount:.2f}",
+        "discount": f"{discount:.2f}",
+        "total": f"{total:.2f}",
+        "ticket_id": ticket_id,
+    }
+    try:
+        text_body = _env.get_template("ticket/auto_closed.txt.j2").render(**contexto)
+        html_body = _env.get_template("ticket/auto_closed.html.j2").render(**contexto)
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "send_auto_close_email: error renderizando la plantilla del ticket "
+            "%s: %s",
+            ticket_id,
+            exc,
+        )
+        return False
+
+    subject = f"[solidAPP] Cierre automático de estancia — {plate}"
+    msg = _build_message(
+        from_addr=settings.smtp_from,
+        to_addr=to_email,
+        subject=subject,
+        text_body=text_body,
+        html_body=html_body,
+    )
+
+    if _is_dry_run():
+        log.info(
+            "send_auto_close_email[dry-run]: to=%s ticket=%s plate=%s total=%s",
+            to_email,
+            ticket_id,
+            plate,
+            contexto["total"],
+        )
+        return True
+
+    if not smtp_configurado():
+        log.error(
+            "send_auto_close_email: no hay SMTP configurado (SMTP_HOST=%r): el "
+            "aviso al cliente NO se ha enviado (ticket=%s)",
+            settings.smtp_host,
+            ticket_id,
+        )
+        return False
+
+    try:
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=5) as smtp:
+            smtp.ehlo()
+            if settings.smtp_user and settings.smtp_password:
+                smtp.starttls()
+                smtp.login(settings.smtp_user, settings.smtp_password)
+            smtp.send_message(msg)
+        log.info(
+            "send_auto_close_email: ticket=%s enviado a %s (total=%s)",
+            ticket_id,
+            to_email,
+            contexto["total"],
+        )
+        return True
+    except (smtplib.SMTPException, OSError) as exc:
+        log.warning(
+            "send_auto_close_email: SMTP falló to=%s ticket=%s: %s",
+            to_email,
+            ticket_id,
+            exc,
+        )
+        return False
+    except Exception as exc:  # noqa: BLE001 — defensiva
+        log.exception(
+            "send_auto_close_email: error inesperado to=%s ticket=%s: %s",
+            to_email,
+            ticket_id,
+            exc,
+        )
+        return False
+
+
+def encolar_correo_cierre_automatico(
+    *,
+    to_email: str,
+    plate: str,
+    parking_name: str,
+    ticket_id: int,
+    entry_at: str,
+    exit_at: str,
+    amount: float,
+    discount: float,
+    total: float,
+) -> bool:
+    """Encola el aviso al cliente del auto-cierre (T-124).
+
+    Devuelve ``False`` si no se pudo encolar (el broker esta caido).
+    """
+    try:
+        from app.workers.tasks import enviar_correo_cierre_automatico
+
+        enviar_correo_cierre_automatico.delay(
+            to_email=to_email,
+            plate=plate,
+            parking_name=parking_name,
+            ticket_id=ticket_id,
+            entry_at=entry_at,
+            exit_at=exit_at,
+            amount=amount,
+            discount=discount,
+            total=total,
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log.exception(
+            "encolar_correo_cierre_automatico: no se pudo encolar el aviso del "
+            "ticket %s: %s",
+            ticket_id,
+            exc,
+        )
+        return False
+
+
 def encolar_correo_alerta(
     *,
     alert_id: int,

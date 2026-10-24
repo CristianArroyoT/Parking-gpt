@@ -34,7 +34,11 @@ from __future__ import annotations
 import argparse
 import sys
 
-BASE_POR_DEFECTO = "http://localhost:5173"
+# T-148 (2026-10-24): 127.0.0.1 y NO 'localhost'. En Windows,
+# 'localhost' resuelve primero a IPv6 (::1) y el dev-server de Vite
+# no escucha en IPv6: por ahi no contesta (timeout de 30 s) y la QA
+# parece estar rota cuando todo esta bien.
+BASE_POR_DEFECTO = "http://127.0.0.1:5173"
 CUENTAS = {
     "gestor": ("gestor.madrid@solidapp.es", "gestor1234"),
 }

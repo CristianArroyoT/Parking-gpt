@@ -14,7 +14,9 @@ import json
 
 from playwright.sync_api import sync_playwright
 
-BASE = "http://localhost:5173"
+# T-148 (2026-10-24): 127.0.0.1 y NO 'localhost' (el IPv6 ::1 no
+# lo sirve el dev-server de Vite).
+BASE = "http://127.0.0.1:5173"
 CUENTAS = {
     "admin": ("admin@solidapp.es", "admin12345"),
     "gestor": ("gestor.madrid@solidapp.es", "gestor1234"),

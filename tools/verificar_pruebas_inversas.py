@@ -431,6 +431,21 @@ CASOS: list[Caso] = [
             "test_un_adjunto_caducado_no_ocupa_cupo"
         ),
     ),
+    Caso(
+        nombre="T-124 · las estancias sin salida vuelven a quedarse abiertas",
+        fichero="app/services/ticket_auto_close.py",
+        cambios=[
+            (
+                "        if entrada > corte:\n            continue\n",
+                "        if entrada < corte:  # T-124 (defecto): comparacion invertida\n"
+                "            continue\n",
+            ),
+        ],
+        test=(
+            "tests/test_ticket_auto_close.py::"
+            "test_un_ticket_sin_salida_se_cierra_a_las_24_horas"
+        ),
+    ),
 ]
 
 

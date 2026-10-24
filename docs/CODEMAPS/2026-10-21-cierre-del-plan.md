@@ -2764,3 +2764,45 @@ Cuatro hallazgos menores, todos medidos y con su prueba:
   **7**, de **una** semana y de **un** mes. El backup mensual que el plan
   promete no existía. Ahora: 14 backups, 4 semanas y 6 meses, con una
   puerta que lo ejecuta de verdad en un contenedor.
+### 3-centésimosexto y uno. El auto-cierre de las estancias sin salida (2026-10-24)
+
+Decisión de producto del usuario: **auto-cierre a las 24 h** con el
+importe estimado y aviso al cliente. Antes, un vehículo cuya salida no
+se veía dejaba el ticket **activo para siempre**, con importe 0: el KPI
+de espacios lo daba ocupado para siempre, el coche no podía volver a
+entrar y el ingreso no se facturaba.
+
+**Medido** (2026-10-24, tarea despachada por el broker contra el stack de
+QA): el ticket activo sin salida se cerró con salida = entrada + 24 h y
+el importe de la tarifa vigente (25,00 €).
+
+El cierre usa la **única** implementación de cierre del repo (que es
+condicional: si la cámara se adelanta, el auto-cierre no pisa nada), y
+**sin tarifa no se inventa un precio**: el ticket se deja abierto y se
+avisa. El aviso al cliente es un correo encolado como tarea.
+### 3-centésimosexto y dos. El CI remoto arranca y enseña dos fallos de las puertas (2026-10-24)
+
+Al hacer el repositorio **público** (decisión del usuario), el CI remoto
+**arrancó por primera vez en más de tres meses**: los 4 jobs pasaron de
+«0 pasos» a ejecutar sus pasos, y `Integration` y `Frontend` salieron en
+**SUCCESS**.
+
+Los otros dos fallaron, y **los dos por lo mismo**: la puerta del
+compose de producción importaba `app.core.config` (que necesita
+`pydantic`), y corre en jobs **sin** las dependencias del backend. Es
+decir, fallaba **por el entorno y no por lo que vigila**: un fallo
+latente desde el T-75 que sólo se ve cuando el CI arranca de verdad.
+
+**El arreglo**: la puerta no falla si no puede importar la configuración
+—lo dice en un aviso— y el workflow comprueba esa parte en el job
+`backend`, **después** de instalar las dependencias.
+### 3-centésimosexto y tres. Las QAS apuntaban a `localhost` y el IPv6 las tumbaba (2026-10-24)
+
+En Windows, `localhost` resuelve **primero a IPv6** (`::1`), y el
+dev-server de Vite (en el contenedor, con `--host 0.0.0.0`) **no escucha
+en IPv6**. Medido: por `127.0.0.1` responde en 0 ms; por `::1`, timeout.
+
+El síntoma era un `Page.goto` que agotaba los 30 s al navegar a
+`/login`, con el backend y el frontend perfectamente sanos: cuatro
+comprobaciones del `verificar_repo.py` en rojo sin que hubiera ningún
+defecto en la aplicación. Las cinco QAS ahora apuntan a `127.0.0.1`.
