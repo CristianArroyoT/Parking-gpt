@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **770 de 770 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **774 de 774 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -3020,6 +3020,28 @@ producto.
   - [x] La consulta de la purga va acotada (`LIMIT`): un test lo comprueba mirando el SQL que se ejecuta.
   - [x] Con un lote de 2, la purga borra **todos** los vehículos fantasma (el bucle funciona).
   - [x] Prueba inversa en `tools/verificar_pruebas_inversas.py`.
+
+
+### T-157 · P2 (puerta) — la puerta de tareas miraba el fuente, no el worker en marcha
+
+- **Estado**: **completado** — la puerta consulta al worker en marcha y avisa del desfase
+- **Contexto**: `tools/verificar_tareas_celery.py` comprueba (todo con el AST del código) que toda tarea de Celery se ejecuta de alguna forma. Pero el worker tiene el código **montado** (`./backend:/app`) y **no lo recarga**: `--reload` no lo soporta el pool *prefork* de Celery.
+- **El defecto**: el worker podía estar corriendo **el código viejo**, y la puerta no se enteraba (miraba el fuente). O sea: una tarea nueva podía «pasar la puerta» y **no existir en el worker real**: el beat la publica y el worker responde «Received unregistered task». Es el mismo patrón que la puerta del compose que importaba `Settings` sin tener `pydantic`: **la puerta miraba donde no era**.
+- **Medido** (2026-10-24, en vivo: se añadió una tarea al fuente **sin** reiniciar el worker):
+  ```
+  FALLO: el worker en marcha NO tiene estas tareas:
+    - solidapp.tarea_de_prueba_t157
+    El worker corre el codigo viejo: los workers no recargan el codigo
+    (--reload no lo soporta el pool prefork). Reinicialo:
+    docker compose restart celery-worker
+  ```
+  Y tras `docker compose restart celery-worker`, la comprobación pasa («el worker en marcha tiene las 12 tareas del código»).
+- **El arreglo**: la puerta consulta al **worker en marcha** (`celery inspect registered`, dentro del contenedor) y compara con las tareas del fuente; si al worker le faltan, falla y dice cómo arreglarlo. Si no se puede consultar al worker (no hay Docker: es el caso del CI), **lo dice** (aviso) en vez de callar.
+- **Criterios de aceptación**:
+  - [x] La puerta compara el fuente con el worker en marcha y falla si al worker le faltan tareas.
+  - [x] Medido en vivo: con el worker en el código viejo, la puerta falla con el mensaje y cómo arreglarlo.
+  - [x] Si el worker no se puede consultar, la puerta lo dice (no afirma nada).
+  - [x] Autoprueba con dos casos: el desfase se ve, y con el worker al día no hay tareas que falten.
 
 ### T-14 · I3 — OCR con GPU
 

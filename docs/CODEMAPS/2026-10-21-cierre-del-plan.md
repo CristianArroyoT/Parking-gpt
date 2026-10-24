@@ -2931,3 +2931,14 @@ antiguos primero, como la purga de auditoría (T-104).
 Matiz: la auditoría lo llamó N+1, y **no lo era** (el filtro de «sin
 tickets» es un `EXISTS` correlacionado, una sola consulta). El defecto
 real era el `.all()` sin acotar.
+### 3-centésimosesentésimotrece. La puerta de tareas mira al worker en marcha (2026-10-24)
+
+La puerta de tareas de Celery miraba **solo el fuente**, pero el worker
+tiene el código montado y **no lo recarga** (`--reload` no lo soporta el
+pool prefork): podía estar corriendo el código viejo, con una tarea nueva
+que «pasaba la puerta» y no existía en el worker real.
+
+Ahora consulta al worker en marcha (`celery inspect registered`) y
+compara. **Medido**: con el worker en el código viejo, la puerta falla y
+dice cómo arreglarlo; tras reiniciarlo, pasa. Si el worker no se puede
+consultar (en el CI no hay Docker), lo dice en vez de callar.

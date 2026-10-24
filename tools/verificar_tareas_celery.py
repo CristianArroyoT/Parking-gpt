@@ -29,6 +29,9 @@ from __future__ import annotations
 
 import argparse
 import ast
+import json
+import re
+import subprocess
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -102,6 +105,66 @@ def _tareas_programadas() -> set[str]:
                     nombres.add(contenido.value)
         return nombres
     return set()
+
+
+def _tareas_del_worker() -> set[str] | None:
+    """Las tareas que el worker **en marcha** tiene registradas.
+
+    T-157 (2026-10-24): el worker tiene el codigo montado pero **no lo
+    recarga** (``--reload`` no lo soporta el pool *prefork* de Celery),
+    asi que puede estar corriendo **el codigo viejo**. Esta puerta miraba
+    solo el fuente, asi que una tarea nueva podia «pasar la puerta» y no
+    existir en el worker real (el beat la publica y el worker responde
+    «Received unregistered task»).
+
+    Devuelve ``None`` si no se puede consultar (no hay Docker, o el worker
+    no esta levantado: es el caso del CI): entonces **no se puede
+    afirmar nada** y la puerta lo dice.
+    """
+    try:
+        proc = subprocess.run(
+            [
+                "docker", "compose", "exec", "-T", "celery-worker",
+                "celery", "-A", "app.workers.celery_app", "inspect", "registered",
+            ],
+            cwd=RAIZ, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=90,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    # Celery imprime el registro en **texto plano**:
+    #     ->  celery@host: OK
+    #         * solidapp.probe_heartbeats
+    # (la variante JSON depende de la version, asi que se lee el texto, que
+    # funciona con todas).
+    tareas: set[str] = set()
+    for linea in proc.stdout.splitlines():
+        coincide = re.match(r"^\s*\*\s+(\S+)\s*$", linea)
+        if coincide:
+            tareas.add(coincide.group(1))
+    if not tareas:
+        # Alternativa por si la salida viniera en JSON.
+        try:
+            datos = json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            return None
+        for lista in datos.values():
+            if isinstance(lista, list):
+                tareas.update(str(t) for t in lista)
+    return tareas or None
+
+
+def _tareas_que_le_faltan_al_worker(
+    fuente: set[str], worker: set[str]
+) -> list[str]:
+    """Las tareas del codigo que al worker en marcha le faltan.
+
+    Es el nucleo comprobable del T-157: si el worker corre el codigo
+    viejo, le faltan las tareas nuevas.
+    """
+    return sorted(fuente - worker)
 
 
 def _despachos() -> set[str]:
@@ -221,6 +284,23 @@ def _autoprueba() -> int:
     else:
         print("  OK: una tarea llamada directamente no se marca")
 
+    # T-157 (2026-10-24): el worker en marcha puede correr el codigo viejo
+    # (los workers no recargan el codigo), y la puerta tiene que verlo.
+    fuente = {"solidapp.a", "solidapp.b", "solidapp.c"}
+    worker_viejo = {"solidapp.a", "solidapp.b"}
+    faltan = _tareas_que_le_faltan_al_worker(fuente, worker_viejo)
+    if faltan == ["solidapp.c"]:
+        print("  OK: la puerta ve las tareas que le faltan al worker")
+    else:
+        print(f"  FALLO: la puerta no ve el desfase (faltan={faltan})")
+        fallos += 1
+
+    if _tareas_que_le_faltan_al_worker(fuente, fuente) == []:
+        print("  OK: con el worker al dia no hay tareas que falten")
+    else:
+        print("  FALLO: con el worker al dia se reportan tareas que faltan")
+        fallos += 1
+
     if fallos:
         print(f"Autoprueba FALLIDA: {fallos} caso(s).")
         return 1
@@ -244,6 +324,32 @@ def main() -> int:
     print(f"tareas definidas:  {len(definidas)}")
     print(f"en el beat:        {len(programadas)}")
     print(f"nunca ejecutadas:  {len(muertas)}")
+
+    # T-157 (2026-10-24): el worker en marcha puede tener el codigo viejo.
+    # La puerta hasta aqui miraba solo el fuente.
+    del_worker = _tareas_del_worker()
+    if del_worker is None:
+        print(
+            "\nAVISO: no se ha podido consultar el worker en marcha: no se "
+            "puede comprobar si tiene el codigo actual (esta comprobacion "
+            "solo es posible con Docker y el worker levantado)."
+        )
+    else:
+        faltan = _tareas_que_le_faltan_al_worker(set(definidas), del_worker)
+        if faltan:
+            print("\nFALLO: el worker en marcha NO tiene estas tareas:")
+            for nombre in faltan:
+                print(f"  - {nombre}")
+            print(
+                "  El worker corre el codigo viejo: los workers no recargan "
+                "el codigo (--reload no lo soporta el pool prefork). "
+                "Reinicialo: docker compose restart celery-worker"
+            )
+            return 1
+        print(
+            f"\nEl worker en marcha tiene las {len(definidas)} tareas del "
+            "codigo."
+        )
 
     if not muertas:
         print("\nOK: toda tarea de Celery se ejecuta de alguna forma.")
