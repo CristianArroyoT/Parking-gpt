@@ -465,6 +465,31 @@ CASOS: list[Caso] = [
             "test_el_correo_sale_en_linea_si_el_broker_esta_caido"
         ),
     ),
+    Caso(
+        nombre="T-150 · el lock de la ronda vuelve a caducar con la ronda viva",
+        fichero="app/workers/tasks.py",
+        cambios=[
+            (
+                """            "then return redis.call('expire', KEYS[1], ARGV[2]) else return 0 end",
+            1, clave, token, str(ttl),
+        )
+        # 0 = el lock ya no es nuestro (caduco, o lo tomo otra ronda).
+        return bool(resultado)
+""",
+                """            "then return redis.call('get', KEYS[1]) else return 0 end",
+            1, clave, token, str(ttl),
+        )
+        # T-150 (defecto): se dice que se ha renovado, pero el TTL no se
+        # renueva: la ronda larga pierde el lock con la ronda en marcha.
+        return True
+""",
+            ),
+        ],
+        test=(
+            "tests/test_lock_heartbeats.py::"
+            "test_el_lock_se_renueva_mientras_la_ronda_vive"
+        ),
+    ),
 ]
 
 

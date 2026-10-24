@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -699,6 +700,40 @@ def _tomar_lock(nombre: str, ttl: int = LOCK_TTL_SEGUNDOS) -> str | None:
         return token
 
 
+def _renovar_lock(nombre: str, token: str, ttl: int = LOCK_TTL_SEGUNDOS) -> bool:
+    """Renueva el TTL del lock **si sigue siendo nuestro**.
+
+    T-150 (2026-10-24): el TTL del lock era fijo (120 s) y la ronda de
+    heartbeats **no tiene duracion acotada**. Si la ronda vivia mas que
+    el TTL, el lock caducaba **con la ronda viva** y la ronda siguiente
+    (el beat publica cada 60 s) podia tomarlo: dos rondas a la vez, que
+    es justo lo que el T-102 queria evitar.
+
+    Se renueva en vez de ampliar el TTL a ciegas: si el worker muere, el
+    lock caduca en cuanto antes y no bloquea la siguiente ronda mas de
+    lo previsto.
+
+    Devuelve ``True`` si el TTL se ha renovado (o ``False`` si el lock
+    ya no es nuestro, o si Redis no responde).
+    """
+    clave = f"celery:lock:{nombre}"
+    try:
+        rds = redis.Redis.from_url(
+            get_settings().redis_url, decode_responses=True,
+        )
+        # Atomico: si el valor de la clave no es nuestro token, no se toca.
+        resultado = rds.eval(
+            "if redis.call('get', KEYS[1]) == ARGV[1] "
+            "then return redis.call('expire', KEYS[1], ARGV[2]) else return 0 end",
+            1, clave, token, str(ttl),
+        )
+        # 0 = el lock ya no es nuestro (caduco, o lo tomo otra ronda).
+        return bool(resultado)
+    except RedisError as exc:
+        log.warning("_renovar_lock: Redis no disponible (%s)", exc)
+        return False
+
+
 def _soltar_lock(nombre: str, token: str) -> None:
     """Suelta el lock **solo si es el nuestro**.
 
@@ -774,6 +809,24 @@ def probe_heartbeats() -> dict[str, Any]:
     )
 
     db = SessionLocal()
+    # T-150 (2026-10-24): renovar el lock mientras la ronda vive. Sin
+    # esto, una ronda mas larga que el TTL (120 s) lo pierde **con la
+    # ronda en marcha** y la ronda siguiente puede tomarlo: dos rondas a
+    # la vez (los danos del T-102 vuelven).
+    parar_renovacion = threading.Event()
+
+    def _renovar_en_bucle() -> None:
+        while not parar_renovacion.wait(LOCK_TTL_SEGUNDOS / 3):
+            if not _renovar_lock("probe_heartbeats", token_lock):
+                # El lock ya no es nuestro (o Redis no responde): no hay
+                # nada que renovar.
+                return
+
+    hilo_renovacion = threading.Thread(
+        target=_renovar_en_bucle, name="renueva-lock-heartbeats", daemon=True,
+    )
+    hilo_renovacion.start()
+
     probed = skipped = ok = failed = 0
     health_updates = 0
     now_utc = datetime.now(timezone.utc)
@@ -891,6 +944,9 @@ def probe_heartbeats() -> dict[str, Any]:
                 )
                 db.rollback()
     finally:
+        # T-150: primero se para el hilo que renueva el lock, luego se
+        # suelta (si no, el hilo podria renovar un lock ya soltado).
+        parar_renovacion.set()
         db.close()
         # T-102: el lock se suelta al terminar la ronda (si no, se pierde
         # una de cada tres: el beat lanza cada 60 s y el lock dura 120).

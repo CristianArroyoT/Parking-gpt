@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **747 de 747 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **750 de 750 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2814,12 +2814,6 @@ producto.
   `task_soft_time_limit`, un probe colgado ocupa un slot para siempre
   (`asyncio.wait_for` no puede matar un hilo).
   *Medir*: `docker exec parking-celery-worker-1 celery -A app.workers.celery_app inspect active`.
-- **[ALTA] El lock de la ronda de heartbeats caduca con la ronda viva.**
-  `LOCK_TTL_SEGUNDOS = 120`, pero la ronda no tiene duración acotada: si
-  dura más de 120 s (FFmpeg lento, cámara que gotea), el lock caduca, la
-  ronda que publica el beat lo toma y **vuelven** los daños del T-102
-  (los fallos se cuentan dos veces por minuto).
-  *Medir*: `docker logs parking-celery-worker-1 --since 30m | grep probe_heartbeats`.
 - **[MEDIA] `GET /cameras/{id}/health` resta un `datetime` *naive*.**
   `cameras.py` no normaliza el `tzinfo` (el patrón que el propio AGENTS.md
   exige y que sí está en el resto de ficheros). En SQLite un
@@ -2894,6 +2888,27 @@ producto.
   - [x] Con el broker caído, el correo se envía en línea (medido con Redis parado).
   - [x] El intento queda registrado en el log (`warning`), no se pierde en silencio.
   - [x] Test (`test_el_correo_sale_en_linea_si_el_broker_esta_caido`) y **prueba inversa** en `tools/verificar_pruebas_inversas.py`.
+
+
+### T-150 · P1 (resiliencia) — el lock de la ronda de heartbeats caducaba con la ronda viva
+
+- **Estado**: **completado** — el TTL del lock se renueva mientras la ronda sigue viva
+- **Contexto**: el T-102 puso un lock (`SET NX EX 120`) para que dos rondas de heartbeat no se solapen. Pero el TTL era **fijo** y la ronda **no tiene duración acotada**.
+- **El defecto**: si la ronda vivía más de 120 s (muchas cámaras, el pool de asyncio es de 32 y el sondeo va en paralelo pero no es instantáneo), **el lock caducaba con la ronda todavía en marcha**. Entonces la ronda que publica el beat (cada 60 s) lo tomaba y **dos rondas corried a la vez**: los fallos de cada cámara se contaban dos veces por minuto, se duplicaban las filas de auditoría y los eventos, y dos rondas podían tomar a la vez el lock de alerta de una cámara. Es decir: **volvían los daños del T-102**, que ya se habían creído arreglados.
+- **El arreglo**: **renovar** el TTL del lock mientras la ronda vive (un hilo que lo renueva cada TTL/3), y no ampliar el TTL a ciegas: si el worker muere, el lock caduca en cuanto antes y no bloquea la ronda siguiente más de lo previsto. La renovación es **atómica** (Lua: si el lock ya no es el nuestro, no se toca).
+- **Medido** (2026-10-24, en el contenedor, contra el Redis del stack):
+  ```
+  token tomado: True
+  TTL inicial: 5 s
+  TTL sin renovar (pasados 2,5 s): 2 s
+  renovado: True
+  TTL tras renovar: 5 s            <-- renovado
+  renovado con token ajeno: False  <-- no toca el lock de otra ronda
+  ```
+- **Criterios de aceptación**:
+  - [x] El TTL del lock se renueva (medido: 5 s → 2 s → 5 s).
+  - [x] Un lock ajeno **no** se renueva (la comparación es atómica).
+  - [x] Tests (3) contra el Redis real y **prueba inversa** en `tools/verificar_pruebas_inversas.py`.
 
 ### T-14 · I3 — OCR con GPU
 

@@ -2845,3 +2845,16 @@ Ahora lo hace **la propia función** (una sola implementación): si no se
 puede encolar, relee la alerta y manda el correo en línea. **Medido** con
 Redis **parado de verdad**: «el broker está caído; se envía el correo de la
 alerta 315 EN LÍNEA».
+### 3-centésimosesentésimosegundo. El lock de la ronda ya no caduca con la ronda viva (2026-10-24)
+
+El T-102 puso un lock (`SET NX EX 120`) para que dos rondas de heartbeat no
+se solapen, pero el TTL era **fijo** y la ronda no tiene duración acotada:
+si vivía más de 120 s, el lock caducaba **con la ronda en marcha** y la
+ronda siguiente lo tomaba. Volvían los daños del T-102 (fallos contados
+dos veces por minuto, auditoría y eventos duplicados).
+
+Ahora el TTL **se renueva** mientras la ronda vive (un hilo cada TTL/3), de
+forma atómica (Lua: si el lock no es el nuestro, no se toca). Y no se
+amplía el TTL a ciegas: si el worker muere, el lock caduca en cuanto
+antes. **Medido**: TTL 5 s → 2 s → **5 s** al renovar; con un token ajeno,
+`False` y el lock intacto.
