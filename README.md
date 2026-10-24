@@ -97,9 +97,22 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 Además, y **sin esto la PWA no funciona**: la imagen sirve **HTTP plano**
 y los navegadores no registran *service workers* sin cifrar. Hay que poner
-un **TLS delante** (Caddy, nginx o el Ingress del cluster) y añadir la IP
-del proxy a `TRUSTED_PROXIES`, o el backend verá la IP del proxy y el
-rate-limit de login se compartirá para toda la sucursal.
+un **TLS delante** (Caddy, nginx o el Ingress del cluster).
+
+Y el terminador de TLS tiene que **mandar la IP real del visitante** en
+`X-Forwarded-For` (Caddy y nginx lo hacen por defecto): el nginx del
+contenedor tiene el módulo `realip` configurado (`set_real_ip_from` +
+`real_ip_recursive on`), así que con esa cabecera `$remote_addr` es la IP
+del visitante y es la que llega al backend. **Medido el 2026-10-25**: sin
+eso, el backend veía la IP del terminador, todos los clientes de la
+sucursal compartían un único bucket del rate-limit de login
+(`rl:login:ip:172.17.0.1 = 2` con dos clientes distintos) y el login
+número 11 de la sucursal recibía un **429 para todo el mundo**.
+
+`TRUSTED_PROXIES` sigue siendo obligatorio (por defecto cubre las redes
+Docker): es la lista de proxies en los que el backend **sí** se fía del
+`X-Forwarded-For`. La puerta `tools/verificar_ip_real_nginx.py` comprueba
+que los rangos de nginx y los del backend no se separen.
 
 Ver [`docs/adr/0001-orquestacion-produccion.md`](docs/adr/0001-orquestacion-produccion.md)
 (requisitos de despliegue) y [`frontend/README.md`](frontend/README.md).

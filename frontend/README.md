@@ -353,13 +353,48 @@ cumplir sola. Ninguna la ve la QA, porque la QA corre en `localhost`:
 2. **`FRONTEND_BASE_URL`**: en staging/producción la API **no arranca** si
    no está puesta. Es la URL que va en los correos (el de recuperar
    contraseña), y tiene que ser `https://`.
-3. **`TRUSTED_PROXIES`**: las IP del proxy (nginx) tienen que estar en la
-   lista. Si no, el backend no sabe qué IP es la del cliente y **el
-   rate-limit de login salta para toda la sucursal** (10 intentos / 5 min
-   contados como si fueran todos la misma persona).
-4. **Si hay un CDN delante** (Cloudflare), hay que activar el módulo
-   `realip` de nginx (`set_real_ip_from` + `real_ip_recursive on`), o la
-   IP que se registra es la del CDN.
+3. **El terminador de TLS tiene que mandar la IP real del visitante** en
+   `X-Forwarded-For` (Caddy y nginx lo hacen por defecto). El nginx del
+   contenedor trae el módulo `realip` configurado (`set_real_ip_from` +
+   `real_ip_header` + `real_ip_recursive on`), así que, con esa cabecera,
+   `$remote_addr` pasa a ser la IP del visitante y es la que llega al
+   backend.
+
+   **Medido el 2026-10-25 con el nginx de producción**: sin la cabecera
+   del terminador, al backend le llegaba `X-Forwarded-For: 172.17.0.1` (la
+   del terminador) en vez de `203.0.113.7` (la del visitante), y los
+   buckets del rate-limit quedaban así:
+
+   ```
+   login del cliente A (203.0.113.7): 200
+   login del cliente B (198.51.100.9): 200
+   rl:login:ip:172.17.0.1 = 2      <- UN solo bucket para dos personas
+   ```
+
+   Es decir: **todos los clientes de la sucursal compartían el límite de
+   10 intentos / 5 min**, y el login número 11 recibía un 429 para todo
+   el mundo. Con el módulo `realip` puesto:
+
+   ```
+   rl:login:ip:203.0.113.7 = 1
+   rl:login:ip:198.51.100.9 = 1      <- un bucket por cliente
+   ```
+
+4. **`TRUSTED_PROXIES`**: las IP del proxy (nginx) tienen que estar en la
+   lista. Si no, el backend no se fía del `X-Forwarded-For` y ve la IP
+   del proxy: **el rate-limit de login se comparte para toda la
+   sucursal** (10 intentos / 5 min contados como si fueran todos la misma
+   persona). Por defecto cubre las redes Docker
+   (`172.16.0.0/12,10.0.0.0/8`), que es lo mismo que confía el nginx.
+
+   La puerta `tools/verificar_ip_real_nginx.py` vigila que los dos no se
+   separen (que los rangos de nginx cubran los del backend) y que el
+   módulo `realip` siga puesto.
+
+5. **Si hay un CDN delante** (Cloudflare), hay que añadir **sus IPs**
+   (las publica Cloudflare) a `set_real_ip_from` en
+   `nginx/templates/default.conf.template` **y** a `TRUSTED_PROXIES` del
+   compose. Con un rango abierto, cualquiera podría inyectar su propia IP.
 
 ### Modo "sólo cliente" (pendiente en layout y router)
 

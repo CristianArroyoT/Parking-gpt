@@ -354,6 +354,16 @@ por las buenas. Ver T-124 y T-125 en el plan.
   objetivo por invocación).
 - PowerShell 5.1 no soporta `&&` ni `||`. No uses `tail` fuera de un
   `docker exec`: es un binario de Unix.
+- **La IP que ve el backend decide a quién bloquea el rate-limit de
+  login** (2026-10-25, T-183): en una sucursal el tráfico es
+  `navegador -> terminador de TLS -> nginx -> backend`, y nginx ve al
+  **terminador**, no al visitante. Sin el módulo `realip` (que la
+  plantilla de producción ya trae) todos los clientes de la sucursal
+  comparten un único bucket: medido, dos clientes distintos dejaban
+  `rl:login:ip:172.17.0.1 = 2`, y con el límite de producción (10 por
+  IP cada 5 min) el login 11 recibía un 429 para todos. La puerta
+  `tools/verificar_ip_real_nginx.py` lo vigila (y que los rangos de nginx
+  cubran los de `TRUSTED_PROXIES`).
 - **`POST /auth/login` tiene rate-limit: 10 intentos por IP cada 5
   minutos**, y cuenta también los exitosos. En **desarrollo** el compose
   lo sube a **50** (`LOGIN_RATE_LIMIT_MAX_ATTEMPTS`, T-176): las puertas

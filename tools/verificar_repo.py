@@ -280,6 +280,18 @@ def _comprobaciones() -> list[Comprobacion]:
             timeout=600,
         ),
         Comprobacion(
+            "El nginx de produccion deja ver la IP real del visitante",
+            # T-183 (2026-10-25): detras de un terminador de TLS, nginx ve
+            # la IP del TERMINADOR y la reenvia al backend: todos los
+            # clientes de la sucursal compartian un unico bucket del
+            # rate-limit de login (medido: `rl:login:ip:172.17.0.1 = 2` con
+            # dos clientes distintos), y con el limite de produccion (10
+            # por IP cada 5 minutos) el login 11 de la sucursal recibia un
+            # 429 para todo el mundo.
+            [py, "tools/verificar_ip_real_nginx.py"],
+            patron=r"(OK: el nginx de produccion deja ver la IP real.*)",
+        ),
+        Comprobacion(
             "El servidor de produccion admite los cuerpos que el backend acepta",
             [py, "tools/verificar_nginx_body_size.py"],
             patron=r"(OK: nginx admite.*)",

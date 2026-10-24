@@ -3196,3 +3196,30 @@ Dos cosas que sólo aparecieron al integrar (y que la puerta cazó):
 - el campo «Marca» del formulario de edición de «Mis vehículos» se había
   quedado **sin `for` ni `id`** en la última edición: lo cazó la QA al
   ejecutarla (y no el código, que «se veía bien»).
+### 3-centésimosesentésimocuarenta y nueve. El nginx deja ver la IP real (2026-10-25)
+
+En una sucursal, `navegador -> terminador de TLS -> nginx -> backend`. El
+bucket del rate-limit de login es **por IP**, así que la IP que ve el
+backend decide a quién bloquea.
+
+nginx veía al **terminador de TLS**, no al visitante, y reenvía esa IP
+(`proxy_set_header X-Forwarded-For $remote_addr`, el T-62). Medido con el
+nginx de producción:
+
+    login del cliente A (203.0.113.7): 200
+    login del cliente B (198.51.100.9): 200
+    rl:login:ip:172.17.0.1 = 2      <- UN solo bucket para dos personas
+
+Todos los clientes de la sucursal compartían el límite de 10 intentos por
+IP cada 5 minutos: el login número 11 recibía un 429 para todo el mundo.
+
+Con el módulo `realip` de nginx (que ahora trae la plantilla de
+producción) la IP que viaja es la del visitante:
+
+    rl:login:ip:203.0.113.7 = 1
+    rl:login:ip:198.51.100.9 = 1      <- un bucket por cliente
+
+La puerta `tools/verificar_ip_real_nginx.py` vigila que el módulo siga
+puesto **y** que los rangos que confía nginx cubran los que confía el
+backend (`TRUSTED_PROXIES`): si se separan, el backend ignora el XFF y
+vuelve a ver la IP del proxy.

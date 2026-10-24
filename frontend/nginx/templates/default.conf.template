@@ -63,6 +63,41 @@ server {
     listen 80;
     server_name _;
 
+    # ── La IP real del visitante (T-183, 2026-10-25) ─────────────────────
+    #
+    # Detrás de un terminador de TLS (o de un CDN), nginx ve la IP del
+    # TERMINADOR, no la del visitante. Con ``proxy_set_header
+    # X-Forwarded-For $remote_addr`` (abajo), el backend recibía siempre
+    # la del terminador: **todos los clientes de la sucursal compartían un
+    # único bucket** del rate-limit de login. Medido con el nginx de
+    # producción:
+    #
+    #   peticion con X-Forwarded-For: 203.0.113.7 (el visitante)
+    #     -> llega al backend: X-Forwarded-For: 172.17.0.1
+    #
+    #   login del cliente A (203.0.113.7): 200
+    #   login del cliente B (198.51.100.9): 200
+    #   rl:login:ip:172.17.0.1 = 2      <- UN solo bucket para dos personas
+    #
+    # Con el límite de producción (10 intentos por IP cada 5 minutos), el
+    # login número 11 de la sucursal recibe un 429 para todo el mundo.
+    #
+    # El módulo ``realip`` lo arregla: con el terminador en la lista de
+    # confianza, ``$remote_addr`` pasa a ser la IP real del visitante (la
+    # que el terminador manda en X-Forwarded-For) y lo que se reenvía al
+    # backend es esa.
+    #
+    # OJO: si delante hay un CDN (Cloudflare), hay que añadir aquí las IPs
+    # del CDN (las publica Cloudflare) y **no** un rango abierto: confiar
+    # en más de la cuenta dejaría que cualquiera inyectase su propia IP.
+    # Con ``real_ip_recursive on`` se coge el último elemento del XFF que
+    # no sea de un rango de confianza, así que un XFF inyectado por el
+    # cliente no cuela (el T-62 ya impedía que se colase por el otro lado).
+    set_real_ip_from 172.16.0.0/12;
+    set_real_ip_from 10.0.0.0/8;
+    real_ip_header X-Forwarded-For;
+    real_ip_recursive on;
+
     root /usr/share/nginx/html;
     index index.html;
 

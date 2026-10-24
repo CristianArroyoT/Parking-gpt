@@ -131,6 +131,10 @@ AUTOPRUEBAS: list[tuple[str, list[str]]] = [
         [sys.executable, "tools/verificar_nginx_body_size.py", "--autoprueba"],
     ),
     (
+        "La puerta de la IP real del visitante sigue viendo",
+        [sys.executable, "tools/verificar_ip_real_nginx.py", "--autoprueba"],
+    ),
+    (
         "La puerta del contexto de build sigue viendo",
         [sys.executable, "tools/verificar_contexto_build.py", "--autoprueba"],
     ),

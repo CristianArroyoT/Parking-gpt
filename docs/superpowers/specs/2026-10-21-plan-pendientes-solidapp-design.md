@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-24, tras la tanda T-165…T-182)
 >
-> El plan está **ejecutado**: **866 de 866 criterios** verificados, **ninguno sin marcar**. Los dos que quedaban están **cerrados**: el de la alarma `OCR_FAILED` (la despertó el **T-177** al despachar `ping_camera`, y su falso positivo —una entrada de parking vacía saltando la alarma— lo corrigió el **T-181**) y el de los **18 campos** sin nombre accesible (**T-182**). `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **871 de 871 criterios** verificados, **ninguno sin marcar**. Los dos que quedaban están **cerrados**: el de la alarma `OCR_FAILED` (la despertó el **T-177** al despachar `ping_camera`, y su falso positivo —una entrada de parking vacía saltando la alarma— lo corrigió el **T-181**) y el de los **18 campos** sin nombre accesible (**T-182**). `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > **Lo de esta tanda (2026-10-24)**: los **12 hallazgos** que dejaron las dos auditorías (frontend y pipeline de matrículas), repartidos entre **dos subagentes** y los que resolví yo. Cada uno con **su puerta** y **su prueba inversa**:
 >
@@ -4140,6 +4140,40 @@ código):
   la QA los vigila (13 escenas) con su inversa (6 mutaciones).
 
 
+
+### T-183 · P0 (despliegue) — todos los clientes de la sucursal compartían el bucket del rate-limit de login
+
+- **Estado**: **completado** — medido antes y después con el nginx de producción
+- **Contexto**: en una sucursal el tráfico es `navegador -> terminador de TLS -> nginx (contenedor) -> backend`. El bucket del rate-limit de login es **por IP** (`rl:login:ip:{ip}`), así que la IP que ve el backend decide a quién bloquea.
+- **El defecto (medido el 2026-10-25)**: nginx ve como cliente al **terminador de TLS**, no al visitante, y `proxy_set_header X-Forwarded-For $remote_addr` (el T-62, que impedía que el cliente inyectase su IP) reenvía **esa** IP. Con el nginx de producción delante de un upstream que devuelve las cabeceras que recibe:
+  ```
+  peticion con X-Forwarded-For: 203.0.113.7 (el visitante)
+    -> llega al backend: X-Forwarded-For: 172.17.0.1   (el terminador)
+  ```
+  Y la consecuencia, con el backend de verdad detrás:
+  ```
+  login del cliente A (203.0.113.7): 200
+  login del cliente B (198.51.100.9): 200
+  rl:login:ip:172.17.0.1 = 2      <- UN solo bucket para dos personas
+  ```
+  O sea: **todos los clientes de la sucursal compartían el límite de 10 intentos por IP cada 5 minutos**, y el login número 11 recibía un **429 para todo el mundo** (y se lo llevaba el último que lo intentó, no quien más le convenía).
+- **OJO**: `TRUSTED_PROXIES` **no** arreglaba esto. No es un problema de confianza en el proxy (el nginx de la sucursal está en la lista por defecto): es que la IP que viaja es la del terminador. Por eso hacía falta el módulo `realip`.
+- **El arreglo**: el módulo `realip` de nginx en la plantilla de producción:
+  ```
+  set_real_ip_from 172.16.0.0/12;
+  set_real_ip_from 10.0.0.0/8;
+  real_ip_header X-Forwarded-For;
+  real_ip_recursive on;
+  ```
+  Con el terminador en la lista de confianza, `$remote_addr` pasa a ser la IP real del visitante (la que el terminador manda en `X-Forwarded-For`) y lo que se reenvía al backend es esa. **Medido después**: `rl:login:ip:203.0.113.7 = 1` y `rl:login:ip:198.51.100.9 = 1` ⇒ un bucket por cliente.
+- **La puerta** (`tools/verificar_ip_real_nginx.py`, con su autoprueba de **4 casos de mentira a mano**): exige el módulo `realip` completo, que se siga reenviando `$remote_addr`, y que **los rangos que confía nginx cubran los que confía el backend** (`TRUSTED_PROXIES` del compose de producción): si el backend no confía en el proxy que le habla, ignora el XFF y vuelve a ver la IP del proxy.
+- **La documentación**: los dos README cuentan ahora la cadena de IPs, con las mediciones, y qué tiene que hacer el terminador de TLS (mandar el `X-Forwarded-For`) y qué hay que añadir si delante hay un CDN (las IPs del CDN, en el `set_real_ip_from` **y** en `TRUSTED_PROXIES`).
+- **Criterios de aceptación**:
+  - [x] Medido antes: dos clientes distintos detrás del terminador ⇒ **una** clave `rl:login:ip:172.17.0.1` con valor 2.
+  - [x] Medido después: dos clientes distintos ⇒ **dos** claves, una por cliente.
+  - [x] La puerta existe y su autoprueba **falla** ante los tres casos de mentira (sin `realip`, sin `real_ip_recursive`, con rangos que no cubren los del backend).
+  - [x] Registrada en `tools/verificar_repo.py` (41 comprobaciones) y en `tools/autopruebas.py` (31 autopruebas).
+  - [x] Los dos README documentan la cadena con las mediciones.
 
 ### T-14 · I3 — OCR con GPU
 
