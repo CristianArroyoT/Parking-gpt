@@ -23,6 +23,7 @@ from app.schemas.ticket import TicketRead
 from app.schemas.user import (
     MembershipCreate,
     MembershipRead,
+    MembershipUpdate,
     MyVehicleCreate,
     MyVehicleRead,
     MyVehicleUpdate,
@@ -578,6 +579,27 @@ def delete_user(
     db.commit()
 
 
+def _membresia_de_usuario(
+    db: Session, user_id: int, membership_id: int,
+) -> ParkingMembership:
+    """Carga una membresía **de ese usuario**.
+
+    Si la membresía existe pero es de otro usuario, la respuesta es
+    **404** y no 403: un 403 confirmaría que el id existe.
+    """
+    membership = (
+        db.query(ParkingMembership)
+        .filter(
+            ParkingMembership.id == membership_id,
+            ParkingMembership.user_id == user_id,
+        )
+        .one_or_none()
+    )
+    if membership is None:
+        raise HTTPException(status_code=404, detail="Membresía no encontrada")
+    return membership
+
+
 @router.post(
     "/{user_id}/memberships",
     response_model=MembershipRead,
@@ -591,6 +613,13 @@ def add_membership(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_role(UserRole.ADMIN.value)),
 ) -> ParkingMembership:
+    """Asigna un usuario a una sucursal (sólo admin).
+
+    ``role_in_parking`` es el **poder real** del usuario en esa sucursal y
+    el rol global es el **techo** (ADR 0005): escribir ``gestor`` para un
+    usuario cuyo rol global es ``operador`` se **acepta** (queda recortado
+    al leer), y ``admin`` se rechaza con 422 porque el admin es global.
+    """
     if not db.get(User, user_id):
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     membership = ParkingMembership(
@@ -608,3 +637,77 @@ def add_membership(
         ) from exc
     db.refresh(membership)
     return membership
+
+
+@router.get(
+    "/{user_id}/memberships",
+    response_model=list[MembershipRead],
+)
+@audited("list_memberships", resource_arg="user_id")
+def list_memberships(
+    user_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_role(UserRole.ADMIN.value)),
+) -> list[ParkingMembership]:
+    """Membresías de un usuario (sólo admin).
+
+    Es lo que necesita la pantalla de RBAC por sucursal: qué sucursales
+    tiene y **de qué rol** es en cada una.
+    """
+    if not db.get(User, user_id):
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return (
+        db.query(ParkingMembership)
+        .filter(ParkingMembership.user_id == user_id)
+        .order_by(ParkingMembership.id)
+        .all()
+    )
+
+
+@router.patch(
+    "/{user_id}/memberships/{membership_id}",
+    response_model=MembershipRead,
+)
+@audited("update_membership", resource_arg="user_id")
+def update_membership(
+    user_id: int,
+    membership_id: int,
+    payload: MembershipUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_role(UserRole.ADMIN.value)),
+) -> ParkingMembership:
+    """Cambia el rol de un usuario **en una sucursal** (sólo admin).
+
+    OJO (ADR 0005): el rol **global** del usuario es el **techo**. Pedir
+    ``gestor`` para un usuario cuyo rol global es ``operador`` se
+    **acepta** y no es un error: queda recortado a ``operador`` cuando se
+    lee. La UI puede mostrar el rol pedido y el efectivo no es más alto.
+
+    Un ``role_in_parking`` de ``admin`` se rechaza con 422 (el admin es
+    global).
+    """
+    membership = _membresia_de_usuario(db, user_id, membership_id)
+    membership.role_in_parking = UserRole(payload.role_in_parking)
+    db.commit()
+    db.refresh(membership)
+    return membership
+
+
+@router.delete(
+    "/{user_id}/memberships/{membership_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+@audited("delete_membership", resource_arg="user_id")
+def delete_membership(
+    user_id: int,
+    membership_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_role(UserRole.ADMIN.value)),
+) -> None:
+    """Quita la asignación de un usuario a una sucursal (sólo admin)."""
+    membership = _membresia_de_usuario(db, user_id, membership_id)
+    db.delete(membership)
+    db.commit()

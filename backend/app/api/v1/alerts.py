@@ -10,8 +10,10 @@ Define dos rutas:
   ``acknowledged_at`` + ``acknowledged_by``). Sin DELETE en MVP
   (regla coherente con ``CalibrateView``).
 
-RBAC: gestor (vía ``parking_context``) o admin (``parking_context`` lo
-admite directamente). Cliente y operador no listan alertas.
+RBAC: el **rol efectivo en esa sucursal** (ADR 0005: el más restrictivo
+entre el rol global y el de la membresía). Es decir, el personal —admin,
+gestor u operador— **de esa** sucursal; un cliente queda vedado aunque
+tenga la fila de membresía (T-114).
 """
 from __future__ import annotations
 
@@ -23,9 +25,14 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import audited
 from app.core.db import get_db
-from app.core.deps import get_current_user, parking_context
+from app.core.deps import (
+    ROLES_STAFF,
+    enforce_parking_role,
+    get_current_user,
+    parking_context,
+)
 from app.models.audit import Alert
-from app.models.user import ParkingMembership, User
+from app.models.user import User
 from app.schemas.audit import AlertRead
 
 router = APIRouter(
@@ -85,8 +92,11 @@ def acknowledge_alert(
 
     ``parking_id`` viene del path para validar que la alerta pertenece
     a una sucursal accesible — sin él un atacante podría enumerar IDs.
-    La membresía de gestor se valida manualmente para evitar un JOIN
-    doble con ``parking_context`` (que ya verifica la sucursal del path).
+    T-178 (ADR 0005): el rol que se mira es el **efectivo en esa
+    sucursal** (el más restrictivo entre el rol global y el de la
+    membresía), no el global. Antes sólo se comprobaba que existiera la
+    fila de la membresía, así que un **cliente** con membresía podía
+    reconocer alertas de una sucursal en la que no tiene ningún poder.
     """
     alert = db.get(Alert, alert_id)
     if alert is None or alert.parking_id != parking_id:
@@ -95,21 +105,7 @@ def acknowledge_alert(
             detail="Alerta no encontrada",
         )
 
-    role_value = user.role.value if hasattr(user.role, "value") else str(user.role)
-    if role_value != "admin":
-        membership = (
-            db.query(ParkingMembership)
-            .filter(
-                ParkingMembership.user_id == user.id,
-                ParkingMembership.parking_id == parking_id,
-            )
-            .one_or_none()
-        )
-        if membership is None:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tiene acceso a la sucursal de esta alerta",
-            )
+    enforce_parking_role(user, parking_id, db, *ROLES_STAFF)
 
     if alert.acknowledged_at is not None:
         return alert  # idempotente

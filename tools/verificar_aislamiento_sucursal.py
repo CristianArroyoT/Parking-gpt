@@ -31,10 +31,15 @@ QUÉ COMPRUEBA
 - **R3**: un endpoint que carga un recurso con sucursal tiene que
   comprobar que ese recurso es de la sucursal (cruzar el recurso con el
   ``parking_id`` del path, o validar la membresía sobre el recurso).
+- **R4** (T-178, ADR 0005): un endpoint acotado a una sucursal que exige
+  un rol **concreto** («sólo gestor») tiene que decidirlo con el rol
+  **de esa sucursal** (``require_parking_role`` / ``enforce_parking_role``),
+  no con el rol global (``require_role``). El rol global es el **techo**;
+  el poder real es el de la sucursal.
 
 Y la autoprueba monta **casos de mentira escritos a mano** (en un
 directorio temporal, con sus propios schemas y modelos) para demostrar
-que la puerta detecta los tres patrones y **no** grita con el código
+que la puerta detecta los cuatro patrones y **no** grita con el código
 correcto.
 
 Uso
@@ -71,11 +76,35 @@ VALIDADORES_DE_RECURSO = {
 #: Consultas que ya quedan acotadas por la membresía del usuario.
 CONSULTAS_ACOTADAS = {"_scoped_query"}
 
+#: Funciones a las que se les puede pasar la sucursal **del recurso** que
+#: se está cargando (``alerta.parking_id``, ``adjunto.parking_id``...).
+LLAMADAS_DE_RECURSO = {"enforce_parking_membership", "enforce_parking_role"}
+
 #: Dependencias que acotan a la sucursal del path.
-DEPENDENCIAS_DE_SUCURSAL = {"parking_context", "enforce_parking_membership"}
+DEPENDENCIAS_DE_SUCURSAL = {
+    "parking_context",
+    "enforce_parking_membership",
+    "require_parking_role",
+}
 
 #: Funciones que se pueden llamar dentro del endpoint para acotar.
-LLAMADAS_DE_SUCURSAL = {"parking_context", "enforce_parking_membership"}
+LLAMADAS_DE_SUCURSAL = {
+    "parking_context",
+    "enforce_parking_membership",
+    "enforce_parking_role",
+}
+
+#: Los roles del personal: los que pueden operar sobre una sucursal.
+ROLES_STAFF = {"admin", "gestor", "operador"}
+
+#: Lo que decide el rol **de la sucursal** (T-178, ADR 0005).
+#:
+#: - como dependencia: ``require_parking_role(...)`` (el ``parking_id`` sale
+#:   del *path*);
+#: - en el cuerpo: ``enforce_parking_role(...)`` (el ``parking_id`` viene del
+#:   cuerpo o del recurso que se carga).
+DEPENDENCIAS_DE_ROL_DE_SUCURSAL = {"require_parking_role"}
+LLAMADAS_DE_ROL_DE_SUCURSAL = {"enforce_parking_role"}
 
 #: Exenciones **con su motivo**. Un endpoint exento tiene que decir por
 #: qué: una exención sin motivo es una opinión, y las opiniones no
@@ -101,6 +130,7 @@ class Endpoint:
     params_path: list[str] = field(default_factory=list)
     llamadas: set[str] = field(default_factory=set)
     compara_parking_id: bool = False
+    pasa_la_sucursal_del_recurso: bool = False
 
     @property
     def ruta_completa(self) -> str:
@@ -224,7 +254,12 @@ def _llamadas_de(funcion: ast.FunctionDef) -> set[str]:
 
 
 def _compara_el_parking_id(funcion: ast.FunctionDef) -> bool:
-    """Si el cuerpo compara el ``parking_id`` de un recurso con el del path."""
+    """Si el cuerpo compara el ``parking_id`` de un recurso con el del path.
+
+    Se aceptan las dos direcciones: ``==`` (el recurso es de esta
+    sucursal) y ``!=`` (el recurso **no** es de esta sucursal → 404). Las
+    dos acotan el recurso.
+    """
     for nodo in ast.walk(funcion):
         if not isinstance(nodo, ast.Compare) or not isinstance(nodo.left, ast.Attribute):
             continue
@@ -232,11 +267,32 @@ def _compara_el_parking_id(funcion: ast.FunctionDef) -> bool:
             continue
         for op, comparador in zip(nodo.ops, nodo.comparators, strict=False):
             if (
-                isinstance(op, ast.Eq)
+                isinstance(op, (ast.Eq, ast.NotEq))
                 and isinstance(comparador, ast.Name)
                 and comparador.id == "parking_id"
             ):
                 return True
+    return False
+
+
+def _pasa_la_sucursal_del_recurso(funcion: ast.FunctionDef) -> bool:
+    """Si alguna llamada le pasa la sucursal **del recurso** (no la del path).
+
+    ``enforce_parking_role(usuario, alerta.parking_id, db, ...)`` acota el
+    recurso: la sucursal que se le pasa es la del recurso. Si en su lugar
+    se le pasa el ``parking_id`` del *path*, no acota el recurso, y eso es
+    justo lo que esta puerta tiene que distinguir (el defecto de T-115).
+    """
+    for nodo in ast.walk(funcion):
+        if not isinstance(nodo, ast.Call) or not isinstance(nodo.func, ast.Name):
+            continue
+        if nodo.func.id not in LLAMADAS_DE_RECURSO:
+            continue
+        if len(nodo.args) < 2:
+            continue
+        segundo = nodo.args[1]
+        if isinstance(segundo, ast.Attribute) and segundo.attr == "parking_id":
+            return True
     return False
 
 
@@ -258,9 +314,47 @@ def _schema_del_cuerpo(funcion: ast.FunctionDef, campos: dict[str, set[str]]) ->
 # ── análisis de un módulo ───────────────────────────────────────────────
 
 
+def _helpers_de_rol_de_sucursal(arbol: ast.Module) -> set[str]:
+    """Nombres de las funciones **del módulo** que miran el rol de la sucursal.
+
+    Una función cuenta si llama a ``enforce_parking_role`` o usa
+    ``require_parking_role``; y también si llama a otra función del módulo
+    que ya cuenta (hasta 3 niveles, para que no se cuele por una cadena
+    larga).
+
+    POR QUÉ: algunos endpoints deciden el rol en un helper local (p.ej.
+    ``_autorizar_informe``). Sin esto, la puerta no vería esos endpoints y
+    el «verde» no significaría nada.
+    """
+    llamadas: dict[str, set[str]] = {
+        funcion.name: _llamadas_de(funcion)
+        for funcion in ast.walk(arbol)
+        if isinstance(funcion, ast.FunctionDef)
+    }
+
+    def mira_la_sucursal(nombre: str) -> bool:
+        propias = llamadas.get(nombre, set())
+        return bool(
+            propias & LLAMADAS_DE_ROL_DE_SUCURSAL
+            or "require_parking_role" in propias
+        )
+
+    helpers = {nombre for nombre in llamadas if mira_la_sucursal(nombre)}
+    for _ in range(3):  # cierre transitivo acotado
+        nuevos = {
+            nombre
+            for nombre, propias in llamadas.items()
+            if nombre not in helpers and propias & helpers
+        }
+        if not nuevos:
+            break
+        helpers |= nuevos
+    return helpers
+
+
 def _analizar_modulo(
     fichero: Path, codigo: str, campos: dict[str, set[str]]
-) -> list[Endpoint]:
+) -> tuple[list[Endpoint], set[str]]:
     arbol = ast.parse(codigo)
     prefijo = ""
     dependencias_router: list[str] = []
@@ -279,6 +373,7 @@ def _analizar_modulo(
                                 dependencias_router.append(nombre)
                             roles_router |= _roles_de_dependencia(elemento)
 
+    helpers_de_rol = _helpers_de_rol_de_sucursal(arbol)
     endpoints: list[Endpoint] = []
     for funcion in [n for n in ast.walk(arbol) if isinstance(n, ast.FunctionDef)]:
         for decorador in funcion.decorator_list:
@@ -329,12 +424,15 @@ def _analizar_modulo(
                     params_path=_params_de_la_ruta(f"{prefijo}{ruta}"),
                     llamadas=_llamadas_de(funcion),
                     compara_parking_id=_compara_el_parking_id(funcion),
+                    pasa_la_sucursal_del_recurso=(
+                        _pasa_la_sucursal_del_recurso(funcion)
+                    ),
                 )
             )
-    return endpoints
+    return endpoints, helpers_de_rol
 
 
-# ── las tres reglas ─────────────────────────────────────────────────────
+# ── las reglas ───────────────────────────────────────────────────────────
 
 
 def _recurso_con_sucursal(
@@ -376,7 +474,9 @@ def _acota_el_recurso(
     """
     if _cruza_el_recurso(endpoint, modelos_con_sucursal):
         return True
-    # Validar la membresía sobre la sucursal del propio recurso.
+    # Validar la membresía (o el rol) sobre la sucursal del propio recurso.
+    if endpoint.pasa_la_sucursal_del_recurso:
+        return True
     if "enforce_parking_membership" in endpoint.llamadas:
         return True
     # Un validador dedicado al recurso.
@@ -406,10 +506,64 @@ def _es_solo_admin(endpoint: Endpoint) -> bool:
     return endpoint.roles == {"admin"}
 
 
+def _exige_un_rol_concreto(endpoint: Endpoint) -> bool:
+    """El endpoint exige un rol **concreto** (un subconjunto del personal).
+
+    - Sin roles declarados → no exige ninguno: no es el caso de R4.
+    - Todos los del personal («cualquier personal de la sucursal») → lo
+      decide ``parking_context``, que ya mira el rol **efectivo**: no es
+      el caso de R4.
+    - Sólo ``admin`` → el admin es **global** (ADR 0005, regla 1): no es
+      el caso de R4.
+    """
+    if not endpoint.roles:
+        return False
+    if endpoint.roles == {"admin"}:
+        return False
+    return not endpoint.roles.issuperset(ROLES_STAFF)
+
+
+def _acotado_a_una_sucursal(
+    endpoint: Endpoint,
+    campos: dict[str, set[str]],
+    modelos_con_sucursal: set[str],
+) -> bool:
+    """El endpoint trabaja sobre **una** sucursal concreta.
+
+    Ojo: no basta con que el *path* lleve ``{parking_id}``. También vale
+    que el ``parking_id`` venga en el **cuerpo** o que el recurso que se
+    carga sea de una sucursal (un incidente, un adjunto...).
+    """
+    if "{parking_id}" in endpoint.ruta_completa:
+        return True
+    if endpoint.schema_cuerpo and "parking_id" in campos.get(
+        endpoint.schema_cuerpo, set()
+    ):
+        return True
+    return _recurso_con_sucursal(endpoint, modelos_con_sucursal) is not None
+
+
+def _mira_el_rol_de_la_sucursal(
+    endpoint: Endpoint, helpers_de_rol: set[str]
+) -> bool:
+    """El endpoint decide el rol con el **de la sucursal** (ADR 0005).
+
+    Vale como dependencia (``require_parking_role``), como llamada en el
+    cuerpo (``enforce_parking_role``) o a través de un helper local que ya
+    lo haga.
+    """
+    if any(d in DEPENDENCIAS_DE_ROL_DE_SUCURSAL for d in endpoint.dependencias):
+        return True
+    if endpoint.llamadas & LLAMADAS_DE_ROL_DE_SUCURSAL:
+        return True
+    return bool(endpoint.llamadas & helpers_de_rol)
+
+
 def _problemas_de_endpoint(
     endpoint: Endpoint,
     campos: dict[str, set[str]],
     modelos_con_sucursal: set[str],
+    helpers_de_rol: set[str],
 ) -> list[str]:
     problemas: list[str] = []
     etiqueta = f"{endpoint.modulo}: {endpoint.metodo} {endpoint.ruta_completa}"
@@ -452,6 +606,19 @@ def _problemas_de_endpoint(
             f"comprueba de qué sucursal es [R3]"
         )
 
+    # R4 (T-178, ADR 0005): el rol lo decide la sucursal, no el global.
+    if (
+        _exige_un_rol_concreto(endpoint)
+        and _acotado_a_una_sucursal(endpoint, campos, modelos_con_sucursal)
+        and not _mira_el_rol_de_la_sucursal(endpoint, helpers_de_rol)
+    ):
+        problemas.append(
+            f"{etiqueta}: exige un rol concreto "
+            f"({', '.join(sorted(endpoint.roles))}) pero lo decide con el rol "
+            f"GLOBAL; el poder es el de la sucursal "
+            f"(`require_parking_role(...)` / `enforce_parking_role(...)`) [R4]"
+        )
+
     return problemas
 
 
@@ -465,10 +632,13 @@ def verificar(v1: Path, schemas: Path, modelos: Path) -> list[str]:
         if fichero.name == "__init__.py":
             continue
         codigo = fichero.read_text(encoding="utf-8")
-        for endpoint in _analizar_modulo(fichero, codigo, campos):
+        endpoints, helpers_de_rol = _analizar_modulo(fichero, codigo, campos)
+        for endpoint in endpoints:
             endpoints_analizados += 1
             problemas.extend(
-                _problemas_de_endpoint(endpoint, campos, modelos_con_sucursal)
+                _problemas_de_endpoint(
+                    endpoint, campos, modelos_con_sucursal, helpers_de_rol
+                )
             )
     print(f"endpoints analizados: {endpoints_analizados}")
     print(f"modelos con `parking_id`: {len(modelos_con_sucursal)}")
@@ -534,6 +704,58 @@ router = APIRouter(prefix="/parkings/{parking_id}/cosas")
 def detalle(parking_id: int, caso_id: int, db=Depends(get_db)) -> dict:
     """BIEN: usa un validador declarado (la lista de la puerta)."""
     caso = _camara_de_sucursal(db, caso_id, parking_id)
+    return {}
+'''
+
+MODULO_MENTIRA_ROL = '''
+from fastapi import APIRouter, Depends
+from app.core.deps import require_role
+from app.models.user import User
+from app.schemas.caso import CasoCreate, CasoRead
+
+router = APIRouter(prefix="/parkings/{parking_id}/cosas")
+
+
+@router.get("/{caso_id}", dependencies=[Depends(require_role("admin", "gestor"))])
+def detalle(parking_id: int, caso_id: int, db=Depends(get_db)) -> dict:
+    """SIN rol de sucursal: decide con el rol GLOBAL (el defecto del T-178).
+
+    El ADR 0005 dice que el rol global es el TECHO y el de la sucursal el
+    PODER real: un endpoint acotado a una sucursal que exige un rol
+    concreto tiene que mirar el rol de ESA sucursal.
+    """
+    caso = db.query(Caso).filter(Caso.id == caso_id, Caso.parking_id == parking_id).one_or_none()
+    return {}
+'''
+
+MODULO_BUENO_ROL = '''
+from fastapi import APIRouter, Depends
+from app.core.deps import enforce_parking_role, require_parking_role
+from app.models.user import User
+from app.schemas.caso import CasoCreate, CasoRead
+
+router = APIRouter(prefix="/parkings/{parking_id}/cosas")
+
+
+@router.get("/{caso_id}", dependencies=[Depends(require_parking_role("gestor"))])
+def detalle(parking_id: int, caso_id: int, db=Depends(get_db)) -> dict:
+    """BIEN: el rol se decide con el de la sucursal del path."""
+    caso = db.query(Caso).filter(Caso.id == caso_id, Caso.parking_id == parking_id).one_or_none()
+    return {}
+
+
+@router.post("/{caso_id}", dependencies=[Depends(require_role("admin", "gestor"))])
+def editar(parking_id: int, caso_id: int, db=Depends(get_db)) -> dict:
+    """BIEN: el rol se decide con el de la sucursal (llamada en el cuerpo)."""
+    caso = db.query(Caso).filter(Caso.id == caso_id, Caso.parking_id == parking_id).one_or_none()
+    enforce_parking_role(user, parking_id, db, "admin", "gestor")
+    return {}
+
+
+@router.delete("/{caso_id}", dependencies=[Depends(require_role("admin"))])
+def borrar(parking_id: int, caso_id: int, db=Depends(get_db)) -> dict:
+    """BIEN: el admin es GLOBAL (ADR 0005, regla 1): no aplica R4."""
+    caso = db.query(Caso).filter(Caso.id == caso_id, Caso.parking_id == parking_id).one_or_none()
     return {}
 '''
 
@@ -622,10 +844,34 @@ def _autoprueba() -> int:
             print(f"  FALLO: el caso con un validador declarado dio {problemas}")
             fallos += 1
 
+        # 4) R4 (T-178): un endpoint acotado a una sucursal que exige un rol
+        #    concreto y lo decide con el rol GLOBAL tiene que ser detectado.
+        _montar_caso(raiz, MODULO_MENTIRA_ROL)
+        problemas = verificar(
+            raiz / "app" / "api" / "v1", raiz / "app" / "schemas", raiz / "app" / "models"
+        )
+        tiene_r4 = any("[R4]" in p for p in problemas)
+        if tiene_r4:
+            print("  OK: el caso de mentira del rol global se detecta (R4)")
+        else:
+            print(f"  FALLO: el caso de mentira del rol global no dio R4: {problemas}")
+            fallos += 1
+
+        # 5) El caso bueno de R4 **no** tiene que dar problemas.
+        _montar_caso(raiz, MODULO_BUENO_ROL)
+        problemas = verificar(
+            raiz / "app" / "api" / "v1", raiz / "app" / "schemas", raiz / "app" / "models"
+        )
+        if not problemas:
+            print("  OK: el caso con rol de sucursal no da problemas")
+        else:
+            print(f"  FALLO: el caso con rol de sucursal dio {problemas}")
+            fallos += 1
+
     if fallos:
         print(f"Autoprueba FALLIDA: {fallos} caso(s).")
         return 1
-    print("Autoprueba correcta: la puerta detecta los tres patrones.")
+    print("Autoprueba correcta: la puerta detecta los cuatro patrones.")
     return 0
 
 

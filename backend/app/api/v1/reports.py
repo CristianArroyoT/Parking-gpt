@@ -15,9 +15,11 @@ con ``informe`` ∈ ``ingresos | ocupacion | tickets | alertas | margins``.
 Filtros (idénticos en todas las rutas): ``parking_id`` (obligatorio),
 ``from`` y ``to`` (ventana temporal obligatoria, ISO 8601).
 
-RBAC: admin ve cualquier sucursal. Gestor sólo la suya (validación manual
-contra ``ParkingMembership`` para poder devolver el id validado en lugar de
-``User``). Operador y cliente reciben 403.
+RBAC: admin ve cualquier sucursal. Gestor sólo la suya. T-178 (ADR 0005):
+el rol que decide es el **efectivo en la sucursal** del informe (el más
+restrictivo entre el rol global y el de la membresía), no el global: un
+gestor que en esa sucursal es ``operador`` recibe 403. Operador y cliente
+también.
 
 Naming de las rutas (decisión documentada)
 ------------------------------------------
@@ -56,10 +58,10 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.deps import get_current_user
+from app.core.deps import enforce_parking_role, get_current_user
 from app.services.endpoint_rate_limit import enforce_endpoint_rate_limit
 from app.models.parking import Parking
-from app.models.user import ParkingMembership, User
+from app.models.user import User
 from app.schemas.reports import MarginReportRead
 from app.services.cost import compute_margin
 from app.services.pdf import render_report_pdf
@@ -101,42 +103,21 @@ router = APIRouter(
 _ROLES_INFORME = {"admin", "gestor"}
 
 
-def _resolve_parking_id(
-    requested: int, user: User, db: Session,
-) -> int:
-    role_value = user.role.value if hasattr(user.role, "value") else user.role
-    if role_value == "admin":
-        return requested
-    membership = (
-        db.query(ParkingMembership)
-        .filter(
-            ParkingMembership.user_id == user.id,
-            ParkingMembership.parking_id == requested,
-        )
-        .one_or_none()
-    )
-    if not membership:
-        raise HTTPException(
-            status_code=403,
-            detail="No tiene acceso a esta sucursal",
-        )
-    return requested
-
-
 def _autorizar_informe(user: User, db: Session, parking_id: int) -> None:
-    """Control de acceso de los informes (admin o gestor de esa sucursal).
+    """Control de acceso de los informes (admin o gestor **de esa sucursal**).
 
-    Es el mismo filtro por rol que usa ``/admin/reports/margins``: primero
-    se comprueba el rol y después la pertenencia a la sucursal, de modo que
-    un cliente sin acceso recibe 403 (y no 404) aunque la sucursal exista.
+    T-178 (ADR 0005): el rol que decide es el **efectivo en la sucursal**
+    del informe (el más restrictivo entre el rol global, que es el techo, y
+    el de la membresía), no el global. Un cliente sin acceso recibe 403 (y
+    no 404) aunque la sucursal exista.
     """
-    role_value = user.role.value if hasattr(user.role, "value") else str(user.role)
-    if role_value not in _ROLES_INFORME:
-        raise HTTPException(
-            status_code=403,
-            detail="No tiene permisos para consultar informes",
-        )
-    _resolve_parking_id(parking_id, user, db)
+    enforce_parking_role(
+        user,
+        parking_id,
+        db,
+        *_ROLES_INFORME,
+        detail="No tiene permisos para consultar informes",
+    )
 
 
 def _parse_window(

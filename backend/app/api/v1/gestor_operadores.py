@@ -37,7 +37,11 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import audited
 from app.core.db import get_db
-from app.core.deps import enforce_parking_membership, get_current_user
+from app.core.deps import (
+    enforce_parking_membership,
+    enforce_parking_role,
+    get_current_user,
+)
 from app.core.emails import normalizar_email
 from app.core.security import hash_password
 from app.models.enums import UserRole
@@ -48,13 +52,22 @@ from app.services.endpoint_rate_limit import enforce_endpoint_rate_limit
 router = APIRouter(prefix="/parkings/{parking_id}", tags=["gestor-operadores"])
 
 
-def _exigir_gestor(current: User) -> None:
-    """Sólo admin o gestor (un operador o un cliente no gestionan personal)."""
-    if current.role not in (UserRole.ADMIN, UserRole.GESTOR):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Sólo el gestor o el administrador gestionan los operadores",
-        )
+def _exigir_gestor(current: User, parking_id: int, db: Session) -> None:
+    """Sólo admin o gestor **de esa sucursal** (un operador o un cliente no
+    gestionan personal).
+
+    T-178 (ADR 0005): antes miraba el rol **global** del usuario. Ahora
+    decide el rol **efectivo en la sucursal del path**: un gestor que en
+    esta sucursal es ``operador`` no gestiona el personal de aquí.
+    """
+    enforce_parking_role(
+        current,
+        parking_id,
+        db,
+        UserRole.ADMIN.value,
+        UserRole.GESTOR.value,
+        detail="Sólo el gestor o el administrador gestionan los operadores",
+    )
 
 
 @router.get("/operadores", response_model=list[UserRead])
@@ -69,7 +82,7 @@ def listar_operadores(
     es miembro, 403). El admin ve los de la que sea.
     """
     enforce_parking_membership(current, parking_id, db)
-    _exigir_gestor(current)
+    _exigir_gestor(current, parking_id, db)
 
     ids = select(ParkingMembership.user_id).where(
         ParkingMembership.parking_id == parking_id
@@ -102,7 +115,7 @@ def crear_operador(
     operador de otra sucursal.
     """
     enforce_parking_membership(current, parking_id, db)
-    _exigir_gestor(current)
+    _exigir_gestor(current, parking_id, db)
 
     # Mismo rate-limit por actor que el alta de usuarios del admin (R5).
     # T-69: usa la implementación única (antes esta lógica estaba escrita

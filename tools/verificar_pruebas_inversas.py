@@ -115,6 +115,22 @@ CASOS: list[Caso] = [
         ),
     ),
     Caso(
+        nombre="T-178 · el rol de la sucursal vuelve a no leerse",
+        fichero="app/core/deps.py",
+        cambios=[
+            (
+                "    if _poder_de_rol(rol_a) >= _poder_de_rol(rol_b):\n"
+                "        return rol_a\n"
+                "    return rol_b\n",
+                "    return rol_a\n",
+            ),
+        ],
+        test=(
+            "tests/test_rbac_por_sucursal.py::"
+            "test_gestor_en_una_sucursal_y_operador_en_otra"
+        ),
+    ),
+    Caso(
         nombre="T-120 · un cliente vuelve a poder cerrar su propio ticket",
         fichero="app/api/v1/tickets.py",
         cambios=[

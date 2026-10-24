@@ -54,10 +54,17 @@ def _scoped_query(db: Session, user: User, parking_id: Optional[int]) -> SAQuery
         ]
         query = query.filter(Ticket.vehicle_id.in_(vehicle_ids))
     elif user.role != UserRole.ADMIN:
+        # T-178 (ADR 0005), regla 3: la sucursal queda **vedada** si el
+        # rol **de esa sucursal** no es de personal. Un gestor que en una
+        # sucursal es ``operador`` (o simple ``cliente``) no ve sus
+        # tickets. El **techo** (el rol global) lo pone ``require_role``.
         ids = [
             m.parking_id
             for m in db.query(ParkingMembership)
-            .filter(ParkingMembership.user_id == user.id)
+            .filter(
+                ParkingMembership.user_id == user.id,
+                ParkingMembership.role_in_parking.in_(ROLES_STAFF),
+            )
             .all()
         ]
         query = query.filter(Ticket.parking_id.in_(ids))

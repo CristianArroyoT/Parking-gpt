@@ -57,10 +57,12 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.deps import (
+    ROLES_STAFF,
     enforce_parking_membership,
+    enforce_parking_role,
     get_current_user,
     get_current_user_or_query_token,
-    parking_context,
+    require_parking_role,
     require_role,
 )
 from app.core.ip import get_real_ip
@@ -89,11 +91,10 @@ _CABECERAS_SEGURAS = {
 @router.post(
     "/parkings/{parking_id}",
     dependencies=[
-        Depends(require_role(
-            UserRole.ADMIN.value,
-            UserRole.GESTOR.value,
-            UserRole.OPERADOR.value,
-        ))
+        # T-178 (ADR 0005): el rol que se mira es el **efectivo en esta
+        # sucursal** (el más restrictivo entre el rol global y el de la
+        # membresía), no el global.
+        Depends(require_parking_role(*ROLES_STAFF))
     ],
 )
 def create_incident_endpoint(
@@ -104,7 +105,6 @@ def create_incident_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any] | IncidentRead:
-    parking_context(parking_id, current=current_user, db=db)
     # OJO (T-62): con ``request.client.host`` se auditaba la IP del
     # PROXY (nginx), no la del cliente.
     ip = get_real_ip(request) if request.client else None
@@ -139,6 +139,13 @@ def _gestor_o_admin(
     cabeceras. Mismo patrón que el preview MJPEG (``cameras_live.py``) y
     el stream SSE: la ampliación del scope de auth es *opt-in por
     endpoint* y sólo afecta a estas tres rutas.
+
+    T-178 (ADR 0005): esto mira el rol **global**, que es sólo el **techo**:
+    el que decide es el rol **efectivo de la sucursal** del adjunto
+    (``enforce_parking_role``, llamado en cada endpoint). Se conserva el
+    chequeo global como **fallo rápido**, para que un usuario sin poder
+    reciba 403 sin que la respuesta distinga entre «el adjunto no existe»
+    (404) y «existe pero no es tuyo» (403).
     """
     rol = current.role.value if hasattr(current.role, "value") else current.role
     if rol not in (UserRole.ADMIN.value, UserRole.GESTOR.value):
@@ -185,7 +192,13 @@ async def _leer_limitado(upload: UploadFile, limite: int) -> bytes:
 def _adjunto_de_sucursal(
     attachment_id: int, db: Session, current_user: User
 ) -> IncidentAttachment:
-    """Carga el adjunto y comprueba que el usuario tiene la sucursal."""
+    """Carga el adjunto y comprueba el rol efectivo en **su** sucursal.
+
+    T-178 (ADR 0005): el poder para ver los adjuntos es el del rol **de
+    la sucursal del adjunto**, no el global: solo el gestor y el admin de
+    esa sucursal (decision de producto D5). Un gestor que en esa sucursal
+    es ``operador`` no los ve.
+    """
     adjunto = db.get(IncidentAttachment, attachment_id)
     if adjunto is None:
         raise HTTPException(
@@ -193,6 +206,10 @@ def _adjunto_de_sucursal(
             detail="Adjunto no encontrado",
         )
     enforce_parking_membership(current_user, adjunto.parking_id, db)
+    enforce_parking_role(
+        current_user, adjunto.parking_id, db,
+        UserRole.ADMIN.value, UserRole.GESTOR.value,
+    )
     return adjunto
 
 
@@ -441,7 +458,11 @@ async def subir_adjuntos_incidente(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Incidente no encontrado",
         )
-    enforce_parking_membership(current_user, alert.parking_id, db)
+    # T-178 (ADR 0005): el rol que decide es el **efectivo en la sucursal
+    # del incidente** (aquí, cualquiera del personal).
+    enforce_parking_role(
+        current_user, alert.parking_id, db, *ROLES_STAFF,
+    )
 
     if not files:
         raise HTTPException(
@@ -534,7 +555,12 @@ def listar_adjuntos_incidente(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Incidente no encontrado",
         )
-    enforce_parking_membership(current_user, alert.parking_id, db)
+    # T-178 (ADR 0005): gestor/admin **de la sucursal del incidente**, no
+    # del rol global.
+    enforce_parking_role(
+        current_user, alert.parking_id, db,
+        UserRole.ADMIN.value, UserRole.GESTOR.value,
+    )
     filas = (
         db.query(IncidentAttachment)
         .filter(IncidentAttachment.alert_id == alert_id)

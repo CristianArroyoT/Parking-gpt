@@ -6,6 +6,7 @@ from typing import Literal, Optional
 
 from pydantic import EmailStr, Field, field_validator
 
+from app.core.deps import validar_rol_de_sucursal
 from app.core.emails import normalizar_email
 from app.core.password_policy import ContrasenaBcrypt
 from app.schemas import ORMModel, TimestampMixinSchema
@@ -104,6 +105,27 @@ class PasswordChange(ORMModel):
 class MembershipCreate(ORMModel):
     parking_id: int
     role_in_parking: str = "gestor"
+
+    @field_validator("role_in_parking")
+    @classmethod
+    def _rol_valido(cls, valor: str) -> str:
+        """Un rol por sucursal, y **nunca** ``admin`` (ADR 0005).
+
+        El ``admin`` es un rol **global**: no existe un admin «de una
+        sucursal». Un valor que no sea un rol se rechaza con 422.
+        """
+        return validar_rol_de_sucursal(valor)
+
+
+class MembershipUpdate(ORMModel):
+    """Cambio del rol en una sucursal (RBAC por sucursal, ADR 0005)."""
+
+    role_in_parking: str
+
+    @field_validator("role_in_parking")
+    @classmethod
+    def _rol_valido(cls, valor: str) -> str:
+        return validar_rol_de_sucursal(valor)
 
 
 class MembershipRead(ORMModel, TimestampMixinSchema):
