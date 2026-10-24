@@ -514,8 +514,91 @@ def encolar_correo_alerta(
         )
     except Exception:  # noqa: BLE001 -- el broker puede estar caido
         log.exception("encolar_correo_alerta: no se pudo encolar el correo")
-        return False
+        # T-149 (2026-10-24): el docstring de esta funcion promete que
+        # «el llamante envia el correo en linea (mas lento, pero llega)»,
+        # pero los TRES llamantes (alerts.py dos veces e incidents.py)
+        # descartaban el valor de retorno: con el broker caido, el correo
+        # de una camara caida (o de un robo) se perdia **en silencio**
+        # (la alerta quedaba commiteada y visible por REST, asi que el
+        # operador creia que estaba enterado).
+        #
+        # Se hace aqui, y no en los tres llamantes, para que haya **una
+        # sola** implementacion del comportamiento.
+        return _enviar_en_linea(
+            alert_id=alert_id,
+            destinatario=destinatario,
+            template_kind=template_kind,
+            parking_name=parking_name,
+            camera_code=camera_code,
+            count=count,
+            threshold=threshold,
+            frame_path=frame_path,
+        )
     return True
+
+
+def _enviar_en_linea(
+    *,
+    alert_id: int,
+    destinatario: str | None,
+    template_kind: str,
+    parking_name: str,
+    camera_code: str,
+    count: int,
+    threshold: int,
+    frame_path: str | None,
+) -> bool:
+    """Manda el correo **en linea** cuando el broker esta caido (T-149).
+
+    Relee la alerta (que ya esta commiteada) y la envia con el mismo
+    ``send_alert_email`` de siempre. Devuelve ``True`` si se ha enviado.
+    """
+    if not destinatario:
+        log.error(
+            "encolar_correo_alerta: el broker esta caido y no hay "
+            "destinatario para el correo de la alerta %s: no se puede "
+            "enviar en linea",
+            alert_id,
+        )
+        return False
+    try:
+        from app.core.db import SessionLocal
+        from app.models.audit import Alert
+
+        with SessionLocal() as db:
+            alert = db.get(Alert, alert_id)
+        if alert is None:
+            log.error(
+                "encolar_correo_alerta: la alerta %s ya no existe: no se "
+                "puede enviar el correo en linea",
+                alert_id,
+            )
+            return False
+        log.warning(
+            "encolar_correo_alerta: el broker esta caido; se envia el "
+            "correo de la alerta %s EN LINEA",
+            alert_id,
+        )
+        return send_alert_email(
+            alert,
+            destinatario,
+            template_kind=template_kind,  # type: ignore[arg-type]
+            parking_name=parking_name,
+            camera_code=camera_code,
+            count=count,
+            threshold=threshold,
+            # La URL del frame no viaja en la alerta (no esta en la BD):
+            # sin broker no hay donde mirar la foto.
+            frame_url=None,
+            frame_path=frame_path,
+        )
+    except Exception:  # noqa: BLE001 -- el correo nunca rompe el flujo
+        log.exception(
+            "encolar_correo_alerta: no se pudo enviar el correo de la "
+            "alerta %s en linea",
+            alert_id,
+        )
+        return False
 
 
 __all__ = ["encolar_correo_alerta", "send_alert_email", "TemplateKind"]

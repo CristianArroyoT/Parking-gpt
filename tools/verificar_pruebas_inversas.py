@@ -446,6 +446,25 @@ CASOS: list[Caso] = [
             "test_un_ticket_sin_salida_se_cierra_a_las_24_horas"
         ),
     ),
+    Caso(
+        nombre="T-149 · el correo de la alerta vuelve a perderse si el broker esta caido",
+        fichero="app/services/email.py",
+        cambios=[
+            (
+                """        return _enviar_en_linea(
+            alert_id=alert_id,
+""",
+                """        return False  # T-149 (defecto): el correo se pierde en silencio
+        return _enviar_en_linea(
+            alert_id=alert_id,
+""",
+            ),
+        ],
+        test=(
+            "tests/test_correo_broker_caido.py::"
+            "test_el_correo_sale_en_linea_si_el_broker_esta_caido"
+        ),
+    ),
 ]
 
 

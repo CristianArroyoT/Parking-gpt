@@ -2834,3 +2834,14 @@ Los dos corregidos (T-147): la puerta avisa en vez de callar, y el
 `pip install` del backend pasa a estar antes de las comprobaciones (el
 escáner de texto sigue siendo lo primero, porque es sólo biblioteca
 estándar y falla en dos segundos).
+### 3-centésimosesentésimoprimero. El correo de una alerta ya no se pierde en silencio (2026-10-24)
+
+`encolar_correo_alerta` prometía que «el llamante envía el correo en línea»
+si el broker está caído, pero **los tres llamantes descartaban el valor
+de retorno**: con Redis caído, la alerta quedaba commiteada (visible por
+REST) y el correo no salía nunca, sin rastro.
+
+Ahora lo hace **la propia función** (una sola implementación): si no se
+puede encolar, relee la alerta y manda el correo en línea. **Medido** con
+Redis **parado de verdad**: «el broker está caído; se envía el correo de la
+alerta 315 EN LÍNEA».

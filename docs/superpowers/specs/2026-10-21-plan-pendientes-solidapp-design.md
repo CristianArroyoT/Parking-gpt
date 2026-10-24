@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **744 de 744 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **747 de 747 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2807,14 +2807,6 @@ que no se pierdan, en orden de gravedad. **Ninguno está arreglado**: son
 cambios de más calado que los de esta tanda, y varios son decisiones de
 producto.
 
-- **[ALTA] El correo de alerta se pierde si el broker está caído.**
-  `encolar_correo_alerta` devuelve `False` cuando no puede encolar (su
-  docstring promete «el llamante envía el correo en línea»), pero los tres
-  llamantes (`alerts.py` en OCR_FAILED y CAMERA_OFFLINE, `incidents.py` en
-  el robo) **descartan el valor**. La alerta queda commiteada (visible por
-  REST), así que el operador cree que está enterado y nadie recibe nada.
-  *Medir*: `docker exec parking-backend-1 python -c "import app.services.email as e; ..."`
-  con `enviar_correo_alerta.delay` simulando que el broker esta caido.
 - **[ALTA] `acks_late` sin `task_reject_on_worker_lost` ni límites de
   tiempo.** Si el worker muere, el mensaje no se reentrega hasta que vence
   el `visibility_timeout` de Redis (1 h), y el beat sigue publicando cada
@@ -2882,6 +2874,26 @@ producto.
   - [x] Medido: por `127.0.0.1` responde en 0 ms; por `::1`, timeout.
   - [x] Las cinco QAS usan `127.0.0.1`.
   - [x] Las tres QAs que estaban en rojo vuelven a pasar.
+
+
+### T-149 · P1 (resiliencia) — el correo de una alerta se perdía en silencio si el broker estaba caído
+
+- **Estado**: **completado** — ahora se intenta en línea y queda registrado
+- **Contexto**: `encolar_correo_alerta` devuelve `False` si no puede encolar (el broker —Redis— está caído) y su docstring promete «el llamante envía el correo **en línea** (más lento, pero llega)». Pero **los tres llamantes** (`alerts.py` en OCR_FAILED y en CAMERA_OFFLINE, e `incidents.py` en el robo) **descartaban el valor de retorno**.
+- **El defecto**: con el broker caído en el instante en que una cámara caía, la alerta quedaba **commiteada** (visible por REST, así que el operador creía que estaba enterado), el correo **no se enviaba** y no quedaba rastro más allá de un `log.exception` genérico.
+- **El arreglo**: que lo haga **la propia función** (una sola implementación, en vez de tres): si no se puede encolar, relee la alerta y manda el correo **en línea**. Es más lento (el SMTP está en el hilo del llamante), pero llega — y sólo en ese caso, que es raro y grave.
+- **Medido** (2026-10-24, contra el stack de QA, **con Redis parado de verdad**):
+  ```
+  == encolar el correo con el broker CAIDO ==
+  encolar_correo_alerta: no se pudo encolar el correo
+  encolar_correo_alerta: el broker esta caido; se envia el correo de la alerta 315 EN LINEA
+  devuelto: False
+  ```
+  (El `False` es del SMTP de mentira: lo importante es que **se intenta** y que **queda dicho en el log**, en vez de perderse.)
+- **Criterios de aceptación**:
+  - [x] Con el broker caído, el correo se envía en línea (medido con Redis parado).
+  - [x] El intento queda registrado en el log (`warning`), no se pierde en silencio.
+  - [x] Test (`test_el_correo_sale_en_linea_si_el_broker_esta_caido`) y **prueba inversa** en `tools/verificar_pruebas_inversas.py`.
 
 ### T-14 · I3 — OCR con GPU
 
