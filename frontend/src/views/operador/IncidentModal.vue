@@ -394,7 +394,11 @@ function close(): void {
           v-if="errorMsg"
           class="bg-rose-50 border border-rose-200 rounded-lg p-3"
         >
-          <p class="text-sm text-rose-800">{{ errorMsg }}</p>
+          <!-- T-169 (2026-10-24): el error se ANUNCIA (`role="alert"` =
+               region viva). Antes solo se veia. -->
+          <p class="text-sm text-rose-800" role="alert" aria-live="assertive">
+            {{ errorMsg }}
+          </p>
         </div>
 
         <div

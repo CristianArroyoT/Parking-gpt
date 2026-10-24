@@ -105,28 +105,28 @@ onMounted(load)
         <h2 class="font-semibold mb-4">{{ editing ? 'Editar usuario' : 'Nuevo usuario' }}</h2>
         <form class="space-y-3" @submit.prevent="submit">
           <div>
-            <label class="block text-xs font-medium text-slate-700">Email</label>
-            <input v-model="form.email" type="email" required class="input" :disabled="!!editing" />
+            <label class="block text-xs font-medium text-slate-700" for="usuario-email">Email</label>
+            <input id="usuario-email" v-model="form.email" type="email" required class="input" :disabled="!!editing" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-700">Nombre completo</label>
-            <input v-model="form.full_name" required minlength="2" class="input" />
+            <label class="block text-xs font-medium text-slate-700" for="usuario-nombre">Nombre completo</label>
+            <input id="usuario-nombre" v-model="form.full_name" required minlength="2" class="input" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-700">Teléfono</label>
-            <input v-model="form.phone" class="input" />
+            <label class="block text-xs font-medium text-slate-700" for="usuario-telefono">Teléfono</label>
+            <input id="usuario-telefono" v-model="form.phone" class="input" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-700">Rol</label>
-            <select v-model="form.role" class="input">
+            <label class="block text-xs font-medium text-slate-700" for="usuario-rol">Rol</label>
+            <select id="usuario-rol" v-model="form.role" class="input">
               <option v-for="r in ROLES" :key="r" :value="r">{{ r }}</option>
             </select>
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-700">
+            <label class="block text-xs font-medium text-slate-700" for="usuario-password">
               {{ editing ? 'Nueva contraseña (dejar vacío para no cambiar)' : 'Contraseña' }}
             </label>
-            <input v-model="form.password" type="password" minlength="8" class="input" :required="!editing" />
+            <input id="usuario-password" v-model="form.password" type="password" minlength="8" class="input" :required="!editing" />
           </div>
           <label class="inline-flex items-center gap-2 text-sm text-slate-700">
             <input type="checkbox" v-model="form.is_active" class="rounded border-slate-300" /> Activo

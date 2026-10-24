@@ -129,6 +129,32 @@ function extractError(err: unknown, fallback: string): string {
 function kindLabel(k: CameraKind): string {
   return k === 'gate' ? 'Portería' : 'Fiscalización'
 }
+
+/**
+ * T-173 (2026-10-24): la URL RTSP puede llevar usuario y **CONTRASEÑA**
+ * (``rtsp://usuario:clave@host:puerto/stream``). Pintarla tal cual la
+ * deja en el DOM, donde la lee cualquiera que abra las herramientas de
+ * desarrollo (y el «ver código fuente» del navegador).
+ *
+ * En la tabla sólo se enseña una versión **enmascarada**: el usuario y
+ * el host (que son lo que hace falta para identificar la cámara) y la
+ * contraseña sustituida por puntos. Si la URL no lleva credenciales, se
+ * enseña tal cual: no hay nada que tapar.
+ */
+function enmascararRtsp(url: string): string {
+  if (!url) return '—'
+  let u: URL
+  try {
+    u = new URL(url)
+  } catch {
+    // URL que no se entiende: no se enseña nada de lo que podría traer.
+    return 'rtsp://••••'
+  }
+  if (!u.password) return u.toString()
+  const credenciales = u.username ? `${u.username}:••••@` : '••••@'
+  // OJO: `u.protocol` es «rtsp:» (sin las «//»), hay que volver a ponerlas.
+  return `${u.protocol}//${credenciales}${u.host}${u.pathname}${u.search}${u.hash}`
+}
 </script>
 
 <template>
@@ -139,7 +165,7 @@ function kindLabel(k: CameraKind): string {
         <p class="text-sm text-slate-500">Inventario y calibración de geocercas</p>
       </div>
       <div class="flex items-center gap-2">
-        <select v-model.number="selectedId" class="input w-auto" @change="load">
+        <select v-model.number="selectedId" class="input w-auto" aria-label="Sucursal" @change="load">
           <option v-for="p in parkings" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
         <button type="button" class="btn-primary" @click="openCreate">
@@ -197,7 +223,11 @@ function kindLabel(k: CameraKind): string {
               </td>
               <td class="px-5 py-3">{{ cam.lane_hint ?? '—' }}</td>
               <td class="px-5 py-3">{{ cam.fps }}</td>
-              <td class="px-5 py-3 font-mono text-xs truncate max-w-xs">{{ cam.rtsp_url }}</td>
+              <!-- T-173: la URL se muestra ENMASCARADA. La contraseña
+                   nunca llega al DOM. -->
+              <td class="px-5 py-3 font-mono text-xs truncate max-w-xs">
+                {{ enmascararRtsp(cam.rtsp_url) }}
+              </td>
               <td class="px-5 py-3">
                 <span :class="cam.is_active ? 'text-emerald-600' : 'text-slate-500'">
                   {{ cam.is_active ? 'Activa' : 'Inactiva' }}
@@ -245,8 +275,8 @@ function kindLabel(k: CameraKind): string {
           </h2>
           <form class="space-y-3 text-sm" @submit.prevent="submitCreate">
             <div>
-              <label class="block text-slate-700 font-medium mb-1">Código</label>
-              <input
+              <label class="block text-slate-700 font-medium mb-1" for="camara-codigo">Código</label>
+              <input id="camara-codigo"
                 v-model="createForm.code"
                 class="input"
                 required
@@ -256,8 +286,8 @@ function kindLabel(k: CameraKind): string {
               >
             </div>
             <div>
-              <label class="block text-slate-700 font-medium mb-1">Nombre</label>
-              <input
+              <label class="block text-slate-700 font-medium mb-1" for="camara-nombre">Nombre</label>
+              <input id="camara-nombre"
                 v-model="createForm.name"
                 class="input"
                 required
@@ -267,8 +297,8 @@ function kindLabel(k: CameraKind): string {
               >
             </div>
             <div>
-              <label class="block text-slate-700 font-medium mb-1">URL RTSP</label>
-              <input
+              <label class="block text-slate-700 font-medium mb-1" for="camara-rtsp">URL RTSP</label>
+              <input id="camara-rtsp"
                 v-model="createForm.rtsp_url"
                 class="input font-mono"
                 required
@@ -283,16 +313,16 @@ function kindLabel(k: CameraKind): string {
             </div>
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-slate-700 font-medium mb-1">Calle (lane)</label>
-                <select v-model="createForm.lane_hint" class="input">
+                <label class="block text-slate-700 font-medium mb-1" for="camara-calle">Calle (lane)</label>
+                <select id="camara-calle" v-model="createForm.lane_hint" class="input">
                   <option value="">Sin asignar</option>
                   <option value="entry">Entrada</option>
                   <option value="exit">Salida</option>
                 </select>
               </div>
               <div>
-                <label class="block text-slate-700 font-medium mb-1">FPS</label>
-                <input
+                <label class="block text-slate-700 font-medium mb-1" for="camara-fps">FPS</label>
+                <input id="camara-fps"
                   v-model.number="createForm.fps"
                   class="input"
                   type="number"
@@ -303,8 +333,8 @@ function kindLabel(k: CameraKind): string {
               </div>
             </div>
             <div>
-              <label class="block text-slate-700 font-medium mb-1">Tipo</label>
-              <select v-model="createForm.kind" class="input">
+              <label class="block text-slate-700 font-medium mb-1" for="camara-tipo">Tipo</label>
+              <select id="camara-tipo" v-model="createForm.kind" class="input">
                 <option value="surveillance">Fiscalización (observa el parking)</option>
                 <option value="gate">Portería (entrada/salida manual)</option>
               </select>

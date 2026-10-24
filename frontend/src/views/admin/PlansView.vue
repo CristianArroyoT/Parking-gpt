@@ -376,8 +376,8 @@ onMounted(async () => {
           </h2>
           <form class="space-y-3" @submit.prevent="submitPlan">
             <div>
-              <label class="block text-xs font-medium text-slate-700">Código</label>
-              <input
+              <label class="block text-xs font-medium text-slate-700" for="plan-codigo">Código</label>
+              <input id="plan-codigo"
                 v-model="form.code"
                 required
                 minlength="2"
@@ -387,8 +387,8 @@ onMounted(async () => {
               />
             </div>
             <div>
-              <label class="block text-xs font-medium text-slate-700">Nombre</label>
-              <input
+              <label class="block text-xs font-medium text-slate-700" for="plan-nombre">Nombre</label>
+              <input id="plan-nombre"
                 v-model="form.name"
                 required
                 minlength="2"
@@ -399,8 +399,8 @@ onMounted(async () => {
             </div>
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-xs font-medium text-slate-700">€/mes</label>
-                <input
+                <label class="block text-xs font-medium text-slate-700" for="plan-precio-mes">€/mes</label>
+                <input id="plan-precio-mes"
                   v-model.number="form.monthly_price"
                   type="number"
                   step="0.01"
@@ -410,8 +410,8 @@ onMounted(async () => {
                 />
               </div>
               <div>
-                <label class="block text-xs font-medium text-slate-700">Descuento %</label>
-                <input
+                <label class="block text-xs font-medium text-slate-700" for="plan-descuento">Descuento %</label>
+                <input id="plan-descuento"
                   v-model.number="form.discount_percent"
                   type="number"
                   step="0.01"
@@ -423,10 +423,10 @@ onMounted(async () => {
               </div>
             </div>
             <div>
-              <label class="block text-xs font-medium text-slate-700">
+              <label class="block text-xs font-medium text-slate-700" for="plan-vehiculos">
                 Vehículos incluidos
               </label>
-              <input
+              <input id="plan-vehiculos"
                 v-model.number="form.included_vehicles"
                 type="number"
                 min="0"

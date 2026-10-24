@@ -841,7 +841,14 @@ async function runVehicleDetection(): Promise<void> {
               class="w-full h-full object-contain"
               @error="onLivePreviewError"
             />
-            <p v-if="livePreviewError" class="text-rose-300 text-sm px-4 text-center">
+            <!-- T-169 (2026-10-24): el error se ANUNCIA (`role="alert"` =
+                 region viva). Antes solo se veia. -->
+            <p
+              v-if="livePreviewError"
+              class="text-rose-300 text-sm px-4 text-center"
+              role="alert"
+              aria-live="assertive"
+            >
               {{ livePreviewError }}
             </p>
           </div>

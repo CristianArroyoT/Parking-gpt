@@ -30,6 +30,34 @@ const token = computed(() => {
   return typeof t === 'string' ? t : ''
 })
 
+/**
+ * T-172 (2026-10-24): el token de un solo uso se borra de la barra de
+ * direcciones al cambiar la contraseña, pero al borrarlo ``token`` pasa
+ * a valer '' y la vista perdería el modo «venía del correo» (enseguida
+ * se vería «Recuperar contraseña» en vez de «Contraseña actualizada»).
+ * El modo se guarda **al abrir la página**, aparte del token.
+ */
+const modoEnlace = ref(Boolean(token.value))
+
+/**
+ * T-172: quita el token de la URL sin recargar la página.
+ *
+ * El token se queda en la barra de direcciones (y con ella, en el
+ * historial del navegador, en el referrer y en cualquier «copiar
+ * enlace»). Se sustituye la entrada actual por la ruta limpia, que es
+ * la que resuelve el router (con su ``base`` correcto, no una ruta
+ * absolute escrita a mano).
+ */
+function limpiarTokenDeLaUrl(): void {
+  const limpio = router.resolve({ name: 'recuperar-contrasena' }).href
+  window.history.replaceState(window.history.state, '', limpio)
+  // Además, el router se queda sin el token en su estado: si no, una
+  // navegación posterior podría volver a ponerlo en la URL.
+  void router.replace({ name: 'recuperar-contrasena' }).catch(() => {
+    /* la URL ya está limpia: no hace falta nada más */
+  })
+}
+
 const email = ref('')
 const password = ref('')
 const confirm = ref('')
@@ -72,6 +100,8 @@ async function cambiarClave(): Promise<void> {
   sending.value = true
   try {
     await resetPassword(token.value, password.value)
+    // T-172: el token ya está gastado; no tiene que seguir en la URL.
+    limpiarTokenDeLaUrl()
     done.value = true
   } catch (err: unknown) {
     error.value =
@@ -101,10 +131,10 @@ async function cambiarClave(): Promise<void> {
       <div class="bg-white rounded-2xl shadow-lg p-8">
         <template v-if="done">
           <h1 class="text-xl font-semibold text-slate-900">
-            {{ token ? 'Contraseña actualizada' : 'Revisa tu correo' }}
+            {{ modoEnlace ? 'Contraseña actualizada' : 'Revisa tu correo' }}
           </h1>
           <p class="mt-2 text-sm text-slate-600">
-            <template v-if="token">
+            <template v-if="modoEnlace">
               Ya puedes iniciar sesión con la contraseña nueva.
             </template>
             <template v-else>
@@ -121,7 +151,7 @@ async function cambiarClave(): Promise<void> {
           </button>
         </template>
 
-        <template v-else-if="token">
+        <template v-else-if="modoEnlace">
           <h1 class="text-xl font-semibold text-slate-900">Nueva contraseña</h1>
           <p class="mt-1 text-sm text-slate-500">
             Elige la contraseña con la que vas a entrar a partir de ahora.
@@ -159,7 +189,12 @@ async function cambiarClave(): Promise<void> {
               />
             </div>
 
-            <p v-if="error" class="text-sm text-rose-600">{{ error }}</p>
+            <!-- T-169 (2026-10-24): el error se ANUNCIA (`role="alert"`
+                 = region viva). Antes solo se veia: un lector de pantalla
+                 no enteraba de que la contraseña no coincidia. -->
+            <p v-if="error" class="text-sm text-rose-600" role="alert" aria-live="assertive">
+              {{ error }}
+            </p>
 
             <button type="submit" class="btn-primary w-full py-2.5" :disabled="sending">
               {{ sending ? 'Guardando…' : 'Cambiar contraseña' }}
@@ -189,7 +224,12 @@ async function cambiarClave(): Promise<void> {
               />
             </div>
 
-            <p v-if="error" class="text-sm text-rose-600">{{ error }}</p>
+            <!-- T-169 (2026-10-24): el error se ANUNCIA (`role="alert"`
+                 = region viva). Antes solo se veia: un lector de pantalla
+                 no enteraba de que la contraseña no coincidia. -->
+            <p v-if="error" class="text-sm text-rose-600" role="alert" aria-live="assertive">
+              {{ error }}
+            </p>
 
             <button type="submit" class="btn-primary w-full py-2.5" :disabled="sending">
               {{ sending ? 'Enviando…' : 'Enviar enlace' }}

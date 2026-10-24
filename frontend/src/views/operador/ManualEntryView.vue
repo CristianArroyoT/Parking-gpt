@@ -289,7 +289,12 @@ onMounted(loadParkings)
         </div>
 
         <div v-if="lastError" class="bg-rose-50 border border-rose-200 rounded-xl p-4">
-          <p class="text-sm text-rose-800">{{ lastError }}</p>
+          <!-- T-169 (2026-10-24): el error se ANUNCIA (`role="alert"`
+               = region viva). Antes solo se veia: un lector de pantalla
+               no enteraba de que el alta manual habia fallado. -->
+          <p class="text-sm text-rose-800" role="alert" aria-live="assertive">
+            {{ lastError }}
+          </p>
         </div>
       </div>
 

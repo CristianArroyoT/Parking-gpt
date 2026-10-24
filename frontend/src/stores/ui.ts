@@ -30,5 +30,23 @@ export const useUiStore = defineStore('ui', () => {
     toasts.value = toasts.value.filter((t) => t.id !== id)
   }
 
-  return { sidebarOpen, toasts, toggleSidebar, closeSidebar, pushToast, dismissToast }
+  /**
+   * T-174 (2026-10-24): al cerrar sesión, el estado de UI de la sesión
+   * anterior se queda en el store (el sidebar móvil abierto, los toasts
+   * que aún nadie ha cerrado) y se lo encuentra el usuario siguiente en
+   * la misma pestaña. Con el logout por router (sin recargar la página)
+   * el store **sobrevive**, así que hay que limpiarlo a mano.
+   *
+   * OJO: el toast de «Sesión cerrada» se empuja **después** de este
+   * ``reset()``, que es lo que vacía los toasts.
+   */
+  function reset(): void {
+    sidebarOpen.value = false
+    toasts.value = []
+  }
+
+  return {
+    sidebarOpen, toasts,
+    toggleSidebar, closeSidebar, pushToast, dismissToast, reset,
+  }
 })

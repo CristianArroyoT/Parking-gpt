@@ -165,6 +165,7 @@ onMounted(async () => {
       </div>
       <select
         v-if="parkings.length > 1"
+        aria-label="Sucursal"
         v-model.number="selectedParkingId"
         class="input w-auto"
         @change="onParkingChange"

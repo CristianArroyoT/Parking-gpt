@@ -90,7 +90,14 @@ function fillDemo(role: 'admin' | 'gestor' | 'operador' | 'cliente'): void {
               placeholder="••••••••" class="input" autocomplete="current-password" />
           </div>
 
-          <p v-if="auth.error" class="text-sm text-rose-600">{{ auth.error }}</p>
+          <!-- T-169 (2026-10-24): el error se ANUNCIA. `role="alert"` es
+               una region viva (aria-live="assertive"), asi que un lector de
+               pantalla lee el mensaje en cuanto aparece: antes el texto
+               se veia pero no se anunciaba. Las clases se conservan
+               (la QA del T-139 busca `p.text-rose-600`). -->
+          <p v-if="auth.error" class="text-sm text-rose-600" role="alert" aria-live="assertive">
+            {{ auth.error }}
+          </p>
 
           <button type="submit" class="btn-primary w-full py-2.5" :disabled="auth.loading">
             {{ auth.loading ? 'Entrando…' : 'Iniciar sesión' }}

@@ -165,6 +165,59 @@ def _comprobaciones() -> list[Comprobacion]:
             timeout=600,
         ),
         Comprobacion(
+            "Los errores de formulario se anuncian",
+            # T-169 (2026-10-24): `role="alert"` faltaba en seis sitios
+            # (login, reset, alta manual, tickets, incidentes y calibrado):
+            # el error se veia, pero un lector de pantalla no lo
+            # anunciaba. Esta QA lo comprueba con un navegador de verdad.
+            [py, "frontend/scripts/qa_accesibilidad_alertas.py"],
+            patron=r"(OK: los \d+ errores de formulario se anuncian.*)",
+            timeout=600,
+        ),
+        Comprobacion(
+            "El modal de cambiar contrasena gestiona el foco",
+            # T-170 (2026-10-24): con `aria-modal="true"` pero sin llevar
+            # el foco al dialogo, el `Tab` recorria la pagina por detras y
+            # el `Escape` no cerraba. Esta QA comprueba que el foco entra,
+            # queda atrapado y vuelve al cerrar.
+            [py, "frontend/scripts/qa_modal_foco.py"],
+            patron=r"(OK: el modal de cambiar contrasena gestiona el foco.*)",
+            timeout=600,
+        ),
+        Comprobacion(
+            "Los campos de administracion tienen nombre accesible",
+            # T-171 (2026-10-24): `<label>` sin `for` y sin envolver el
+            # campo => los campos se anunciaban "sin nombre" (medido: 33
+            # controles visibles sin nombre accesible).
+            [py, "frontend/scripts/qa_labels_admin.py"],
+            patron=r"(OK: todos los campos de administracion.*)",
+            timeout=600,
+        ),
+        Comprobacion(
+            "El token de recuperacion se borra de la URL",
+            # T-172 (2026-10-24): tras cambiar la contrasena el token se
+            # quedaba en la barra de direcciones (historial, referrer).
+            [py, "frontend/scripts/qa_token_url.py"],
+            patron=r"(OK: el token de recuperacion se borra de la URL.*)",
+            timeout=600,
+        ),
+        Comprobacion(
+            "La URL RTSP no deja la contrasena en el DOM",
+            # T-173 (2026-10-24): la URL RTSP puede llevar credenciales y
+            # se pintaba en crudo en la tabla de camaras.
+            [py, "frontend/scripts/qa_rtsp_credenciales.py"],
+            patron=r"(OK: la URL RTSP no deja la contrasena en el DOM.*)",
+            timeout=600,
+        ),
+        Comprobacion(
+            "El cierre de sesion se ve y limpia el store",
+            # T-174 (2026-10-24): `location.assign('/login')` recargaba la
+            # pagina (el toast se lo comia) y el store `ui` no se limpiaba.
+            [py, "frontend/scripts/qa_logout_limpieza.py"],
+            patron=r"(OK: el cierre de sesion se ve, no recarga.*)",
+            timeout=600,
+        ),
+        Comprobacion(
             "El destino del login se valida",
             # T-165 (2026-10-24): el `redirect` de la query se pasaba a
             # `router.push()` sin validar ni capturar. Medido: un destino

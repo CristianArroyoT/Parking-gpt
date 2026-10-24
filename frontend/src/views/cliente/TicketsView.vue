@@ -247,7 +247,14 @@ const cerrados = (): Ticket[] => tickets.value.filter((t) => t.status === 'cerra
           <div v-if="detailLoading" class="text-sm text-slate-500 py-4 text-center">
             Cargando detalle…
           </div>
-          <div v-else-if="detailError" class="text-sm text-rose-600 py-4 text-center">
+          <!-- T-169 (2026-10-24): el error se ANUNCIA (`role="alert"` =
+               region viva). Antes solo se veia. -->
+          <div
+            v-else-if="detailError"
+            class="text-sm text-rose-600 py-4 text-center"
+            role="alert"
+            aria-live="assertive"
+          >
             {{ detailError }}
           </div>
           <div v-else class="space-y-4 text-sm">

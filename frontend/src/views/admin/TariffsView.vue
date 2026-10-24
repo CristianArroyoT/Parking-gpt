@@ -224,8 +224,8 @@ onMounted(loadParkings)
     <div class="bg-white rounded-xl shadow-card p-5 mb-6">
       <div class="flex items-end gap-3">
         <div class="flex-1">
-          <label class="block text-xs font-medium text-slate-700">Sucursal</label>
-          <select v-model.number="parkingId" class="input" :disabled="loadingParkings">
+          <label class="block text-xs font-medium text-slate-700" for="tarifa-sucursal">Sucursal</label>
+          <select id="tarifa-sucursal" v-model.number="parkingId" class="input" :disabled="loadingParkings">
             <option v-if="!loadingParkings && !parkings.length" :value="null">Sin sucursales</option>
             <option v-for="p in parkings" :key="p.id" :value="p.id">
               {{ p.name }} · {{ p.city }} ({{ p.code }})
@@ -303,17 +303,17 @@ onMounted(loadParkings)
         </h2>
         <form class="space-y-3" @submit.prevent="submit">
           <div>
-            <label class="block text-xs font-medium text-slate-700">Nombre</label>
-            <input v-model="form.name" required minlength="2" maxlength="64" class="input" />
+            <label class="block text-xs font-medium text-slate-700" for="tarifa-nombre">Nombre</label>
+            <input id="tarifa-nombre" v-model="form.name" required minlength="2" maxlength="64" class="input" />
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-xs font-medium text-slate-700">€/hora</label>
-              <input v-model.number="form.price_per_hour" type="number" step="0.01" min="0" required class="input" />
+              <label class="block text-xs font-medium text-slate-700" for="tarifa-precio-hora">€/hora</label>
+              <input id="tarifa-precio-hora" v-model.number="form.price_per_hour" type="number" step="0.01" min="0" required class="input" />
             </div>
             <div>
-              <label class="block text-xs font-medium text-slate-700">€ por fracción</label>
-              <input v-model.number="form.price_per_fraction" type="number" step="0.01" min="0" required class="input" />
+              <label class="block text-xs font-medium text-slate-700" for="tarifa-precio-fraccion">€ por fracción</label>
+              <input id="tarifa-precio-fraccion" v-model.number="form.price_per_fraction" type="number" step="0.01" min="0" required class="input" />
             </div>
           </div>
           <div class="grid grid-cols-2 gap-3">
@@ -324,21 +324,21 @@ onMounted(loadParkings)
                 que no cabía en la caja de la etiqueta (86 px) con una
                 ventana de 1024 px, y se salía de la columna.
               -->
-              <label class="block text-xs font-medium text-slate-700">Minutos por fracción</label>
-              <input v-model.number="form.fraction_minutes" type="number" min="1" max="60" required class="input" />
+              <label class="block text-xs font-medium text-slate-700" for="tarifa-minutos-fraccion">Minutos por fracción</label>
+              <input id="tarifa-minutos-fraccion" v-model.number="form.fraction_minutes" type="number" min="1" max="60" required class="input" />
             </div>
             <div>
-              <label class="block text-xs font-medium text-slate-700">Máx. diario (€)</label>
-              <input v-model.number="form.max_daily" type="number" step="0.01" min="0" class="input" placeholder="Sin tope" />
+              <label class="block text-xs font-medium text-slate-700" for="tarifa-max-diario">Máx. diario (€)</label>
+              <input id="tarifa-max-diario" v-model.number="form.max_daily" type="number" step="0.01" min="0" class="input" placeholder="Sin tope" />
             </div>
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-700">Vigente desde</label>
-            <input v-model="form.valid_from" type="datetime-local" required class="input" />
+            <label class="block text-xs font-medium text-slate-700" for="tarifa-valida-desde">Vigente desde</label>
+            <input id="tarifa-valida-desde" v-model="form.valid_from" type="datetime-local" required class="input" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-700">Vigente hasta (opcional)</label>
-            <input v-model="form.valid_to" type="datetime-local" class="input" />
+            <label class="block text-xs font-medium text-slate-700" for="tarifa-valida-hasta">Vigente hasta (opcional)</label>
+            <input id="tarifa-valida-hasta" v-model="form.valid_to" type="datetime-local" class="input" />
           </div>
           <div class="flex gap-2 pt-2">
             <button type="submit" class="btn-primary" :disabled="!parkingId">

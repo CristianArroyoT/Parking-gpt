@@ -112,29 +112,29 @@ onMounted(load)
         <h2 class="font-semibold mb-4">{{ editing ? 'Editar sucursal' : 'Nueva sucursal' }}</h2>
         <form class="space-y-3" @submit.prevent="submit">
           <div>
-            <label class="block text-xs font-medium text-slate-700">Código</label>
-            <input v-model="form.code" required minlength="2" maxlength="32" class="input" :disabled="!!editing" />
+            <label class="block text-xs font-medium text-slate-700" for="parking-codigo">Código</label>
+            <input id="parking-codigo" v-model="form.code" required minlength="2" maxlength="32" class="input" :disabled="!!editing" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-700">Nombre</label>
-            <input v-model="form.name" required minlength="2" class="input" />
+            <label class="block text-xs font-medium text-slate-700" for="parking-nombre">Nombre</label>
+            <input id="parking-nombre" v-model="form.name" required minlength="2" class="input" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-700">Dirección</label>
-            <input v-model="form.address" required class="input" />
+            <label class="block text-xs font-medium text-slate-700" for="parking-direccion">Dirección</label>
+            <input id="parking-direccion" v-model="form.address" required class="input" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-700">Ciudad</label>
-            <input v-model="form.city" required class="input" />
+            <label class="block text-xs font-medium text-slate-700" for="parking-ciudad">Ciudad</label>
+            <input id="parking-ciudad" v-model="form.city" required class="input" />
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-xs font-medium text-slate-700">Latitud</label>
-              <input v-model.number="form.latitude" type="number" step="0.000001" class="input" />
+              <label class="block text-xs font-medium text-slate-700" for="parking-latitud">Latitud</label>
+              <input id="parking-latitud" v-model.number="form.latitude" type="number" step="0.000001" class="input" />
             </div>
             <div>
-              <label class="block text-xs font-medium text-slate-700">Longitud</label>
-              <input v-model.number="form.longitude" type="number" step="0.000001" class="input" />
+              <label class="block text-xs font-medium text-slate-700" for="parking-longitud">Longitud</label>
+              <input id="parking-longitud" v-model.number="form.longitude" type="number" step="0.000001" class="input" />
             </div>
           </div>
           <label class="inline-flex items-center gap-2 text-sm text-slate-700">

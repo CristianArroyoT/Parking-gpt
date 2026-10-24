@@ -9,14 +9,15 @@
  * sesión". El modal usa Teleport a ``body`` para evitar quedar
  * atrapado dentro del ``overflow-y-auto`` del sidebar.
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { RouterLink, useRouter } from 'vue-router'
 import { isPwaMode } from '@/pwa/mode'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
 
 const auth = useAuthStore()
 const ui = useUiStore()
+const router = useRouter()
 
 interface NavItem { name: string; label: string; to: string }
 
@@ -117,21 +118,132 @@ function toggleMenu(): void {
 async function onLogout(): Promise<void> {
   menuOpen.value = false
   pwdModalOpen.value = false
+  // T-174 (2026-10-24): el estado de UI de la sesión anterior (el
+  // sidebar móvil abierto, los toasts que nadie ha cerrado) se limpia.
+  // Ahora que la navegación es del router (no una recarga) el store
+  // sobrevive al logout, así que hay que vaciarlo a mano.
+  ui.reset()
   await auth.logout()
+  // T-174: el toast se ve porque su contenedor vive en la raíz
+  // (App.vue) y no se desmonta al cambiar de ruta.
   ui.pushToast('success', 'Sesión cerrada')
-  location.assign('/login')
+  // T-174: con `location.assign('/login')` la página se recargaba (el
+  // toast se lo comía la recarga) y la ruta iba escrita a mano: con un
+  // `base` distinto de '/', '/login' no es la ruta de la app. El router
+  // sabe cuál es (usa `import.meta.env.BASE_URL`).
+  void router.push({ name: 'login' }).catch(() => {
+    /* ya estaba en el login: nada que hacer */
+  })
+}
+
+/**
+ * T-170 (2026-10-24): el modal de cambio de contraseña NO gestionaba el
+ * foco.
+ *
+ * MEDIDO el 2026-10-24 con un navegador de verdad:
+ *   - al abrirlo, el foco se quedaba en el ``<body>`` (el diálogo no lo
+ *     tomaba): el ``Tab`` recorría la página que estaba DETRÁS del
+ *     overlay;
+ *   - el ``Escape`` sólo cerraba por casualidad (cuando el ``Tab`` había
+ *     dejado el foco dentro por error);
+ *   - al cerrarlo, el foco se perdía (volvía al ``<body>``).
+ *
+ * Ahora: el foco entra en el diálogo (al primer campo), el ``Tab`` queda
+ * atrapado dentro del overlay y, al cerrar, el foco vuelve al botón que
+ * lo tenía.
+ */
+const pwdDialogRef = ref<HTMLElement | null>(null)
+const pwdTriggerRef = ref<HTMLElement | null>(null)
+/** Elemento que tenía el foco antes de abrir el modal. */
+let pwdFocoAnterior: HTMLElement | null = null
+
+const SELECTOR_FOCO =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]),' +
+  ' textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+function elementosFocales(raiz: HTMLElement): HTMLElement[] {
+  return Array.from(raiz.querySelectorAll<HTMLElement>(SELECTOR_FOCO)).filter(
+    (el) => el.getClientRects().length > 0,
+  )
+}
+
+/** Mete el foco en el primer campo del diálogo. */
+function enfocarDialogo(): void {
+  const dialogo = pwdDialogRef.value
+  if (!dialogo) return
+  const primero = dialogo.querySelector<HTMLElement>('input:not([disabled])')
+  ;(primero ?? dialogo).focus()
+}
+
+/**
+ * Escape cierra el modal y el Tab queda atrapado dentro del overlay.
+ *
+ * Se escucha en el documento (no en el diálogo) porque, si el foco se
+ * escapa del overlay, el Escape tiene que llegar igualmente.
+ */
+function onTeclaModal(ev: KeyboardEvent): void {
+  if (!pwdModalOpen.value) return
+  if (ev.key === 'Escape') {
+    ev.preventDefault()
+    closePwdModal()
+    return
+  }
+  if (ev.key !== 'Tab') return
+  const dialogo = pwdDialogRef.value
+  if (!dialogo) return
+  const focales = elementosFocales(dialogo)
+  if (!focales.length) {
+    ev.preventDefault()
+    dialogo.focus()
+    return
+  }
+  const primero = focales[0]
+  const ultimo = focales[focales.length - 1]
+  const activo = document.activeElement as HTMLElement | null
+  const dentro = !!activo && dialogo.contains(activo)
+  if (!dentro) {
+    // El foco se habia escapado del overlay: se recupera.
+    ev.preventDefault()
+    primero.focus()
+    return
+  }
+  if (ev.shiftKey && activo === primero) {
+    ev.preventDefault()
+    ultimo.focus()
+  } else if (!ev.shiftKey && activo === ultimo) {
+    ev.preventDefault()
+    primero.focus()
+  }
 }
 
 function openChangePassword(): void {
+  // T-170: se guarda quién tenía el foco (el botón del menú) para
+  // devolvérselo al cerrar.
+  pwdFocoAnterior = document.activeElement as HTMLElement | null
   menuOpen.value = false
   pwdForm.value = { current: '', next: '', confirm: '' }
   pwdError.value = null
   pwdModalOpen.value = true
+  // T-170: el foco entra en el diálogo (antes se quedaba en el <body>).
+  void nextTick(() => enfocarDialogo())
 }
 
 function closePwdModal(): void {
   if (pwdLoading.value) return
   pwdModalOpen.value = false
+  // T-170: el foco vuelve al elemento que lo tenía (antes se perdía en
+  // el <body>).
+  void nextTick(() => {
+    const anterior = pwdFocoAnterior
+    pwdFocoAnterior = null
+    if (anterior && document.contains(anterior)) {
+      anterior.focus()
+      return
+    }
+    // El elemento original ya no está (el menú se cierra al abrir el
+    // modal): el foco vuelve al botón del desplegable, no al <body>.
+    pwdTriggerRef.value?.focus()
+  })
 }
 
 async function onSubmitPassword(): Promise<void> {
@@ -151,7 +263,9 @@ async function onSubmitPassword(): Promise<void> {
   pwdLoading.value = true
   try {
     await auth.changeMyPassword(pwdForm.value.current, pwdForm.value.next)
-    pwdModalOpen.value = false
+    pwdLoading.value = false
+    // T-170: se cierra con la misma routine que devuelve el foco.
+    closePwdModal()
     ui.pushToast('success', 'Contraseña actualizada')
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'No se pudo cambiar la contraseña'
@@ -173,8 +287,16 @@ function handleDocPointerDown(ev: PointerEvent): void {
   }
 }
 
-onMounted(() => document.addEventListener('pointerdown', handleDocPointerDown))
-onBeforeUnmount(() => document.removeEventListener('pointerdown', handleDocPointerDown))
+onMounted(() => {
+  document.addEventListener('pointerdown', handleDocPointerDown)
+  // T-170: el Escape y el atrapamiento del Tab se escuchan en el
+  // documento, para que funcionen aunque el foco se haya escapado.
+  document.addEventListener('keydown', onTeclaModal, true)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', handleDocPointerDown)
+  document.removeEventListener('keydown', onTeclaModal, true)
+})
 </script>
 
 <template>
@@ -215,6 +337,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', handleDocPoint
       <!-- Sprint R5-sidebar: bloque usuario con dropdown -->
       <div ref="menuRef" class="px-5 py-4 border-t border-slate-800 text-xs text-slate-400 relative">
         <button
+          ref="pwdTriggerRef"
           type="button"
           class="w-full text-left flex items-center justify-between gap-2 hover:text-slate-100"
           :aria-expanded="menuOpen"
@@ -290,33 +413,18 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', handleDocPoint
       </main>
     </div>
 
-    <div class="fixed top-4 right-4 z-50 space-y-2">
-      <div
-        v-for="t in ui.toasts"
-        :key="t.id"
-        :class="[
-          'rounded-lg shadow-card px-4 py-3 text-sm max-w-sm bg-white border cursor-pointer',
-          t.type === 'success' && 'border-emerald-300 text-emerald-800',
-          t.type === 'warn' && 'border-amber-300 text-amber-800',
-          t.type === 'error' && 'border-rose-300 text-rose-800',
-          t.type === 'info' && 'border-slate-300 text-slate-800',
-        ]"
-        @click="ui.dismissToast(t.id)"
-      >
-        {{ t.message }}
-      </div>
-    </div>
-
     <!-- Modal de cambio de contraseña. Teleport a body para escapar el
          overflow del sidebar. -->
+
     <Teleport to="body">
       <div
         v-if="pwdModalOpen"
+        ref="pwdDialogRef"
         class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50"
         role="dialog"
         aria-modal="true"
         aria-labelledby="pwd-modal-title"
-        @keydown.esc="closePwdModal"
+        tabindex="-1"
         @click.self="closePwdModal"
       >
         <div class="w-full max-w-md bg-white rounded-lg shadow-xl">
