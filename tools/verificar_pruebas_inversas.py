@@ -490,6 +490,21 @@ CASOS: list[Caso] = [
             "test_el_lock_se_renueva_mientras_la_ronda_vive"
         ),
     ),
+    Caso(
+        nombre="T-151 · el worker vuelve a no reentregar las tareas si muere",
+        fichero="app/workers/celery_app.py",
+        cambios=[
+            (
+                "    task_reject_on_worker_lost=True,\n",
+                "    # T-151 (defecto): sin esto, el mensaje espera al\n"
+                "    # visibility_timeout de Redis (1 hora).\n",
+            ),
+        ],
+        test=(
+            "tests/test_celery_confiabilidad.py::"
+            "test_el_worker_reentrega_las_tareas_si_muere"
+        ),
+    ),
 ]
 
 

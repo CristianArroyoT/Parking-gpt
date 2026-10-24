@@ -27,6 +27,26 @@ celery_app.conf.update(
     timezone="Europe/Madrid",
     enable_utc=True,
     task_acks_late=True,
+    # T-151 (2026-10-24): con ``acks_late`` y SIN esto, si el worker
+    # muere de forma abrupta (OOM, el contenedor lo mata) el mensaje no se
+    # reentrega hasta que vence el ``visibility_timeout`` de Redis (1
+    # hora), y el beat publica la ronda de heartbeats cada 60 s: la cola
+    # crece sin que nadie la consuma. Con esto, el broker lo reentrega
+    # enseguida.
+    # OJO: solo funciona con el pool **prefork** (el que usa el compose).
+    task_reject_on_worker_lost=True,
+    # T-151: ninguna tarea puede ocupar un slot del pool para siempre
+    # (una camara que no responde, un ``asyncio.wait_for`` que no puede
+    # matar un hilo). El limite blando lanza ``SoftTimeLimitExceeded``
+    # dentro de la tarea; el duro mata el proceso (el mensaje se
+    # reentrega, por ``task_reject_on_worker_lost``).
+    task_soft_time_limit=1800,   # 30 min
+    task_time_limit=1860,        # 31 min (algo por encima del blando)
+    # T-151: con ``acks_late``, una tarea que **falla** se reentrega, y sin
+    # limite de intentos eso es un bucle (un error permanente se reintenta
+    # para siempre). Con esto, la falla se confirma y no se reintenta; las
+    # tareas que deben reintentarse lo hacen con ``autoretry_for``.
+    task_acks_on_failure_or_timeout=True,
     worker_prefetch_multiplier=1,
 )
 

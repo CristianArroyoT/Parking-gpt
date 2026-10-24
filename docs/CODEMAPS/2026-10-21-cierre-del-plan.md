@@ -2858,3 +2858,15 @@ forma atómica (Lua: si el lock no es el nuestro, no se toca). Y no se
 amplía el TTL a ciegas: si el worker muere, el lock caduca en cuanto
 antes. **Medido**: TTL 5 s → 2 s → **5 s** al renovar; con un token ajeno,
 `False` y el lock intacto.
+### 3-centésimosesentésimotercero. El worker reentrega lo que se pierde y acota las tareas (2026-10-24)
+
+`task_acks_late=True` sin `task_reject_on_worker_lost` hacía que, si el
+worker moría de forma abrupta, el mensaje **no se reentregara** hasta
+vencer el `visibility_timeout` de Redis (1 hora) —mientras el beat publica
+la ronda cada 60 s—, y sin límites de tiempo una tarea colgada ocupaba un
+slot del pool **para siempre**. Con `acks_late`, además, una tarea que
+fallaba se reentregaba en bucle.
+
+Ahora: `task_reject_on_worker_lost=True`, `task_soft_time_limit=1800` /
+`task_time_limit=1860` y `task_acks_on_failure_or_timeout=True`. **Medido**
+preguntándole la configuración al worker en marcha.

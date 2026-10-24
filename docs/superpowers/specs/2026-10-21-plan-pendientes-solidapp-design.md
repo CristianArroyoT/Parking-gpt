@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **750 de 750 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **754 de 754 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2807,13 +2807,6 @@ que no se pierdan, en orden de gravedad. **Ninguno está arreglado**: son
 cambios de más calado que los de esta tanda, y varios son decisiones de
 producto.
 
-- **[ALTA] `acks_late` sin `task_reject_on_worker_lost` ni límites de
-  tiempo.** Si el worker muere, el mensaje no se reentrega hasta que vence
-  el `visibility_timeout` de Redis (1 h), y el beat sigue publicando cada
-  60 s: la cola crece sin que nadie la consuma. Y sin
-  `task_soft_time_limit`, un probe colgado ocupa un slot para siempre
-  (`asyncio.wait_for` no puede matar un hilo).
-  *Medir*: `docker exec parking-celery-worker-1 celery -A app.workers.celery_app inspect active`.
 - **[MEDIA] `GET /cameras/{id}/health` resta un `datetime` *naive*.**
   `cameras.py` no normaliza el `tzinfo` (el patrón que el propio AGENTS.md
   exige y que sí está en el resto de ficheros). En SQLite un
@@ -2909,6 +2902,34 @@ producto.
   - [x] El TTL del lock se renueva (medido: 5 s → 2 s → 5 s).
   - [x] Un lock ajeno **no** se renueva (la comparación es atómica).
   - [x] Tests (3) contra el Redis real y **prueba inversa** en `tools/verificar_pruebas_inversas.py`.
+
+
+### T-151 · P1 (resiliencia) — el worker no reentregaba las tareas ni acotaba su duración
+
+- **Estado**: **completado** — el broker reentrega lo que se pierde, y ninguna tarea puede ocupar un slot para siempre
+- **Contexto**: la configuración del Celery tenía `task_acks_late=True` (el mensaje se confirma **después** de ejecutarse), pero le faltaban dos cosas.
+- **El defecto**:
+  1. **sin `task_reject_on_worker_lost`**: si el worker muere de forma abrupta (OOM, el contenedor lo mata), el mensaje **no se reentrega** hasta que vence el `visibility_timeout` de Redis (**1 hora**). Y el beat publica la ronda de heartbeats **cada 60 s**: la cola crece sin que nadie la consuma, y el trabajo se hace una hora tarde (o nunca);
+  2. **sin límites de tiempo**: una tarea colgada (una cámara que no responde, un `asyncio.wait_for` que no puede matar un hilo) ocupa un **slot del pool para siempre**;
+  3. con `acks_late`, una tarea que **falla** se reentrega, y sin límite de intentos eso es un **bucle**: un error permanente se reintenta para siempre.
+- **El arreglo**:
+  - `task_reject_on_worker_lost=True` ⇒ el broker reentrega **enseguida** si el worker muere;
+  - `task_soft_time_limit=1800` / `task_time_limit=1860` ⇒ ninguna tarea puede quedarse con un slot para siempre (el blando lanza `SoftTimeLimitExceeded` dentro de la tarea, el duro mata el proceso);
+  - `task_acks_on_failure_or_timeout=True` ⇒ una tarea que falla se confirma y **no** se reintenta en bucle; las que deben reintentarse lo hacen con `autoretry_for` explícito.
+  - OJO: `task_reject_on_worker_lost` **sólo** funciona con el pool **prefork** (que es el que usa el compose: `celery ... worker`), no con threads ni gevent.
+- **Medido** (2026-10-24, con el worker reiniciado, preguntándole su configuración efectiva):
+  ```
+  task_acks_late: True
+  task_reject_on_worker_lost: True
+  task_soft_time_limit: 1800
+  task_time_limit: 1860
+  task_acks_on_failure_or_timeout: True
+  ```
+- **Criterios de aceptación**:
+  - [x] El worker reentrega las tareas si muere (`task_reject_on_worker_lost`).
+  - [x] Ninguna tarea puede ocupar el slot para siempre (límites blando y duro).
+  - [x] Una tarea que falla no se reintenta en bucle.
+  - [x] Tests (3) y **prueba inversa** en `tools/verificar_pruebas_inversas.py`.
 
 ### T-14 · I3 — OCR con GPU
 
