@@ -144,6 +144,38 @@ def _fusionar(
     return efectivo
 
 
+def _bloque_del_servicio(texto: str, nombre: str) -> str:
+    """El bloque de un servicio del compose (de su nombre al siguiente).
+
+    Se busca por sangria (dos espacios), como el resto de los parsers de
+    este repo: sin PyYAML, que no es dependencia del repo.
+
+    OJO: se **quitan los comentarios**. Una puerta que lee el texto sin
+    más confunde un comentario con una configuracion: este repo ya lo
+    aprendio con una puerta que daba el visto bueno a un endpoint que NO
+    acotaba la sucursal, porque su docstring mencionaba el helper
+    correcto. Y con este mismo bloque de codigo: el comentario que
+    explica el T-145 menciona `--reload`, y el compose ya no lo tiene.
+    """
+    lineas = texto.splitlines()
+    bloque: list[str] = []
+    dentro = False
+    for linea in lineas:
+        sangria = len(linea) - len(linea.lstrip())
+        if sangria == 2 and linea.rstrip().endswith(":"):
+            if dentro:
+                break
+            dentro = linea.strip()[:-1] == nombre
+            if dentro:
+                bloque.append(linea)
+            continue
+        if dentro:
+            if linea.strip().startswith("#"):
+                continue
+            bloque.append(linea)
+    return "\n".join(bloque)
+
+
 def comprobar(
     servicios_dev: dict[str, dict[str, str]],
     servicios_prod: dict[str, dict[str, str]],
@@ -218,6 +250,35 @@ def comprobar(
                 f"el servicio {servicio} no tiene 'restart: unless-stopped' "
                 f"(dice {valor!r}): si se cae se queda caido hasta que "
                 "alguien lo levante a mano (T-101)"
+            )
+
+    # T-145 (2026-10-24): en una sucursal el backend NO puede arrancar con
+    # `--reload` ni con el codigo del host montado (`./backend:/app`).
+    #
+    # Con el bind mount, el codigo que corre es el del disco de la
+    # maquina, no el de la imagen que se construyo y se verifico: el
+    # artefacto desplegado deja de ser el que se probó. Y `--reload` pone
+    # un watcher que recarga en caliente y consume CPU.
+    #
+    # OJO: el compose de produccion es un OVERRIDE: si no dice nada del
+    # `command` ni de los `volumes` del backend, hereda los del compose de
+    # desarrollo (que son los de desarrollo). Por eso se mira el bloque
+    # del servicio en el compose de PRODUCCION: si no dice nada, el
+    # defecto esta.
+    for servicio in ("backend", "celery-worker", "celery-beat"):
+        bloque = _bloque_del_servicio(texto_prod, servicio)
+        if not bloque:
+            continue
+        if "--reload" in bloque:
+            problemas.append(
+                f"docker-compose.prod.yml: {servicio} arranca con --reload: en "
+                "produccion no hay recarga en caliente (T-145)"
+            )
+        if re.search(r"^\s*-\s*\./backend:/app", bloque, re.M):
+            problemas.append(
+                f"docker-compose.prod.yml: {servicio} monta el codigo del host "
+                "en /app: lo que corre seria el codigo del disco, no el de la "
+                "imagen que se construyo y se verifico (T-145)"
             )
 
     # El `build:` del frontend se comprueba sobre el texto: el parser de
@@ -378,7 +439,13 @@ def autoprueba() -> int:
         },
         "frontend": {},
     }
-    texto_ok = "      dockerfile: Dockerfile.prod\n"
+    texto_ok = (
+        "  backend:\n"
+        "    command: !override [\"uvicorn\", \"app.main:app\"]\n"
+        "    volumes: !override\n"
+        "      - incident_attachments:/var/lib/solidapp/incident-attachments\n"
+        "      dockerfile: Dockerfile.prod\n"
+    )
 
     casos = [
         ("todo correcto", {}, prod_ok, texto_ok, False),
@@ -496,6 +563,33 @@ def autoprueba() -> int:
             },
             texto_ok,
             True,
+        ),
+        (
+            "el backend arranca con --reload",
+            {},
+            prod_ok,
+            "  backend:\n"
+            "    command: !override [\"uvicorn\", \"app.main:app\", \"--reload\"]\n",
+            True,
+        ),
+        (
+            "el backend monta el codigo del host",
+            {},
+            prod_ok,
+            "  backend:\n"
+            "    volumes: !override\n"
+            "      - ./backend:/app\n",
+            True,
+        ),
+        (
+            "un comentario que menciona --reload no es un fallo",
+            {},
+            prod_ok,
+            "  backend:\n"
+            "    # OJO: NO arrancar con --reload en produccion.\n"
+            "    command: !override [\"uvicorn\", \"app.main:app\"]\n"
+            "      dockerfile: Dockerfile.prod\n",
+            False,
         ),
         (
             "el frontend con el Dockerfile de desarrollo",

@@ -352,10 +352,33 @@ def _otras_referencias(
 
 
 def contar_adjuntos(db: Session, alert_id: int) -> int:
-    """Número de fotos ya adjuntas a un incidente."""
-    return db.query(IncidentAttachment).filter(
+    """Número de fotos **vigentes** ya adjuntas a un incidente.
+
+    T-144 (2026-10-24): una foto caducada ya no se puede descargar (410)
+    ni sale en el listado, asi que **no ocupa cupo**. Antes si contaba: un
+    incidente con tres fotos caducadas no admitia ninguna nueva (el
+    operador no podia documentar nada en el) y las fotos caducadas
+    ocupaban un cupo invisible.
+
+    OJO: la caducidad se comprueba **en Python**, no en SQL, porque un
+    ``DateTime(timezone=True)`` vuelve *naive* en SQLite y compararlo con
+    un datetime con zona revienta. Es el mismo ajuste que hace
+    ``app/api/v1/incidents.py`` (``_exigir_no_caducado``).
+    """
+    ahora = datetime.now(timezone.utc)
+    total = 0
+    for adjunto in db.query(IncidentAttachment).filter(
         IncidentAttachment.alert_id == alert_id
-    ).count()
+    ).all():
+        caducidad = adjunto.expires_at
+        if caducidad is None:
+            total += 1
+            continue
+        if caducidad.tzinfo is None:
+            caducidad = caducidad.replace(tzinfo=timezone.utc)
+        if caducidad > ahora:
+            total += 1
+    return total
 
 
 def maximo_ficheros() -> int:

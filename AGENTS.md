@@ -67,7 +67,7 @@ Reglas:
 ## Comandos que funcionan (verificados)
 
 ```bash
-# La salud del repo en un comando: 30 comprobaciones (~4 min)
+# La salud del repo en un comando: 32 comprobaciones (~5 min)
 python tools/verificar_repo.py
 python tools/verificar_repo.py --completo      # + CI local y QA en 5 anchos (~40 min)
 
@@ -94,6 +94,7 @@ python tools/verificar_aislamiento_sucursal.py --autoprueba
 python tools/verificar_cache_service_worker.py --autoprueba
 python tools/verificar_sesion_caducada.py --autoprueba
 python tools/verificar_volumen_adjuntos.py --autoprueba
+python tools/verificar_retention_backup.py --autoprueba
 python tools/verificar_pruebas_inversas.py --autoprueba
 python tools/verificar_roles_frontend.py --autoprueba
 python tools/verificar_contrato_frontend.py --autoprueba

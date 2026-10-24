@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **719 de 723 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **731 de 735 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2705,6 +2705,114 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Fuera de `development`, el dry-run avisa con `warning` y no con `info`.
   - [x] Tests nuevos (4) y **2 casos** más en la puerta de pruebas inversas.
   - [x] La puerta del compose de producción comprueba al worker y al beat (5 casos de mentira nuevos).
+
+
+### T-143 · P2 (logs) — el 413 volvía a llevar el nombre del fichero en crudo
+
+- **Estado**: **completado** — el nombre va saneado, como en el resto de mensajes
+- **Contexto**: el T-136 ya saneó el nombre del fichero en los mensajes de `validar_imagen` y de `crear_adjunto`, pero el **413** del router (`incidents.py`, «el fichero supera el tamaño máximo») seguía usando `upload.filename` en crudo.
+- **Por qué es un defecto**: un nombre con un salto de línea se cuela en el **log** (log forging) y en el mensaje que ve el cliente. Es el mismo patrón que corrigió el T-136.
+- **Criterios de aceptación**:
+  - [x] El 413 lleva el nombre **saneado** (`nombre_seguro`).
+  - [x] Test (`test_el_nombre_del_fichero_no_rompe_el_mensaje_de_413`) y **prueba inversa** en `tools/verificar_pruebas_inversas.py`.
+
+### T-144 · P2 (funcional) — las fotos caducadas ocupaban cupo y bloqueaban las nuevas
+
+- **Estado**: **completado** — un adjunto caducado no cuenta para el límite
+- **Contexto**: el límite es de 3 fotos por incidente, y se comprobaba con `contar_adjuntos`, que contaba **todas** las filas del incidente, incluidas las **caducadas**.
+- **Por qué es un defecto**: una foto caducada no se puede descargar (410) ni sale en el listado: es invisible, pero ocupaba cupo. Un incidente con tres fotos caducadas no admitía **ninguna** nueva, y el operador no podía documentar nada en él.
+- **El arreglo**: `contar_adjuntos` cuenta sólo las fotos **vigentes**. La caducidad se comprueba **en Python** (no en SQL), porque un `DateTime(timezone=True)` vuelve *naive* en SQLite y compararlo con un datetime con zona revienta: es el mismo ajuste que hace `_exigir_no_caducado`.
+- **Criterios de aceptación**:
+  - [x] Las tres fotos caducadas de un incidente **no** bloquean una subida nueva (test `test_un_adjunto_caducado_no_ocupa_cupo`).
+  - [x] Prueba inversa en `tools/verificar_pruebas_inversas.py`.
+
+### T-145 · P1 (despliegue) — en una sucursal corría el código del disco, no el de la imagen
+
+- **Estado**: **completado** — lo que corre es el artefacto que se construyó y se verificó
+- **Contexto**: `docker-compose.prod.yml` es un **override** del compose de desarrollo. Sólo redefinía `ports` y `environment` del backend, así que **heredaba** del compose de desarrollo dos cosas de desarrollo: el `command` con `--reload` (un watcher de uvicorn que recarga en caliente) y el **bind mount** `./backend:/app`.
+- **Por qué es un defecto**: con el bind mount, el código que se ejecuta es el del **disco de la máquina**, no el de la imagen que se construyó y se verificó. El artefacto desplegado deja de ser el que se probó, y `--reload` recarga el proceso cuando alguien toca un fichero.
+- **Medido** (2026-10-24, sobre el compose combinado, que es el que se copia a una sucursal):
+  ```
+  backend        command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+                 reload: no
+                 monta el codigo del host en /app: no
+  celery-worker  reload: no | monta el codigo del host en /app: no
+  celery-beat    reload: no | monta el codigo del host en /app: no
+  ```
+- **El arreglo** (y un efecto secundario que hubo que resolver): sin el bind mount, `/app` es el de la imagen, que es de `root` y el proceso corre como `app` ⇒ el beat no puede escribir ahí su `celerybeat-schedule`. Por eso el schedule pasa a `/var/lib/solidapp/` (del usuario `app`) y su healthcheck mira ahí. **Medido**: el beat recreado con el schedule nuevo queda `healthy`.
+- **Criterios de aceptación**:
+  - [x] El compose de producción no deja `--reload` en ningún servicio.
+  - [x] El compose de producción **no** monta `./backend:/app` (ni el worker ni el beat).
+  - [x] El beat arranca y queda `healthy` con el schedule en su sitio nuevo (medido).
+  - [x] La puerta del compose de producción lo comprueba (2 casos de mentira nuevos).
+
+### T-146 · P1 (backups) — la retención GFS sólo conservaba 7 backups: el mensual no existía
+
+- **Estado**: **completado** — la retención conserva de verdad 7 diarios + 4 semanales + 6 mensuales
+- **Contexto**: `infra/backup/backup.sh` promete (en su cabecera, en su README y en el plan) conservar **7 diarios + 4 semanales + 6 mensuales**. Se calculaba con `awk -F'-' '!seen[$2]++'`.
+- **El defecto**: el nombre del fichero es `solidapp-AAAAMMDDTHHMMSSZ.dump.enc` y el STAMP **no** tiene guiones ⇒ `$2` era el **stamp entero** (único por fichero) y `$3` era `dump.enc`. O sea: «un fichero por semana» era en realidad «un fichero por fichero», y «un fichero por mes» también. Los tres listados acababan en los mismos ficheros más recientes.
+- **Medido** (2026-10-24, 400 backups de mentira, ejecutando la función antigua en un contenedor):
+  ```
+  backups | codigo | sobreviven | semanas | meses
+       10 |      0 |          7 |       1 | 1
+      400 |      0 |          7 |       1 | 1
+  ```
+  Es decir: **sólo 7 backups**, de **una** semana y de **un** mes. El backup mensual que el plan promete conservar se borraba a los siete días, y el semanal también. Y el script no falla: sólo borra de más, sin que nadie se entere.
+- **El arreglo**: se calculan de verdad el **día**, la **semana ISO** (`%G-%V`) y el **mes** (`%Y-%m`). De paso, el `head -n` se cambia por `sed -n '1,Np'`: con `set -o pipefail`, un `head` que cierra la tubería antes de tiempo deja al `printf`/`find` con SIGPIPE y el script aborta con el código 141.
+- **Remedido** (2026-10-24, con el script arreglado): **14 backups** sobreviven, con **4 semanas** y **6 meses** distintos.
+- **Criterios de aceptación**:
+  - [x] La retención agrupa por día, semana ISO y mes de verdad.
+  - [x] Remedido: sobreviven los 7 diarios + 4 semanales + 6 mensuales (14 ficheros con solapamientos).
+  - [x] Puerta nueva `tools/verificar_retention_backup.py` (crea 400 backups de mentira, ejecuta el script **de verdad** en un contenedor y comprueba la política), con autoprueba de 3 casos.
+  - [x] La puerta queda registrada en `tools/verificar_repo.py` (necesita Docker, así que no va en el job `backend` del CI, como ya pasa con `verificar_backup.py`).
+
+
+### Pendientes medidos (2026-10-24) — los que la auditoría encontró y quedan abiertos
+
+Salieron de una auditoría con subagentes (Celery, backups, informes y
+adjuntos). Cada uno tiene su **medición** y su comando; están aquí para
+que no se pierdan, en orden de gravedad. **Ninguno está arreglado**: son
+cambios de más calado que los de esta tanda, y varios son decisiones de
+producto.
+
+- **[ALTA] El correo de alerta se pierde si el broker está caído.**
+  `encolar_correo_alerta` devuelve `False` cuando no puede encolar (su
+  docstring promete «el llamante envía el correo en línea»), pero los tres
+  llamantes (`alerts.py` en OCR_FAILED y CAMERA_OFFLINE, `incidents.py` en
+  el robo) **descartan el valor**. La alerta queda commiteada (visible por
+  REST), así que el operador cree que está enterado y nadie recibe nada.
+  *Medir*: `docker exec parking-backend-1 python -c "import app.services.email as e; ..."`
+  con `enviar_correo_alerta.delay` simulando que el broker esta caido.
+- **[ALTA] `acks_late` sin `task_reject_on_worker_lost` ni límites de
+  tiempo.** Si el worker muere, el mensaje no se reentrega hasta que vence
+  el `visibility_timeout` de Redis (1 h), y el beat sigue publicando cada
+  60 s: la cola crece sin que nadie la consuma. Y sin
+  `task_soft_time_limit`, un probe colgado ocupa un slot para siempre
+  (`asyncio.wait_for` no puede matar un hilo).
+  *Medir*: `docker exec parking-celery-worker-1 celery -A app.workers.celery_app inspect active`.
+- **[ALTA] El lock de la ronda de heartbeats caduca con la ronda viva.**
+  `LOCK_TTL_SEGUNDOS = 120`, pero la ronda no tiene duración acotada: si
+  dura más de 120 s (FFmpeg lento, cámara que gotea), el lock caduca, la
+  ronda que publica el beat lo toma y **vuelven** los daños del T-102
+  (los fallos se cuentan dos veces por minuto).
+  *Medir*: `docker logs parking-celery-worker-1 --since 30m | grep probe_heartbeats`.
+- **[MEDIA] `GET /cameras/{id}/health` resta un `datetime` *naive*.**
+  `cameras.py` no normaliza el `tzinfo` (el patrón que el propio AGENTS.md
+  exige y que sí está en el resto de ficheros). En SQLite un
+  `DateTime(timezone=True)` vuelve *naive* al releerlo ⇒ `TypeError` ⇒ 500.
+  **El test actual no lo ve** porque reutiliza la sesión y no relee de la
+  BD (`expire_on_commit=False`): el `datetime` sigue *aware* en memoria.
+- **[MEDIA] Dos de las tres purgas traen todos los registros a memoria**
+  (`vehicle_purge.py` y `purgar_adjuntos_vencidos`, esta última con N+1),
+  sin lotes, frente a `purge_audit_logs`, que sí va por lotes (T-104).
+- **[MEDIA] El worker no recarga el código** (bind mount sin `--reload`) y
+  la puerta de tareas lee el **fuente**, no el worker en marcha: una tarea
+  nueva puede «pasar la puerta» y no existir en el worker real.
+- **[MEDIA] Informes**: el de alertas **no hereda** el tope de filas
+  (`MAX_FILAS_INFORME`), y `/margins` **no normaliza la ventana a UTC**
+  (los mismos datos dan números distintos en SQLite y en PostgreSQL).
+- **[MEDIA] El backup no incluye los adjuntos** salvo que se configure
+  `ATTACHMENTS_DIR` (el script lo avisa, pero el compose no lo pone).
 
 ### T-14 · I3 — OCR con GPU
 

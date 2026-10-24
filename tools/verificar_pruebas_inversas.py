@@ -381,6 +381,56 @@ CASOS: list[Caso] = [
             "test_en_produccion_sin_smtp_el_reset_no_dice_que_se_ha_enviado"
         ),
     ),
+    Caso(
+        nombre="T-143 · el 413 vuelve a llevar el nombre del fichero en crudo",
+        fichero="app/api/v1/incidents.py",
+        cambios=[
+            (
+                """                    f\"El fichero \"
+                    f\"'{adjuntos.nombre_seguro(upload.filename or 'adjunto')}' \"
+                    f\"supera el tamaño máximo ({limite} bytes)\"
+""",
+                """                    f\"El fichero '{upload.filename or 'adjunto'}' supera el \"
+                    f\"tamaño máximo ({limite} bytes)\"
+""",
+            ),
+        ],
+        test=(
+            "tests/test_incident_attachments.py::"
+            "test_el_nombre_del_fichero_no_rompe_el_mensaje_de_413"
+        ),
+    ),
+    Caso(
+        nombre="T-144 · los adjuntos caducados vuelven a ocupar cupo",
+        fichero="app/services/incident_attachments.py",
+        cambios=[
+            (
+                """    ahora = datetime.now(timezone.utc)
+    total = 0
+    for adjunto in db.query(IncidentAttachment).filter(
+        IncidentAttachment.alert_id == alert_id
+    ).all():
+        caducidad = adjunto.expires_at
+        if caducidad is None:
+            total += 1
+            continue
+        if caducidad.tzinfo is None:
+            caducidad = caducidad.replace(tzinfo=timezone.utc)
+        if caducidad > ahora:
+            total += 1
+    return total
+""",
+                """    return db.query(IncidentAttachment).filter(
+        IncidentAttachment.alert_id == alert_id
+    ).count()
+""",
+            ),
+        ],
+        test=(
+            "tests/test_incident_attachments.py::"
+            "test_un_adjunto_caducado_no_ocupa_cupo"
+        ),
+    ),
 ]
 
 

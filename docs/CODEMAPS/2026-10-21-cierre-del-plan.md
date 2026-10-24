@@ -2745,3 +2745,22 @@ el código es **fail-closed**: en producción sin SMTP configurado, el
 envío falla con un `log.error` en vez de fingir. La puerta del compose de
 producción comprueba ahora al worker y al beat, **fusionando** los dos
 compose (el override pisa lo heredado).
+### 3-centésimosexto. Cuadra del backup, nombres saneados y artefacto desplegado (2026-10-24)
+
+Cuatro hallazgos menores, todos medidos y con su prueba:
+
+- **T-143**: el 413 de los adjuntos llevaba el nombre del fichero **en crudo**
+  (el T-136 ya lo había saneado en los otros mensajes): un salto de línea se
+  colaba en el log.
+- **T-144**: las fotos **caducadas** ocupaban cupo: un incidente con tres
+  fotos caducadas no admitía ninguna nueva, y esas fotos no se ven ni se
+  descargan.
+- **T-145**: el compose de producción heredaba del de desarrollo el
+  `--reload` y el bind mount `./backend:/app`: en una sucursal corría el
+  código **del disco**, no el de la imagen que se construyó y se verificó.
+- **T-146**: la retención GFS del backup usaba `awk -F'-'` sobre un nombre
+  de fichero **sin guiones** en el STAMP: «un fichero por semana» era en
+  realidad «un fichero por fichero». **Medido**: de 400 backups sobrevivían
+  **7**, de **una** semana y de **un** mes. El backup mensual que el plan
+  promete no existía. Ahora: 14 backups, 4 semanas y 6 meses, con una
+  puerta que lo ejecuta de verdad en un contenedor.

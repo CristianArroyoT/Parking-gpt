@@ -106,13 +106,56 @@ check_freshness() {
 # bucket "semanal" es el primero que se ve de cada semana y el "mensual" el
 # primero de cada mes.
 apply_retention() {
-    local daily weekly monthly
-    daily="$(find "$BACKUP_DIR" -maxdepth 1 -name 'solidapp-*.dump.enc' -printf '%f\n' | sort -r | head -n "$RETENTION_DAYS")"
-    weekly="$(find "$BACKUP_DIR" -maxdepth 1 -name 'solidapp-*.dump.enc' -printf '%f\n' | sort -r | awk -F'-' '!seen[$2]++' | head -n "$RETENTION_WEEKS")"
-    monthly="$(find "$BACKUP_DIR" -maxdepth 1 -name 'solidapp-*.dump.enc' -printf '%f\n' | sort -r | awk -F'-' '!seen[$2"-"$3]++' | head -n "$RETENTION_MONTHS")"
+    # T-146 (2026-10-24): la retencion GFS se calculaba con
+    # ``awk -F'-' '!seen[$2]++'``, pero el nombre del fichero es
+    # ``solidapp-AAAAMMDDTHHMMSSZ.dump.enc`` y el STAMP **no** tiene
+    # guiones: $2 era el stamp ENTERO (unico por fichero) y $3 era
+    # ``dump.enc``. O sea, «un fichero por semana» era en realidad «un
+    # fichero por fichero», y «un fichero por mes» tambien. Los tres
+    # listados acababan en los mismos ficheros mas recientes, asi que
+    # **solo sobrevivian 7 backups**: el mensual que el plan promete no
+    # existia, y el semanal tampoco.
+    #
+    # Ahora se calculan de verdad el dia, la semana ISO y el mes.
+    local nombres
+    nombres="$(find "$BACKUP_DIR" -maxdepth 1 -name 'solidapp-*.dump.enc' -printf '%f\n' | sort -r)"
+
+    local diarios="" semanales="" mensuales=""
+    local -A visto_dia=() visto_semana=() visto_mes=()
+    local name stamp dia fecha semana mes
+
+    while IFS= read -r name; do
+        [[ -n "$name" ]] || continue
+        stamp="${name#solidapp-}"
+        dia="${stamp:0:8}"
+        [[ "$dia" =~ ^[0-9]{8}$ ]] || continue
+        fecha="${dia:0:4}-${dia:4:2}-${dia:6:2}"
+        # %G-%V = ano y semana ISO; %Y-%m = mes.
+        semana="$(date -u -d "$fecha" +%G-%V 2>/dev/null || echo "sem-$dia")"
+        mes="$(date -u -d "$fecha" +%Y-%m 2>/dev/null || echo "mes-$dia")"
+
+        if [[ -z "${visto_dia[$dia]:-}" ]]; then
+            visto_dia["$dia"]=1
+            diarios+="$name"$'\n'
+        fi
+        if [[ -z "${visto_semana[$semana]:-}" ]]; then
+            visto_semana["$semana"]=1
+            semanales+="$name"$'\n'
+        fi
+        if [[ -z "${visto_mes[$mes]:-}" ]]; then
+            visto_mes["$mes"]=1
+            mensuales+="$name"$'\n'
+        fi
+    done <<<"$nombres"
 
     local keep keep_file name
-    keep="$(printf '%s\n%s\n%s\n' "$daily" "$weekly" "$monthly" | grep -v '^$' | sort -u)"
+    # OJO: ``sed -n '1,Np'`` y no ``head -n N``: con ``set -o pipefail``,
+    # un ``head`` que cierra la tuberia antes de tiempo deja a ``printf``
+    # con SIGPIPE y el script aborta con el codigo 141.
+    keep="$( { printf '%s' "$diarios"    | sed -n "1,${RETENTION_DAYS}p";
+               printf '%s' "$semanales" | sed -n "1,${RETENTION_WEEKS}p";
+               printf '%s' "$mensuales" | sed -n "1,${RETENTION_MONTHS}p"; } \
+             | grep -v '^$' | sort -u)"
     while IFS= read -r name; do
         [[ -n "$name" ]] || continue
         if ! grep -qxF "$name" <<<"$keep"; then
@@ -193,6 +236,16 @@ main() {
         --check)
             check_freshness
             exit $?
+            ;;
+        --solo-retencion)
+            # Modo de prueba (T-146): sólo aplica la retencion. No toca la
+            # base de datos, no cifra nada y no sube nada. Lo usa la puerta
+            # ``tools/verificar_retention_backup.py``, que crea un
+            # directorio con backups de mentira y comprueba cuales
+            # sobreviven.
+            mkdir -p "$BACKUP_DIR"
+            apply_retention
+            exit 0
             ;;
         "") ;;
         *) die "argumento desconocido: $1 (usa --help)" ;;

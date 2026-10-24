@@ -248,6 +248,18 @@ def _comprobaciones() -> list[Comprobacion]:
             timeout=900,
         ),
         Comprobacion(
+            "La retencion del backup conserva 7 diarios, 4 semanales y 6 mensuales",
+            [py, "tools/verificar_retention_backup.py"],
+            patron=r"(OK: la retencion GFS se cumple.*)",
+            timeout=900,
+        ),
+        Comprobacion(
+            "La puerta de la retencion puede fallar",
+            [py, "tools/verificar_retention_backup.py", "--autoprueba"],
+            patron=r"(Autoprueba correcta: la puerta vigila la retencion.*)",
+            timeout=900,
+        ),
+        Comprobacion(
             "CI local (los 4 jobs del workflow)",
             [py, "tools/ejecutar_ci_local.py", "--all"],
             patron=r"(Todos los jobs pasan en local.*)",

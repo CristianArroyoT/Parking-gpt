@@ -29,6 +29,19 @@
 
 services:
   backend:
+    # T-145 (2026-10-24): en una sucursal el backend NO arranca con
+    # ``--reload`` NI con el codigo del host montado. Lo que corre es el
+    # codigo de la **imagen** (la que se construyo y se verifico), no el
+    # que alguien deje en el disco de la maquina. Antes, el compose de
+    # produccion heredaba del de desarrollo las dos cosas: el watcher de
+    # uvicorn (que recarga en caliente y consume CPU) y el bind mount
+    # ``./backend:/app`` (que hace que el codigo que corre sea el del disco,
+    # no el del artefacto desplegado).
+    command: !override ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    volumes: !override
+      # Solo los volumenes de DATOS: el codigo va dentro de la imagen.
+      - incident_attachments:/var/lib/solidapp/incident-attachments
+      - app_logs:/var/log/solidapp
     # T-94 (2026-10-23): el backend **no** se publica en la red de la
     # sucursal. Con "8000:8000" (0.0.0.0) la API contestaba a
     # cualquiera que llegara por la LAN, sin TLS y saltandose nginx (y
@@ -65,6 +78,10 @@ services:
   # El worker y el beat tambien firman tokens: si se les deja el secreto
   # por defecto, el despliegue sigue siendo inseguro por el backdoor.
   celery-worker:
+    # T-145 (2026-10-24): sin el codigo del host montado (el de la imagen).
+    volumes: !override
+      - incident_attachments:/var/lib/solidapp/incident-attachments
+      - app_logs:/var/log/solidapp
     environment:
       # T-142 (2026-10-24): el worker tiene que arrancar en 'production'.
       # Antes este compose solo le daba ENVIRONMENT al backend: el worker
@@ -83,6 +100,10 @@ services:
       FRONTEND_BASE_URL: "${FRONTEND_BASE_URL:?falta FRONTEND_BASE_URL: mismo valor que el backend}"
 
   celery-beat:
+    # T-145 (2026-10-24): sin el codigo del host montado (el de la imagen).
+    volumes: !override
+      - incident_attachments:/var/lib/solidapp/incident-attachments
+      - app_logs:/var/log/solidapp
     environment:
       # T-142 (2026-10-24): mismo motivo que el worker (mismo codigo, mismo
       # settings): sin esto, el beat seguiria en 'development'.

@@ -909,3 +909,72 @@ def test_la_barrida_no_toca_los_ficheros_recientes(
     resultado = adjuntos.purgar_ficheros_huerfanos(db_session)
     assert resultado["deleted"] >= 1
     assert not ruta_original.exists()
+
+# ── T-143 y T-144 (2026-10-24) ──────────────────────────────────────────
+
+
+def test_el_nombre_del_fichero_no_rompe_el_mensaje_de_413() -> None:
+    """El 413 tambien lleva el nombre SANEADO (T-143).
+
+    Con el nombre crudo, un nombre con un salto de linea se cuela en el
+    log (log forging) y en el mensaje que ve el cliente. Es el mismo
+    patron que corrigio el T-136 en el resto de mensajes.
+    """
+    import asyncio
+
+    from fastapi import HTTPException
+    from starlette.datastructures import UploadFile
+
+    from app.api.v1.incidents import _leer_limitado
+
+    fichero = UploadFile(
+        file=io.BytesIO(b"x" * 4096),
+        filename="malo\nINFO: usuario admin entro.png",
+    )
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(_leer_limitado(fichero, 1024))
+
+    assert error.value.status_code == 413
+    detalle = error.value.detail
+    assert "\n" not in detalle, f"el mensaje lleva un salto de linea: {detalle!r}"
+    assert "malo" in detalle, detalle
+
+
+def test_un_adjunto_caducado_no_ocupa_cupo(
+    client, db_session, datos, volumen
+):
+    """Una foto caducada no cuenta para el limite (T-144).
+
+    Una foto caducada no se puede descargar (410) ni sale en el listado.
+    Antes si contaba para el limite de tres fotos por incidente: un
+    incidente con tres fotos caducadas no admitia ninguna nueva, y el
+    operador no podia documentar nada en el.
+    """
+    token_oper = datos["tokens"]["operador"]
+    alert_id = _crear_incidente(client, token_oper, datos["parking_a"].id)
+    subida = _subir(
+        client,
+        token_oper,
+        alert_id,
+        [
+            ("f1.jpg", _imagen(color=(10, 10, 10)), "image/jpeg"),
+            ("f2.jpg", _imagen(color=(20, 20, 20)), "image/jpeg"),
+            ("f3.jpg", _imagen(color=(30, 30, 30)), "image/jpeg"),
+        ],
+    )
+    assert subida.status_code == 201, subida.text
+    assert len(subida.json()) == 3
+
+    # Caducamos las tres.
+    db_session.query(IncidentAttachment).update(
+        {"expires_at": datetime.now(timezone.utc) - timedelta(days=1)}
+    )
+    db_session.commit()
+    assert adjuntos.contar_adjuntos(db_session, alert_id) == 0
+
+    # Y aun asi se puede subir otra (y el limite sigue siendo 3).
+    otra = _subir(
+        client, token_oper, alert_id, [("f4.jpg", _imagen(), "image/jpeg")]
+    )
+    assert otra.status_code == 201, otra.text
+    assert adjuntos.contar_adjuntos(db_session, alert_id) == 1

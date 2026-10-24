@@ -169,8 +169,13 @@ async def _leer_limitado(upload: UploadFile, limite: int) -> bytes:
             raise HTTPException(
                 status_code=adjuntos.HTTP_413_TOO_LARGE,
                 detail=(
-                    f"El fichero '{upload.filename or 'adjunto'}' supera el "
-                    f"tamaño máximo ({limite} bytes)"
+                    # T-143 (2026-10-24): el nombre va SANEADO, como en el
+                    # resto de mensajes (T-136). Crudo, un nombre con un
+                    # salto de linea se cuela en el log (log forging) y en
+                    # el mensaje que ve el cliente.
+                    f"El fichero "
+                    f"'{adjuntos.nombre_seguro(upload.filename or 'adjunto')}' "
+                    f"supera el tamaño máximo ({limite} bytes)"
                 ),
             )
         trozos.append(trozo)

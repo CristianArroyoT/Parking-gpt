@@ -336,10 +336,15 @@ services:
       # borraba filas que no podia ver y los ficheros se quedaban
       # huérfanos en el disco del backend (retencion incumplida).
       - incident_attachments:/var/lib/solidapp/incident-attachments
-    command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=info"]
+    # T-145 (2026-10-24): el schedule del beat va a /var/lib/solidapp/, no
+    # a /app. Motivo: en produccion el codigo ya NO viene montado desde el
+    # host (eso era el defecto), asi que /app es el de la imagen, que es
+    # de root y el proceso corre como `app`: ahi no se puede escribir y el
+    # beat no arrancaria. /var/lib/solidapp es del usuario `app`.
+    command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=info", "--schedule=/var/lib/solidapp/celerybeat-schedule"]
     healthcheck:
-      # celerybeat-schedule vive en /app porque WORKDIR es /app.
-      test: ["CMD-SHELL", "find /app/celerybeat-schedule -mmin -2 | grep -q ."]
+      # celerybeat-schedule vive en /var/lib/solidapp (ver el comando).
+      test: ["CMD-SHELL", "find /var/lib/solidapp/celerybeat-schedule -mmin -2 | grep -q ."]
       interval: 30s
       timeout: 5s
       retries: 3
