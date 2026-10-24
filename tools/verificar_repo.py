@@ -254,6 +254,18 @@ def _comprobaciones() -> list[Comprobacion]:
             timeout=900,
         ),
         Comprobacion(
+            "El backup se lleva las fotos de los incidentes",
+            [py, "tools/verificar_backup_adjuntos.py"],
+            patron=r"(OK: el backup se lleva las fotos.*)",
+            timeout=300,
+        ),
+        Comprobacion(
+            "La puerta del backup puede fallar",
+            [py, "tools/verificar_backup_adjuntos.py", "--autoprueba"],
+            patron=r"(Autoprueba correcta: la puerta vigila que el backup.*)",
+            timeout=300,
+        ),
+        Comprobacion(
             "La puerta de la retencion puede fallar",
             [py, "tools/verificar_retention_backup.py", "--autoprueba"],
             patron=r"(Autoprueba correcta: la puerta vigila la retencion.*)",

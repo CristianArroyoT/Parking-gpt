@@ -421,6 +421,50 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  backup:
+    # T-154 (2026-10-24): el backup **con** las fotos de los incidentes.
+    #
+    # Antes el backup se lanzaba desde el host (el cron del README) y las
+    # fotos **no se respaldaban**: ``backup.sh`` avisa y sigue si
+    # ``ATTACHMENTS_DIR`` no existe, y desde el host la ruta del
+    # contenedor no existe. O sea: el backup "salia bien" **sin las
+    # fotos**, y al restaurar en otra maquina la base de datos decia que
+    # estaban y los ficheros no (404). Y son datos personales (LOPDGDD).
+    #
+    # Este servicio monta **el mismo volumen** que el backend y define
+    # ``ATTACHMENTS_DIR``. Con ``profiles`` no arranca en un ``up -d``
+    # normal: se ejecuta a proposito (``docker compose run --rm backup``).
+    image: postgis/postgis:16-3.4
+    profiles: ["backup"]
+    restart: "no"
+    environment:
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: parking
+      PGPASSWORD: parking
+      PGDATABASE: parking
+      BACKUP_DIR: /backups
+      # T-154: el directorio de los adjuntos (el mismo volumen que ve el
+      # backend). Sin esto, el backup NO incluye las fotos.
+      ATTACHMENTS_DIR: /var/lib/solidapp/incident-attachments
+      BACKUP_RETENTION_DAYS: "${BACKUP_RETENTION_DAYS:-7}"
+      BACKUP_RETENTION_WEEKS: "${BACKUP_RETENTION_WEEKS:-4}"
+      BACKUP_RETENTION_MONTHS: "${BACKUP_RETENTION_MONTHS:-6}"
+      # La passphrase de cifrado: fichero del host. Con el default (un
+      # fichero vacio) el script falla ruidosamente: sin passphrase no hay
+      # backup, y es mejor que un backup que nadie puede descifrar.
+      BACKUP_PASSPHRASE_FILE: /run/secrets/backup.pass
+    volumes:
+      - ./infra/backup:/opt/solidapp/backup:ro
+      # El MISMO volumen que el backend (T-141): si fuera otro, el backup
+      # se llevaria un directorio de adjuntos vacio.
+      - incident_attachments:/var/lib/solidapp/incident-attachments:ro
+      - backups:/backups
+      # La passphrase de cifrado: el directorio de secretos del host.
+      # En el despliegue real es /etc/solidapp (con backup.pass dentro).
+      - ${BACKUP_SECRETS_DIR:-/etc/solidapp}:/run/secrets:ro
+    entrypoint: ["bash", "/opt/solidapp/backup/backup.sh"]
+
 volumes:
   pgdata:
   redisdata:
@@ -432,3 +476,5 @@ volumes:
   # Fotos adjuntas a los incidentes (T-21). El binario vive aquí, no en
   # la base de datos.
   incident_attachments:
+  # Los backups (volcado cifrado + tar de adjuntos) del T-154.
+  backups:

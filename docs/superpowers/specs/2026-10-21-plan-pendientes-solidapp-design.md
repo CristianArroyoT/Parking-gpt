@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **760 de 760 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **764 de 764 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2963,6 +2963,37 @@ producto.
   ```
   Los **números son idénticos** y el JSON sale **normalizado a UTC** (con la `Z`): `compute_margin` normaliza la ventana antes de usarla, y el `MarginReportRead` se valida con esos valores ya normalizados.
 - **Por qué se documenta igual**: para que nadie lo «arregle» después. El comentario de `_parse_window` («los valores devueltos NO se normalizan aquí para no alterar el JSON de /margins») puede leerse como un defecto, pero la normalización **sí** ocurre, en `compute_margin`.
+
+
+### T-154 · P1 (copia de seguridad) — el backup no se llevaba las fotos de los incidentes
+
+- **Estado**: **completado** — el backup incluye las fotos, cifradas, y se pueden recuperar
+- **Contexto**: las fotos de los incidentes **no** están en la base de datos (viven en un volumen). El script `backup.sh` tiene el bloque de adjuntos (T-78), pero **si `ATTACHMENTS_DIR` está vacío o no existe, avisa y sigue** (`return 0`): el backup «sale bien» **sin las fotos**.
+- **El defecto**: en el despliegue real no se le daba:
+  1. el `cron` documentado en `infra/backup/README.md` **no** lleva `ATTACHMENTS_DIR`;
+  2. y la ruta que el README exportaba (`/var/lib/solidapp/incident-attachments`) es la **dentro del contenedor**: desde el host (donde corre el cron) **no existe**, así que el script avisaría «ATTACHMENTS_DIR no existe» y seguiría sin las fotos.
+
+  Es decir: **en una sucursal, el backup se hacía sin las fotos**. Al restaurar en otra máquina, la base de datos dice que las fotos están y los ficheros no (las descargas dan 404). Y son **datos personales** (LOPDGDD): la copia de seguridad no cubría una parte de los datos.
+- **El arreglo**: un servicio `backup` en el compose (con `profiles: ["backup"]`, para que no arranque en un `up -d` normal) que monta **el mismo volumen de adjuntos** que el backend y define `ATTACHMENTS_DIR`; y el `cron` documentado pasa a ejecutarlo con `docker compose run --rm backup`.
+- **Medido** (2026-10-24, contra el stack de QA: una foto de prueba en el volumen, el backup, y descifrado del resultado):
+  ```
+  solidapp-20261024T102635Z.adjuntos.tar.enc
+  solidapp-20261024T102635Z.dump.enc
+
+  # el dump descifrado:
+  0000000   P   G   D   M   P          <-- la firma del dump
+
+  # el tar de adjuntos descifrado:
+  ./
+  ./miniaturas/
+  ./originales/
+  ./originales/prueba/                 <-- la foto de prueba ESTA dentro
+  ```
+- **Criterios de aceptación**:
+  - [x] El servicio `backup` monta **el mismo** volumen de adjuntos que el backend y define `ATTACHMENTS_DIR`.
+  - [x] El `cron` documentado ejecuta el servicio (no el script suelto).
+  - [x] Medido: el backup produce el tar de adjuntos cifrado y, al descifrarlo, contiene las fotos.
+  - [x] Puerta nueva `tools/verificar_backup_adjuntos.py` (5 casos de mentira), registrada en `tools/autopruebas.py` y en `tools/verificar_repo.py`.
 
 ### T-14 · I3 — OCR con GPU
 

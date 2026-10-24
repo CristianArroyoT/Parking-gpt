@@ -42,6 +42,11 @@ export BACKUP_RETENTION_DAYS=7
 # Directorio de los adjuntos de los incidentes (T-78). Las fotos NO viven
 # en la base de datos (viven en un volumen): sin esta variable el backup NO
 # las incluye, y al restaurar en otra maquina se pierden.
+# T-154 (2026-10-24): el backup se lanza con el SERVICIO `backup` del
+# compose (`docker compose run --rm backup`), que monta el volumen de
+# adjuntos y define ATTACHMENTS_DIR por su cuenta. Si lo lanzas a mano
+# desde el host, la ruta /var/lib/solidapp/incident-attachments NO existe
+# (es la del contenedor) y las fotos NO se respaldan.
 export ATTACHMENTS_DIR=/var/lib/solidapp/incident-attachments
 export BACKUP_RETENTION_WEEKS=4
 export BACKUP_RETENTION_MONTHS=6
@@ -65,7 +70,7 @@ en local, pero no falla: en desarrollo es el comportamiento deseado.
 
 ```cron
 # /etc/cron.d/solidapp-backup
-17 3 * * * root BACKUP_DIR=/var/backups/solidapp BACKUP_PASSPHRASE_FILE=/etc/solidapp/backup.pass /opt/solidapp/infra/backup/backup.sh >> /var/log/solidapp/backup.log 2>&1
+17 3 * * * root cd /opt/solidapp && BACKUP_PASSPHRASE_FILE=/etc/solidapp/backup.pass docker compose run --rm backup >> /var/log/solidapp/backup.log 2>&1
 ```
 
 ### 5. La alerta (decisión D3)

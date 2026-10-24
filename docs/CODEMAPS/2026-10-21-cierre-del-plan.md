@@ -2894,3 +2894,19 @@ no normaliza la ventana a UTC». Medido con la misma ventana con zona y sin
 zona: los **números son idénticos** y el JSON sale normalizado (con la `Z`).
 La normalización ocurre en `compute_margin`. Se documenta para que nadie
 lo «arregle» después.
+### 3-centésimosesentésimosexto. El backup ya se lleva las fotos (2026-10-24)
+
+Las fotos de los incidentes viven en un volumen, no en la base de datos.
+El script del backup tiene el bloque de adjuntos, pero **si
+`ATTACHMENTS_DIR` está vacío o no existe avisa y sigue**: el backup «sale
+bien» **sin las fotos**. Y en el despliegue real no se le daba: el `cron`
+documentado no lo llevaba, y la ruta que el README exportaba es la **del
+contenedor** (desde el host no existe).
+
+O sea: **en una sucursal, la copia de seguridad no cubría las fotos** (y
+son datos personales).
+
+Ahora hay un servicio `backup` en el compose que monta **el mismo volumen
+que el backend** y define `ATTACHMENTS_DIR`, y el `cron` lo ejecuta.
+**Medido**: el backup produce el tar cifrado y, al descifrarlo, contiene
+las fotos.
