@@ -2921,3 +2921,13 @@ lo ve caído y lo vuelve a arrancar **en bucle**.
 Lo detectó el propio `verificar_repo.py` al añadir el servicio `backup`:
 el defecto estaba en la **puerta**, no en el compose. Ahora los one-shot
 quedan exentos, con su caso de autoprueba.
+### 3-centésimosesentésimodiez. La purga de vehiculos fantasma va por lotes (2026-10-24)
+
+`vehiculos_fantasma` hacia `.all()`: la purga diaria traía **todos** los
+vehiculos fantasma a memoria de una vez (y la tabla `vehicles` crece sin
+límite: es el motivo del T-125). Ahora va por lotes de 500, los más
+antiguos primero, como la purga de auditoría (T-104).
+
+Matiz: la auditoría lo llamó N+1, y **no lo era** (el filtro de «sin
+tickets» es un `EXISTS` correlacionado, una sola consulta). El defecto
+real era el `.all()` sin acotar.

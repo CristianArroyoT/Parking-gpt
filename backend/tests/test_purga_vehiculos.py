@@ -138,3 +138,33 @@ def test_la_purga_respeta_el_corte_explicito(
     db_session.expire_all()
     assert db_session.get(Vehicle, viejo.id) is None
     assert db_session.get(Vehicle, reciente.id) is not None
+
+def test_la_purga_trae_los_vehiculos_en_lotes(db_session: Session) -> None:
+    """La consulta de la purga tiene que ir **acotada** (T-156).
+
+    Sin lotes, la purga traia **todos** los vehiculos fantasma a memoria
+    de una vez (y la tabla ``vehicles`` crece sin limite: es el motivo
+    del T-125). El filtro de antiguedad se hace en Python (en SQLite un
+    ``datetime`` de la BD vuelve naive y la comparacion en SQL daria un
+    resultado falso), asi que el acotado tiene que venir del ``LIMIT``.
+    """
+    from sqlalchemy import event
+
+    consultas: list[str] = []
+
+    def _spy(conn, cursor, statement, parameters, context, executemany):
+        consultas.append(statement)
+
+    bind = db_session.get_bind()
+    event.listen(bind, "before_cursor_execute", _spy)
+    try:
+        purgar_vehiculos_fantasma(db_session)
+    finally:
+        event.remove(bind, "before_cursor_execute", _spy)
+
+    sobre_vehiculos = [c for c in consultas if "FROM vehicles" in c]
+    assert sobre_vehiculos, "no se ha ejecutado ninguna consulta sobre vehicles"
+    assert any("LIMIT" in c.upper() for c in sobre_vehiculos), (
+        "la consulta de vehiculos no lleva LIMIT: la purga carga la tabla "
+        "entera en memoria (T-156)"
+    )

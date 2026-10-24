@@ -48,6 +48,11 @@ log = logging.getLogger(__name__)
 #: acaba de entrar (y cuyo ticket aún no está escrito) no se toca.
 DEFAULT_MAX_AGE_HOURS = 24
 
+#: Filas que trae la purga en cada lote (T-156). Sin esto, la purga
+#: cargaba **todos** los vehículos fantasma a memoria de una vez (y la
+#: tabla ``vehicles`` crece sin límite: es el motivo del T-125).
+LOTE = 500
+
 
 def _aware(momento: datetime | None) -> datetime | None:
     """Normaliza a UTC con zona horaria.
@@ -65,9 +70,14 @@ def _aware(momento: datetime | None) -> datetime | None:
     return momento
 
 
-def vehiculos_fantasma(db: Session) -> list[Vehicle]:
-    """Los vehículos sin dueño y sin tickets (sin el filtro de antigüedad)."""
-    return (
+def vehiculos_fantasma(db: Session, limite: int | None = None) -> list[Vehicle]:
+    """Los vehículos sin dueño y sin tickets (sin el filtro de antigüedad).
+
+    T-156 (2026-10-24): con ``limite`` se traen **los más antiguos
+    primero** y sólo ese número, para que la purga vaya por lotes en vez
+    de cargar la tabla entera en memoria.
+    """
+    consulta = (
         db.query(Vehicle)
         .filter(~Vehicle.users.any())
         .filter(
@@ -75,8 +85,11 @@ def vehiculos_fantasma(db: Session) -> list[Vehicle]:
             .filter(Ticket.vehicle_id == Vehicle.id)
             .exists()
         )
-        .all()
+        .order_by(Vehicle.created_at)
     )
+    if limite is not None:
+        consulta = consulta.limit(limite)
+    return consulta.all()
 
 
 def purgar_vehiculos_fantasma(
@@ -88,27 +101,51 @@ def purgar_vehiculos_fantasma(
     Idempotente: si no hay nada que borrar devuelve ``deleted=0``.
     Defensivo: un fallo al borrar **no** propaga (una purga no puede
     tumbar al worker).
+
+    T-156 (2026-10-24): va **por lotes** (como la purga de auditoría,
+    T-104). Antes traía **todos** los vehículos fantasma a memoria de una
+    vez y los filtraba por antigüedad en Python.
     """
     horas = DEFAULT_MAX_AGE_HOURS if max_age_hours is None else max_age_hours
     ahora = datetime.now(timezone.utc)
     corte = ahora - timedelta(hours=horas)
 
     borrados: list[int] = []
-    for vehiculo in vehiculos_fantasma(db):
-        creado = _aware(vehiculo.created_at)
-        if creado is None or creado >= corte:
-            # Todavia no tiene edad: el coche puede haber entrado ahora
-            # mismo y su ticket escribirse despues.
-            continue
-        borrados.append(vehiculo.id)
-        db.delete(vehiculo)
-
-    try:
-        db.commit()
-    except Exception as exc:  # noqa: BLE001 — una purga no propaga
-        db.rollback()
-        log.warning("purga de vehiculos fantasma: no se pudo confirmar: %s", exc)
-        return {"deleted": 0, "max_age_hours": horas, "cutoff": corte.isoformat()}
+    while True:
+        # Los más antiguos primero: si del lote no sale ninguno que cumpla
+        # el corte, los siguientes son más recientes y no hay nada más que
+        # purgar (y el bucle termina).
+        lote = vehiculos_fantasma(db, limite=LOTE)
+        if not lote:
+            break
+        borrables = []
+        for vehiculo in lote:
+            creado = _aware(vehiculo.created_at)
+            if creado is None or creado >= corte:
+                # Todavía no tiene edad: el coche puede haber entrado ahora
+                # mismo y su ticket escribirse después.
+                continue
+            borrables.append(vehiculo)
+        if not borrables:
+            break
+        for vehiculo in borrables:
+            borrados.append(vehiculo.id)
+            db.delete(vehiculo)
+        try:
+            db.commit()
+        except Exception as exc:  # noqa: BLE001 — una purga no propaga
+            db.rollback()
+            log.warning(
+                "purga de vehiculos fantasma: no se pudo confirmar: %s", exc
+            )
+            return {
+                "deleted": 0,
+                "max_age_hours": horas,
+                "cutoff": corte.isoformat(),
+            }
+        if len(lote) < LOTE:
+            # No hay más vehículos fantasma: se acabó.
+            break
 
     log.info(
         "purga de vehiculos fantasma: horas=%s corte=%s borrados=%s",

@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **767 de 767 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **770 de 770 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -3007,6 +3007,19 @@ producto.
   - [x] La puerta del compose pasa con el servicio `backup` (que es one-shot).
   - [x] La puerta sigue exigiendo `restart: unless-stopped` a los servicios **normales**.
   - [x] Caso de autoprueba: un one-shot con `restart: "no"` no es un fallo.
+
+
+### T-156 · P2 (rendimiento) — la purga de vehículos fantasma cargaba la tabla entera en memoria
+
+- **Estado**: **completado** — va por lotes, como la purga de auditoría (T-104)
+- **Contexto**: la tabla `vehicles` **crece sin límite** en un sistema de OCR que ve matrículas nuevas constantemente (es el motivo del T-125). Y la purga corre a diario.
+- **El defecto**: `vehiculos_fantasma` hacía `.all()`: la purga traía **todos** los vehículos fantasma a memoria de una vez, y después filtraba por antigüedad **en Python** (porque un `datetime` de la BD vuelve *naive* en SQLite y la comparación en SQL daría un resultado falso).
+- **Matiz (la auditoría se equivocó en una parte)**: no era un N+1. El filtro de «sin tickets» es un `EXISTS` **correlacionado** (una sola consulta), no una consulta por vehículo. El defecto real era el ** `.all()` sin acotar**, no el número de consultas.
+- **El arreglo**: lotes de 500, **los más antiguos primero** (como `purge_audit_logs`, T-104): se cogen `LOTE` candidatos, se purgan los que cumplen el corte y se repite; si del lote no sale ninguno que lo cumpla, se para (los siguientes son más recientes).
+- **Criterios de aceptación**:
+  - [x] La consulta de la purga va acotada (`LIMIT`): un test lo comprueba mirando el SQL que se ejecuta.
+  - [x] Con un lote de 2, la purga borra **todos** los vehículos fantasma (el bucle funciona).
+  - [x] Prueba inversa en `tools/verificar_pruebas_inversas.py`.
 
 ### T-14 · I3 — OCR con GPU
 

@@ -544,6 +544,22 @@ CASOS: list[Caso] = [
             "test_el_informe_de_alertas_rechaza_una_ventana_demasiado_grande"
         ),
     ),
+    Caso(
+        nombre="T-156 · la purga de vehiculos vuelve a cargar la tabla entera",
+        fichero="app/services/vehicle_purge.py",
+        cambios=[
+            (
+                """    if limite is not None:
+        consulta = consulta.limit(limite)
+""",
+                "",
+            ),
+        ],
+        test=(
+            "tests/test_purga_vehiculos.py::"
+            "test_la_purga_trae_los_vehiculos_en_lotes"
+        ),
+    ),
 ]
 
 
