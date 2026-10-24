@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **692 de 696 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **696 de 700 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2547,6 +2547,26 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Medido: la sesión caducada expulsa al login y borra los tokens (con y sin listener propio).
   - [x] QA nueva (`frontend/scripts/qa_sesion_caducada.py`) registrada en `verificar_repo.py` como puerta de regresión.
   - [x] **No** se ha tocado el router: no se añade código para un defecto que no existe.
+
+### T-138 · P2 (frontend) — un gestor sin sucursales se quedaba en «Cargando…» para siempre
+
+- **Estado**: **completado** — la pantalla explica que no hay ninguna sucursal asignada
+- **Contexto**: en `MovementsView` («Entradas / Salidas») y `AlertsView` («Alertas») la carga tiene un `return` temprano cuando no hay sucursal seleccionada, y ese `return` **no bajaba el flag `loading`**. Un gestor sin membresías (o al que la carga de sucursales le falla) se quedaba mirando **«Cargando…» para siempre**, sin ninguna pista de que faltara una sucursal.
+- **Medido** (2026-10-24, con un navegador de verdad y un gestor **sin membresías** creado al vuelo):
+  ```
+  FALLO:
+    - movimientos: sigue en «Cargando…»
+    - alertas: sigue en «Cargando…»
+  ```
+  Y el mensaje que se veía **con** el arreglo: «No tienes ninguna sucursal asignada».
+- **El arreglo** (dos cosas):
+  1. el `return` temprano baja `loading` y deja un error claro («No tienes ninguna sucursal asignada»);
+  2. el mensaje «No hay movimientos que cumplan los filtros» / «No hay alertas con estos filtros» **se oculta si hubo error**: antes la app afirmaba que no había datos cuando lo que había pasado es que la petición falló (el mismo patrón que el T-111 corrigió en `LiveView`).
+- **Criterios de aceptación**:
+  - [x] QA nueva (`frontend/scripts/qa_gestor_sin_sucursal.py`) con un navegador de verdad: crea un gestor sin membresías, entra con él y comprueba que la pantalla **no** queda en «Cargando…», que explica que no hay sucursal y que **no** afirma que no hay datos.
+  - [x] El usuario de prueba se borra al terminar (la QA no deja basura).
+  - [x] Prueba inversa (`qa_gestor_sin_sucursal_inversa.py`): sin el arreglo la QA falla por el motivo correcto.
+  - [x] La QA queda registrada en `tools/verificar_repo.py`.
 
 ### T-14 · I3 — OCR con GPU
 

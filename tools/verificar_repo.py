@@ -155,6 +155,19 @@ def _comprobaciones() -> list[Comprobacion]:
             timeout=600,
         ),
         Comprobacion(
+            "Un gestor sin sucursales ve un mensaje, no «Cargando...»",
+            # T-138 (2026-10-24): en «movimientos» y «alertas» la carga
+            # tiene un `return` temprano cuando no hay sucursal, y ese
+            # `return` no bajaba el flag `loading`: un gestor sin
+            # sucursales se quedaba mirando «Cargando...» para siempre.
+            # Esta QA crea un gestor SIN membresias, entra con el y
+            # comprueba (con un navegador de verdad) que la pantalla
+            # explica que no tiene ninguna sucursal.
+            [py, "frontend/scripts/qa_gestor_sin_sucursal.py"],
+            patron=r"(OK: el gestor sin sucursales ve un mensaje.*)",
+            timeout=600,
+        ),
+        Comprobacion(
             "La sesion caducada expulsa al login",
             # T-137 (2026-10-24): el backend avisa con el evento
             # `solidapp:sesion-caducada` y el store limpia el usuario;

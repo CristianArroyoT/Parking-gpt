@@ -82,6 +82,12 @@ async function loadBranch(): Promise<void> {
   if (parkingId.value === '') {
     movements.value = []
     spaces.value = []
+    // T-138 (2026-10-24): el `return` temprano no bajaba el flag
+    // `loading` -> un gestor sin sucursales se quedaba mirando
+    // «Cargando…» para siempre, sin ninguna pista de que faltara la
+    // sucursal.
+    loading.value = false
+    error.value = 'No tienes ninguna sucursal asignada'
     return
   }
   const id = Number(parkingId.value)
@@ -281,7 +287,7 @@ onMounted(async () => {
 
     <section class="bg-white rounded-xl shadow-card p-5">
       <div v-if="loading" class="text-sm text-slate-500">Cargando…</div>
-      <div v-else-if="!filtered.length" class="text-sm text-slate-500">
+      <div v-else-if="!error && !filtered.length" class="text-sm text-slate-500">
         No hay movimientos que cumplan los filtros.
       </div>
       <div v-else class="overflow-x-auto min-w-0">

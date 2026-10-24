@@ -2678,3 +2678,12 @@ La sospecha era plausible (el guard del router sólo corre al navegar) pero
 cualquier listener propio. No se toca el router (no se añade código para
 un defecto que no existe) y queda una **puerta de regresión**
 (`frontend/scripts/qa_sesion_caducada.py`) en `verificar_repo.py`.
+
+### 3-centésimotrentiunésima. Un gestor sin sucursales, en «Cargando…» para siempre (2026-10-24)
+
+El `return` temprano de «movimientos» y «alertas» (cuando no hay
+sucursal) no bajaba el flag `loading`: un gestor sin membresías se
+quedaba mirando «Cargando…» para siempre. **El arreglo**: el `return`
+baja el flag y deja un error claro, y el mensaje «no hay movimientos» se
+oculta si hubo error. Queda una QA con navegador de verdad que crea un
+gestor sin membresías y lo comprueba.
