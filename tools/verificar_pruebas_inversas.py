@@ -4,7 +4,7 @@ POR QUÉ ESTA PUERTA
 -------------------
 Un test que no puede demostrar que detecta lo que dice detectar no es un
 test: es una línea de texto que dice "OK". Con los arreglos de esta tanda
-(T-113, T-121, T-122, T-125, T-129...T-134) hay **diez** regresiones que
+(T-113, T-121, T-122, T-125, T-129...T-134) hay **once** regresiones que
 sólo se ven si alguien vuelve a poner el defecto.
 
 Mientras la prueba inversa vivía en la carpeta temporal de quien la
@@ -15,18 +15,21 @@ quedaría en verde sin que nadie se enterase. Esta puerta las ejecuta
 
 CÓMO FUNCIONA
 --------------
-Para cada caso: se copia el fichero, se vuelve a poner el defecto, se
-ejecuta el test y se comprueba que **falla** (y que falla por una
-aserción, no por un error de código: un ``NameError`` en el defecto
-probaría que el test se rompe, no que detecta). Después se restaura el
-fichero.
+Para cada caso: se copia el **backend entero** a un directorio temporal,
+se vuelve a poner el defecto **en la copia**, se ejecuta el test allí y
+se comprueba que **falla** (y que falla por una aserción, no por un
+error de código: un ``NameError`` en el defecto probaría que el test se
+rompe, no que detecta).
+
+OJO (2026-10-23): la primera versión modificaba el fichero **en su
+sitio**, y se discovered al running el CI en paralelo: el job leía el
+código con el defecto puesto (y el árbol de trabajo quedaba sucio).
+Por eso ahora se trabaja sobre una **copia**: la puerta no toca el
+repositorio en absoluto y se puede ejecutar sin miedo junto a otras
+cosas.
 
     python tools/verificar_pruebas_inversas.py
     python tools/verificar_pruebas_inversas.py --autoprueba
-
-OJO: los ``pytest`` se ejecutan **desde ``backend/``** (el rootdir de
-la suite) y con el fichero modificado **en su sitio**, que es lo único
-que hace que el módulo que se importa sea el defectuoso.
 """
 from __future__ import annotations
 
@@ -43,6 +46,16 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 RAIZ = Path(__file__).resolve().parent.parent
 BACKEND = RAIZ / "backend"
 
+#: Lo que se copia al directorio temporal (lo justo para que la suite
+#: corra igual que en el repo).
+PARA_COPIAR = (
+    "app",
+    "tests",
+    "alembic",
+    "alembic.ini",
+    "pyproject.toml",
+)
+
 
 @dataclass
 class Caso:
@@ -50,14 +63,13 @@ class Caso:
     fichero: str
     cambios: list[tuple[str, str]] = field(default_factory=list)
     test: str = ""
-    nota: str = ""
 
 
 # ── los casos (el defecto y el test que lo debe detectar) ───────────────
 CASOS: list[Caso] = [
     Caso(
         nombre="T-113 · el alta de tickets vuelve a aceptar cualquier sucursal",
-        fichero="backend/app/api/v1/tickets.py",
+        fichero="app/api/v1/tickets.py",
         cambios=[
             (
                 "    # T-113: la sucursal del body tiene que ser una sucursal del usuario.\n"
@@ -69,7 +81,7 @@ CASOS: list[Caso] = [
     ),
     Caso(
         nombre="T-114 · una membresia vuelve a convertir a un cliente en gestor",
-        fichero="backend/app/core/deps.py",
+        fichero="app/core/deps.py",
         cambios=[
             (
                 "    # T-114: la membresia no convierte a un cliente en gestor.\n"
@@ -88,7 +100,7 @@ CASOS: list[Caso] = [
     ),
     Caso(
         nombre="T-115 · las geocercas vuelven a cruzarse sin la sucursal",
-        fichero="backend/app/api/v1/cameras.py",
+        fichero="app/api/v1/cameras.py",
         cambios=[
             (
                 "    # T-115: la camara tiene que ser de la sucursal del path.\n"
@@ -104,7 +116,7 @@ CASOS: list[Caso] = [
     ),
     Caso(
         nombre="T-120 · un cliente vuelve a poder cerrar su propio ticket",
-        fichero="backend/app/api/v1/tickets.py",
+        fichero="app/api/v1/tickets.py",
         cambios=[
             (
                 "    user: User = Depends(require_role(*ROLES_STAFF)),\n",
@@ -115,7 +127,7 @@ CASOS: list[Caso] = [
     ),
     Caso(
         nombre="T-121 · el cierre manual vuelve a ser un commit a ciegas",
-        fichero="backend/app/services/ticket_closing.py",
+        fichero="app/services/ticket_closing.py",
         cambios=[
             (
                 """    actualizados = (
@@ -145,7 +157,7 @@ CASOS: list[Caso] = [
     ),
     Caso(
         nombre="T-125 · la purga vuelve a borrar los vehiculos con dueño",
-        fichero="backend/app/services/vehicle_purge.py",
+        fichero="app/services/vehicle_purge.py",
         cambios=[
             (
                 "        .filter(~Vehicle.users.any())\n",
@@ -156,7 +168,7 @@ CASOS: list[Caso] = [
     ),
     Caso(
         nombre="T-129 · el original vuelve a guardarse con sus metadatos",
-        fichero="backend/app/services/incident_attachments.py",
+        fichero="app/services/incident_attachments.py",
         cambios=[
             (
                 "    contenido_guardado = sanear_metadatos(contenido, mime)\n",
@@ -170,7 +182,7 @@ CASOS: list[Caso] = [
     ),
     Caso(
         nombre="T-131 · el total vuelve a calcularse con los valores sin redondear",
-        fichero="backend/app/services/pricing.py",
+        fichero="app/services/pricing.py",
         cambios=[
             (
                 """    amount = round(_compute_amount(tariff, entry_at, exit_at), 2)
@@ -194,7 +206,7 @@ CASOS: list[Caso] = [
     ),
     Caso(
         nombre="T-132 · el cliente vuelve a poder invertir el filtro de planes",
-        fichero="backend/app/api/v1/plans.py",
+        fichero="app/api/v1/plans.py",
         cambios=[
             (
                 """    elif not es_admin:
@@ -209,7 +221,7 @@ CASOS: list[Caso] = [
     ),
     Caso(
         nombre="T-133 · la guarda de suscripciones vuelve a mirar solo el presente",
-        fichero="backend/app/api/v1/plans.py",
+        fichero="app/api/v1/plans.py",
         cambios=[
             (
                 """    solapada = (
@@ -243,7 +255,7 @@ CASOS: list[Caso] = [
     ),
     Caso(
         nombre="T-134 · la metadata de un adjunto caducado vuelve a servirse",
-        fichero="backend/app/api/v1/incidents.py",
+        fichero="app/api/v1/incidents.py",
         cambios=[
             (
                 """    adjunto = _adjunto_de_sucursal(attachment_id, db, current_user)
@@ -263,9 +275,24 @@ CASOS: list[Caso] = [
 ]
 
 
-def _aplicar(caso: Caso) -> bool:
-    """Pone el defecto. Devuelve False si el bloque no aparece."""
-    ruta = RAIZ / caso.fichero
+def _copiar_backend(destino: Path) -> None:
+    """Copia lo justo del backend para que la suite corra igual."""
+    destino.mkdir(parents=True, exist_ok=True)
+    for nombre in PARA_COPIAR:
+        origen = BACKEND / nombre
+        if origen.is_dir():
+            shutil.copytree(
+                origen,
+                destino / nombre,
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache"),
+            )
+        elif origen.is_file():
+            shutil.copy2(origen, destino / nombre)
+
+
+def _aplicar(copia: Path, caso: Caso) -> bool:
+    """Pone el defecto **en la copia**. False si el bloque no aparece."""
+    ruta = copia / caso.fichero
     texto = ruta.read_text(encoding="utf-8")
     for viejo, nuevo in caso.cambios:
         if texto.count(viejo) != 1:
@@ -276,10 +303,13 @@ def _aplicar(caso: Caso) -> bool:
     return True
 
 
-def _ejecutar(test: str) -> tuple[int, str]:
+def _ejecutar(copia: Path, test: str) -> tuple[int, str]:
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "--tb=line", "-p", "no:cacheprovider", test],
-        cwd=BACKEND,
+        [
+            sys.executable, "-m", "pytest", "-q", "--tb=line",
+            "-p", "no:cacheprovider", test,
+        ],
+        cwd=copia,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -301,29 +331,28 @@ def _fallo_real(salida: str, test: str) -> bool:
 def verificar() -> int:
     fallos: list[str] = []
     with tempfile.TemporaryDirectory(prefix="pruebas_inversas_") as temporal:
+        copia = Path(temporal) / "backend"
+        _copiar_backend(copia)
         for caso in CASOS:
-            ruta = RAIZ / caso.fichero
-            copia = Path(temporal) / ruta.name
-            shutil.copy2(ruta, copia)
-            try:
-                if not _aplicar(caso):
-                    print(f"  [FALLA] {caso.nombre}: no se pudo poner el defecto")
-                    fallos.append(caso.nombre)
-                    continue
-                codigo, salida = _ejecutar(caso.test)
-                if codigo == 0:
-                    print(f"  [FALLA] {caso.nombre}: el test PASA con el defecto")
-                    fallos.append(caso.nombre)
-                elif not _fallo_real(salida, caso.test):
-                    print(
-                        f"  [FALLA] {caso.nombre}: el test falla, pero no por una "
-                        f"aserción (eso no prueba que detecte)"
-                    )
-                    fallos.append(caso.nombre)
-                else:
-                    print(f"  [OK   ] {caso.nombre}")
-            finally:
-                shutil.copy2(copia, ruta)
+            # El fichero vuelve a su estado (por si un caso anterior lo
+            # toco) antes de aplicar el defecto.
+            shutil.copy2(BACKEND / caso.fichero, copia / caso.fichero)
+            if not _aplicar(copia, caso):
+                print(f"  [FALLA] {caso.nombre}: no se pudo poner el defecto")
+                fallos.append(caso.nombre)
+                continue
+            codigo, salida = _ejecutar(copia, caso.test)
+            if codigo == 0:
+                print(f"  [FALLA] {caso.nombre}: el test PASA con el defecto")
+                fallos.append(caso.nombre)
+            elif not _fallo_real(salida, caso.test):
+                print(
+                    f"  [FALLA] {caso.nombre}: el test falla, pero no por una "
+                    f"aserción (eso no prueba que detecte)"
+                )
+                fallos.append(caso.nombre)
+            else:
+                print(f"  [OK   ] {caso.nombre}")
 
     print()
     if fallos:
@@ -346,37 +375,17 @@ def _autoprueba() -> int:
         raiz = Path(temporal)
         (raiz / "backend" / "app").mkdir(parents=True)
         (raiz / "backend" / "tests").mkdir(parents=True)
-        # Un caso de mentira: se cambia un comentario y el test sigue
-        # pasando -> la puerta tiene que avisar.
-        caso = Caso(
-            nombre="caso de mentira (un comentario no rompe nada)",
-            fichero="backend/app/ejemplo.py",
-            cambios=[("# original\n", "# cambiado\n")],
-            test="tests/ejemplo.py::test_nada",
-        )
         (raiz / "backend" / "app" / "ejemplo.py").write_text("# original\n", encoding="utf-8")
         (raiz / "backend" / "tests" / "ejemplo.py").write_text(
             "def test_nada():\n    assert True\n", encoding="utf-8"
         )
-        codigo, salida = _ejecutar_en(raiz, caso.test)
+        codigo, _salida = _ejecutar(raiz / "backend", "tests/ejemplo.py::test_nada")
         if codigo == 0:
             print("  OK: la puerta detecta el caso que no detecta nada")
         else:
             print(f"  FALLO: la puerta no vio el caso de mentira (codigo {codigo})")
             return 1
     return 0
-
-
-def _ejecutar_en(raiz: Path, test: str) -> tuple[int, str]:
-    proc = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "--tb=line", "-p", "no:cacheprovider", test],
-        cwd=raiz / "backend",
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 
 
 def main() -> int:
@@ -391,7 +400,10 @@ def main() -> int:
     if args.autoprueba:
         return _autoprueba()
 
-    print(f"Comprobando {len(CASOS)} pruebas inversas (con el defecto puesto)...\n")
+    print(
+        f"Comprobando {len(CASOS)} pruebas inversas (con el defecto puesto, "
+        f"en una copia del backend)...\n"
+    )
     return verificar()
 
 

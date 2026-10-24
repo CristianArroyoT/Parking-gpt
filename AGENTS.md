@@ -37,6 +37,11 @@ Al añadir una puerta nueva:
    aserción, no por un error de código). Sin eso, un test reescrito
    puede dejar de detectar y el repo se queda en verde sin que nadie se
    entere (T-135).
+   OJO: una puerta que **pone un defecto** no puede hacerlo en el
+   repositorio: se hace sobre una **copia** en un directorio temporal. La
+   primera versión lo hacía en su sitio, y al lanzar el CI en paralelo el
+   job leyó el código con el defecto puesto y el árbol quedó sucio
+   (T-135).
 
 Ojo con un caso especial que ya costó un bug real: **dos comprobaciones
 que comparten la fuente de verdad no se vigilan entre sí**. Si la puerta

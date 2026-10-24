@@ -2521,6 +2521,7 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
 - **Lo que hace la puerta** (`tools/verificar_pruebas_inversas.py`): para cada uno de los **11** arreglos de la tanda, copia el fichero, vuelve a poner el defecto, ejecuta el test y comprueba que **falla** — y que falla por una **aserción**, no por un error de código (un `NameError` en el defecto probaría que el test se rompe, no que detecta). Después restaura el fichero.
 - **Medido** (2026-10-23): las 11 pruebas inversas siguen detectando su defecto ✓.
 - **La autoprueba de la puerta**: monta un caso de mentira (un «defecto» que no rompe nada, con un test que sigue pasando) y comprueba que la puerta lo detecta.
+- **OJO, y es importante** (2026-10-23): la primera versión de la puerta modificaba el fichero **en su sitio** (para que el módulo que se importa fuera el defectuoso). Se discovered al **lanzar el CI en paralelo**: el job leía el código con el defecto puesto y el árbol de trabajo quedaba sucio. Ahora la puerta trabaja sobre una **copia** del backend en un directorio temporal: **no toca el repositorio en absoluto**, y se puede ejecutar sin miedo junto a otras cosas.
 - **Criterios de aceptación**:
   - [x] Los 11 casos (T-113, T-114, T-115, T-120, T-121, T-125, T-129, T-131, T-132, T-133, T-134) se comprueban con el defecto puesto y el test **falla**.
   - [x] Un fallo por error de código **no** cuenta como detección (la puerta lo marca como inválido).
