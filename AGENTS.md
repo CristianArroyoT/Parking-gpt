@@ -330,10 +330,16 @@ por las buenas. Ver T-124 y T-125 en el plan.
 - PowerShell 5.1 no soporta `&&` ni `||`. No uses `tail` fuera de un
   `docker exec`: es un binario de Unix.
 - **`POST /auth/login` tiene rate-limit: 10 intentos por IP cada 5
-  minutos**, y cuenta también los exitosos. La QA visual inicia sesión
-  una vez por rol, así que **no la lances 5 veces seguidas** (15 inicios →
-  429): usa `python frontend/scripts/qa_visual.py --anchos
-  "414,768,1024,1232,1440"`, que recorre los 5 anchos con 3 inicios.
+  minutos**, y cuenta también los exitosos. En **desarrollo** el compose
+  lo sube a **50** (`LOGIN_RATE_LIMIT_MAX_ATTEMPTS`, T-176): las puertas
+  de QA hacen varios inicios de sesión seguidos desde la misma IP (el
+  proxy de Vite) y, con 10, se pisaban entre ellas y fallaban con un 429
+  que no tenía nada que ver con lo que vigilaban. **En producción sigue
+  siendo 10** (`docker-compose.prod.yml` no lo toca). Aun así la ventana
+  es fija: la QA visual inicia sesión una vez por rol, así que **no la
+  lances 5 veces seguidas**: usa `python frontend/scripts/qa_visual.py
+  --anchos "414,768,1024,1232,1440"`, que recorre los 5 anchos con 3
+  inicios.
 - La suite da **774 passed, 9 skipped** en SQLite y **783 passed** en PostgreSQL
   en el host (lo que ve el CI), y **773 passed, 10 skipped** / **782 passed, 1 skipped** en el
   contenedor de desarrollo: allí sólo se monta `backend/`, así que el test

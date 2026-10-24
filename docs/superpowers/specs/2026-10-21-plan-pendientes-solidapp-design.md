@@ -2,9 +2,22 @@
 
 **Fecha**: 2026-10-21 · **Rama de trabajo**: `main` (los PR #13 y #14 ya están fusionados) · **Estado del repo**: `main` sincronizada con `origin/main`.
 
-> ### 📍 Estado actual (2026-10-21, cierre de la sesión)
+> ### 📍 Estado actual (2026-10-24, tras la tanda T-165…T-176)
 >
-> El plan está **ejecutado**: **793 de 793 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **836 de 838 criterios** verificados. Los **2 que no están marcados** están documentados **con su motivo** (no son criterios olvidados): (1) la alarma `OCR_FAILED` sigue **dormida** porque `ping_camera` no se despacha (es una **decisión de producto**), y (2) del T-171 quedan **18 campos** más sin nombre accesible, medidos y **pendientes de decidir**. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+>
+> **Lo de esta tanda (2026-10-24)**: los **12 hallazgos** que dejaron las dos auditorías (frontend y pipeline de matrículas), repartidos entre **dos subagentes** y los que resolví yo. Cada uno con **su puerta** y **su prueba inversa**:
+>
+> | Comprobación | Resultado |
+> |---|---|
+> | Puerta del repo | `python tools/verificar_repo.py` → **«Todo en verde»** (39 comprobaciones) |
+> | Pruebas inversas | `tools/verificar_pruebas_inversas.py` → **31 de 31** siguen detectando su defecto (3 casos nuevos) |
+> | Suite del contenedor | `docker exec parking-backend-1 pytest -q` → **819 passed, 10 skipped** (Linux + Python 3.11, la referencia del CI) |
+> | QAs de navegador | **9 QAs nuevas** (T-165…T-174), cada una con su inversa: 9/9 y 6/6 en verde |
+> | Lint y tipos | `ruff` y `mypy` en verde (host), `eslint` y `vue-tsc` en verde |
+> | Texto | `tools/escanear_texto.py` → **0 problema(s)** |
+>
+> ### 📍 Estado al cierre de la sesión del 2026-10-21
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -3074,40 +3087,56 @@ Todos están **verificados leyendo el código** (los que dependen del
 comportamiento en marcha, marcados como tales). Ordenados por gravedad:
 
 - **[ALTA] El push externo no deja ninguna alarma de «la cámara dejó de
-  empujar»**: el único detector de OCR cuelga de `ping_camera`, que
-  **no se despacha**. Si el OCR del fabricante muere, no salta nada: la
-  cámara sigue «healthy» (si el RTSP va) y no se está cobrando.
+  empujar»** → resuelto en **T-164**.
 - **[MEDIA] Los errores de formulario no se anuncian** en 4 vistas
   (login, reset de contraseña, alta manual): falta `role="alert"`, que
-  sí está en otras 8.
+  sí está en otras 8 → resuelto en **T-169** (y fueron **seis** sitios,
+  no tres).
 - **[MEDIA] El modal de cambio de contraseña no gestiona el foco**
-  (`AppLayout.vue`): con `aria-modal="true"` pero sin llevar el foco al
-  diálogo, el `Tab` recorre la página por detrás y el `Escape` no cierra
-  (el foco nunca entra en el overlay).
+  (`AppLayout.vue`) → resuelto en **T-170**.
 - **[MEDIA] `<label>` sin `for` y sin envolver el campo** en los
   formularios de administración (sucursales, tarifas, usuarios, planes,
-  cámaras): los campos se anuncian «sin nombre».
+  cámaras) → resuelto en **T-171** (33 controles sin nombre accesible).
 - **[MEDIA] El servicio OCR no limita la concurrencia** y hace el
   `ocr()` **síncrono dentro de un endpoint async** ⇒ con una ráfaga de
   cámaras se caducan los 4 s de timeout y **las lecturas se pierden sin
   reintento**. Y `[]` significa indistintamente «no había texto»,
   «el motor no cargó» y «formato inesperado» ⇒ falsos avisos
   `OCR_FAILED` y frames acumulados en `/tmp/ocr-failed`.
+  → **FUERA DE ESTE REPOSITORIO**: el servicio OCR vive en el proyecto
+  `parking-vehicle-detector` (el contenedor `parking-vehicle-detector-1`).
+  Aquí sólo está el *cliente* y el detector de alertas del backend. Queda
+  anotado para el otro repo, con su propia puerta.
 - **[MEDIA-BAJA] El push persiste basura en `plates_detected`** (el
-  worker filtra con `parece_matricula`; el push no).
+  worker filtra con `parece_matricula`; el push no) → resuelto en **T-166**.
 - **[BAJA] La alarma de OCR depende del ritmo del ping**: TTL 600 s
-  contra umbral 5 ⇒ si el ping va cada más de 150 s, **nunca salta**.
+  contra umbral 5 ⇒ si el ping va cada más de 150 s, **nunca salta** →
+  resuelto en **T-167** (el TTL se deriva del umbral y se renueva en
+  cada fallo). OJO: la alarma **sigue dormida** (la dispara
+  `ping_camera`, que no se despacha: decisión de producto).
 - **[BAJA] El directorio de respaldo de los frames** (`/tmp/solidapp-alerts-test`)
-  no lo limpia ninguna tarea.
+  no lo limpia ninguna tarea → resuelto en **T-168**.
 - **[BAJA] El token de recuperación se queda en la URL** tras cambiar la
-  contraseña (barra de direcciones, historial, referrer).
+  contraseña (barra de direcciones, historial, referrer) → resuelto en **T-172**.
 - **[BAJA] `rtsp_url` (que puede llevar credenciales) se pinta en el
-  DOM** de la tabla de cámaras.
+  DOM** de la tabla de cámaras → resuelto en **T-173**.
 - **[BAJA] El logout no limpia el store `ui`** y su toast nunca se ve
   (la recarga se lo come); además `location.assign('/login')` hardcodea
-  la raíz.
+  la raíz → resuelto en **T-174**.
 - **[BAJA] El docstring de la ingesta describe un modelo que ya no
-  existe** (habla de un flag `direction` que no está).
+  existe** (habla de un flag `direction` que no está) → resuelto en **T-175**.
+
+**Lo que queda abierto, y por qué** (para que no se dé por hecho):
+
+1. El **servicio OCR** (el único hallazgo de la lista que está fuera de
+   este repositorio).
+2. Del **T-171** quedan **18 campos** más sin nombre accesible en
+   `views/cliente/VehiclesView.vue` (3), `views/gestor/CalibrateView.vue`
+   (5), `views/operador/IncidentModal.vue` (7) y
+   `views/operador/ManualEntryView.vue` (3): medidos y documentados, pero
+   fuera del alcance de aquel ítem.
+3. La alarma **`OCR_FAILED`** sigue dormida hasta que se active
+   `ping_camera` (decisión de producto, pendiente del usuario).
 
 Lo **no** encontrado (revisado y limpio): XSS (cero `v-html`/`innerHTML`/
 `javascript:`), fugas de `EventSource`/listeners, estado de otro usuario
@@ -3219,6 +3248,228 @@ decisiones de producto y un despliegue real.
   - [x] El destino interno válido **se respeta** (medido: `?redirect=/gestor/alertas` ⇒ acaba en `/gestor/alertas`).
   - [x] QA de navegador (`frontend/scripts/qa_login_redirect.py`) registrada en `verificar_repo.py`.
   - [x] **Prueba inversa** (`frontend/scripts/qa_login_redirect_inversa.py`): vuelve a poner el defecto (quita la validación y el `await`), reinicia el frontend y comprueba que la QA **falla por el motivo correcto** (si pasara, no demostraría nada). Medido el 2026-10-24: sin el arreglo, `?redirect=//example.com` deja la URL en `http://127.0.0.1:5173//example.com` (con el valor malicioso dentro) y `?redirect=/mapa&redirect=/otro` deja al usuario **atrapado en `/login`**.
+### T-166 · P1 (datos) — el push externo persistía basura en `plates_detected`
+
+- **Estado**: **completado** — el endpoint filtra antes de persistir y avisa de lo que descarta.
+- **Contexto**: el camino real de datos es el **push** del fabricante a
+  `POST /api/v1/parkings/{parking_id}/cameras/{camera_id}/plates`. El worker
+  (`ping_camera`) filtra las lecturas con `parece_matricula` **antes** de
+  guardarlas; el endpoint no lo hacía.
+- **El defecto**: el endpoint creaba y persistía una fila de `plates_detected`
+  por **cada** hit del payload, **sin filtrar**. El filtro `parece_matricula`
+  sólo se aplicaba después, dentro de `process_plate_hits`, que **ignora** la
+  lectura (no crea vehículo ni ticket): la fila basura ya estaba en la base de
+  datos y el gestor la veía en `GET /parkings/{id}/plates-detected`.
+- **El arreglo**: el endpoint filtra **antes de persistir** (reutilizando
+  `parece_matricula`, que ya estaba en `app/services/plates.py`) y **loguea**
+  lo que descarta (un `warning` por lectura y un `info` con el recuento).
+  El contrato de la API **no** cambia: la respuesta sigue teniendo **un
+  resultado por hit** y los descartados vuelven con su motivo
+  `skipped_not_a_plate` (lo decide `process_plate_hits`); lo único que cambia
+  es que **no** se persisten.
+- **Medido** (2026-10-24, contra la API en marcha en `127.0.0.1:8000`, push con
+  `1234ABC` + `SIN PLACA` + `###`):
+  - **Antes**: 3 filas nuevas en `plates_detected` (ids 14, 15 y 16): las dos
+    de basura persistidas. La respuesta ya decía `skipped_not_a_plate` para
+    ellas (el filtro funcionaba, pero **después** de escribir).
+  - **Después**: **1** fila nueva (id 17, `1234ABC`). La basura no se persiste.
+    La respuesta sigue con 3 resultados (`skipped_space_broken`,
+    `skipped_not_a_plate`, `skipped_not_a_plate`).
+  - (Las filas que dejó la medición se borraron de la BD de desarrollo.)
+- **Criterios de aceptación**:
+  - [x] El push **no** persiste lo que no es una matrícula (medido antes/después).
+  - [x] El contrato de la respuesta no cambia: un resultado por hit, con su motivo `skipped_*`.
+  - [x] Test automático (3 tests en `backend/tests/test_plates_push_filtrado.py`) + **prueba inversa** en `tools/verificar_pruebas_inversas.py`.
+
+
+### T-167 · P1 (resiliencia) — la alarma de OCR dependía del ritmo del ping
+
+- **Estado**: **completado** — el TTL del contador se deriva del umbral y se
+  renueva en cada fallo (ventana deslizante).
+- **Contexto**: `alerts.COUNT_TTL_SECONDS = 600` (TTL del contador
+  `camera:{id}:consecutive_fails`) contra un umbral de 5
+  (`settings.ocr_frames_before_fail`). El TTL se fijaba **sólo en el primer
+  `INCR`** ⇒ la ventana iba **desde el primer fallo**.
+- **El defecto**: si los fallos llegaban más espaciados que `600/5 = 120 s`,
+  el contador caducaba antes de poder llegar al umbral ⇒ la alerta
+  `OCR_FAILED` **nunca** saltaba.
+- **El arreglo**: dos cosas a la vez (las dos hacen falta):
+  1. El TTL se **deriva del umbral** (`umbral × intervalo esperado × margen`),
+     con el intervalo como **ajuste configurable** (`OCR_PING_INTERVAL_SECONDS`,
+     60 s por defecto; `HEARTBEAT_INTERVAL_SECONDS` para el contador de
+     `CAMERA_OFFLINE`). Deja de ser un número mágico y escala con el umbral.
+  2. El TTL se **renueva en cada fallo** (ventana deslizante): el contador
+     sobrevive mientras los fallos lleguen separados menos que el TTL, en vez
+     de morir en el primero que se pase del TTL. Con sólo (1) seguiría
+     durmiendo si el ritmo real fuera más lento que el configurado; con sólo
+     (2) seguiría durmiendo con umbrales grandes.
+- **Por qué no contradice el T-150**: allí lo que se renovaba era el TTL de un
+  **lock** (exclusión mutua entre dos rondas, con la ronda todavía en marcha);
+  aquí es el de un **contador**, y la renovación es justo lo que lo convierte
+  en ventana deslizante. El «consecutivo» lo sigue marcando el reset explícito
+  (`reset_ocr_failure`) cuando llega una lectura válida.
+- **OJO (no inventado)**: `ping_camera` **no se despacha** hoy (T-164): el
+  pipeline real es el push externo. Esta alarma **está dormida**: el arreglo es
+  correcto y queda probado, pero **no vigila nada** hasta que alguien active
+  `ping_camera`. Que lo active quien lo active, con el TTL ya coherente con el
+  umbral.
+- **Medido** (2026-10-24, contra el **Redis real** del stack, dentro del contenedor):
+  - **Antes**: el TTL **no** se renovaba (600 → 597 → 597 tras el segundo
+    fallo) y una serie de 5 fallos separados 3 s dejó el contador en 2 y **no
+    creó ninguna alerta** (con el TTL escalado a 8 s para no esperar 10
+    minutos; la separación, 3 s, es mayor que `8/5 = 1,6 s`, que es la
+    condición del defecto).
+  - **Después**: el TTL **se renueva** (600 → 597 → 600) y la **misma** serie
+    de 5 fallos separados 3 s **crea la alerta** (`OCR_FAILED`, `count=5`).
+- **Criterios de aceptación**:
+  - [x] El TTL del contador se renueva en cada fallo (medido contra el Redis real: 600 → 597 → 600).
+  - [x] Una serie de fallos más espaciada que `TTL/umbral` **sí** dispara la alerta (antes 0 alertas, después 1).
+  - [x] El TTL es coherente con el umbral: `ttl_contador_fallos(5, 60) = 600` y `ttl_contador_fallos(20, 60) = 2400`.
+  - [x] Tests automáticos (4 en `backend/tests/test_alerta_ocr_ventana.py`, con un Redis **falso de reloj simulado** para el caso del TTL y con el Redis **real** para la renovación) + **prueba inversa** en `tools/verificar_pruebas_inversas.py`.
+  - [ ] La ruta sigue **dormida**: `ping_camera` no se despacha (T-164). Fuera del alcance de este arreglo: es una decisión de producto (quién y cuándo se activa).
+
+
+### T-168 · P1 (higiene) — el directorio de respaldo de los frames no lo limpiaba ninguna tarea
+
+- **Estado**: **completado** — la tarea purga los dos directorios.
+- **Contexto**: `alerts._save_frame` guarda el frame en `/tmp/ocr-failed` y,
+  si ese directorio no se puede escribir (tests en Windows, disco lleno…),
+  cae a `/tmp/solidapp-alerts-test` (el de **respaldo**). La tarea
+  `cleanup_failed_frames` (el beat la lanza cada 6 h) **sólo** purga
+  `/tmp/ocr-failed`.
+- **El defecto**: los frames del directorio de respaldo se quedaban **para
+  siempre**: la retención de 30 días no se aplicaba a ese directorio y nadie
+  lo purgaba.
+- **El arreglo**: la tarea purga **los dos** directorios con la **misma**
+  retención (`FAILED_FRAMES_RETENTION_DAYS`) y devuelve el recuento con el
+  mismo formato que usa el resto del repo (`{"deleted": N, "kept": M}`,
+  sumando los dos). Los dos directorios salen ahora de un solo sitio
+  (`app/services/alerts.py`: `FAILED_FRAMES_DIR` y `FALLBACK_FRAMES_DIR`), así
+  que la tarea y el que los escribe no pueden separarse.
+- **Medido** (2026-10-24, dentro del contenedor, con un frame de 45 días y otro
+  de hoy en cada directorio):
+  - **Antes**: en el directorio de respaldo la tarea devolvió
+    `{"deleted": 0, "kept": 0}` (ni lo miraba) y el frame de 45 días **siguió
+    ahí**; en el directorio normal, `{"deleted": 1, "kept": 1}`.
+  - **Después**: en el de respaldo, `{"deleted": 1, "kept": 2}` (el viejo
+    desaparece y el de hoy se queda) y lo mismo en el normal.
+- **Criterios de aceptación**:
+  - [x] La tarea purga también el directorio de respaldo (medido antes/después).
+  - [x] Misma retención que el directorio normal (test con la retención justa y con un día más).
+  - [x] Devuelve el recuento con el formato `{"deleted": N, "kept": M}`.
+  - [x] Idempotente y tolerante a que los directorios no existan (el worker no debe caer).
+  - [x] Tests automáticos (4 en `backend/tests/test_limpieza_frames_ocr.py`) + **prueba inversa** en `tools/verificar_pruebas_inversas.py`.
+### T-169 · Los errores de formulario no se anuncian (`role="alert"`)
+
+- **Estado**: **completado** — los errores se anuncian
+- **Contexto**: `role="alert"` faltaba en varias vistas, aunque sí estaba en otras 8. El texto del error **se veía**, pero un lector de pantalla no lo anuncia: el usuario con Talkback o NVDA se queda sin saber que el login ha fallado.
+- **Medido (antes, con navegador de verdad)**: en el login, `<p class="text-sm text-rose-600">` con `role=null` y `aria-live=null`, y **0** elementos `[role="alert"]` en la página. Las otras cinco vistas se	localizaron leyendo el código y se midieron **con la prueba inversa** (la QA en rojo sobre la app con el defecto puesto es la medición del «antes»).
+- **El hallazgo decía «4 vistas» y nombraba 3**: al medirlo en la app han salido **seis** sitios con el mismo defecto (los tres nombrados y tres más que la auditoría no recogió). Se arreglan los seis:
+
+  | # | Vista | Error |
+  |---|---|---|
+  | 1 | `views/LoginView.vue` | credenciales inválidas |
+  | 2 | `views/cliente/ResetPasswordView.vue` | las dos contraseñas no coinciden / el enlace caducó |
+  | 3 | `views/operador/ManualEntryView.vue` | el alta manual falló |
+  | 4 | `views/cliente/TicketsView.vue` | no se pudo cargar el detalle del ticket |
+  | 5 | `views/operador/IncidentModal.vue` | no se pudo registrar el incidente |
+  | 6 | `views/gestor/CalibrateView.vue` | no se pudo conectar al stream |
+
+- **El arreglo**: `role="alert"` (+ `aria-live="assertive"`) en el elemento que pinta cada error. **OJO**: el mensaje del login (T-139) no se rompe: se conservan el texto y las clases (`p.text-rose-600`), que es lo que busca la QA del T-139.
+- **Criterios de aceptación**:
+  - [x] Los seis errores se anuncian (medido: los seis casos de la QA en verde).
+  - [x] Si falta el dato de demo que necesita un caso, la QA devuelve 3 («no comprobado») en vez de un verde falso.
+  - [x] QA de navegador (`frontend/scripts/qa_accesibilidad_alertas.py`) que **falla** si cualquiera de los seis deja de anunciarse.
+  - [x] **Prueba inversa** (`frontend/scripts/qa_accesibilidad_alertas_inversa.py`): quita el `role="alert"` **de una vista cada vez** (las seis) y comprueba que la QA falla por el motivo correcto en cada caso.
+
+### T-170 · El modal de cambio de contraseña no gestiona el foco
+
+- **Estado**: **completado** — el foco entra, queda atrapado y vuelve
+- **Contexto**: en `layouts/AppLayout.vue` el diálogo tiene `aria-modal="true"` pero no llevaba el foco: el `Tab` recorría la página que estaba **detrás** del overlay y el `Escape` no cerraba (el foco nunca entraba en el overlay).
+- **Medido (antes, con navegador de verdad)**: al abrir, `document.activeElement` = `BODY` (fuera del diálogo); tras 6 `Tab`, el foco había pasado por la página de detrás y había vuelto al diálogo **por casualidad** (`INPUT#pwd-confirm`); tras `Escape`, el diálogo se cerraba (también por casualidad, porque el foco ya estaba dentro) y el foco se perdía en el `BODY`.
+- **El arreglo**: `ref` + `tabindex="-1"` en el overlay; el foco entra en el primer campo al abrir (`nextTick`); un `keydown` en el **documento** (no en el diálogo, para que funcione aunque el foco se escape) cierra con `Escape` y **atrapa el `Tab`** dentro del overlay; al cerrar, el foco vuelve al elemento que lo tenía (el botón del desplegable, que es lo que sobrevive al cierre del menú).
+- **Criterios de aceptación**:
+  - [x] Al abrir, el foco está dentro del diálogo (medido: `INPUT#pwd-current`).
+  - [x] 8 `Tab` y 3 `Shift+Tab` seguidos no salen del overlay.
+  - [x] El `Escape` cierra el diálogo.
+  - [x] Al cerrar, el foco vuelve a la página (no se pierde en el `<body>`).
+  - [x] QA de navegador (`frontend/scripts/qa_modal_foco.py`).
+  - [x] **Prueba inversa** (`frontend/scripts/qa_modal_foco_inversa.py`): deshace el arreglo **por partes** (foco al abrir / trampa del `Tab` / devolución del foco) y comprueba que la QA falla por el motivo correcto en cada parte. Medido el 2026-10-24: `el modal no took el foco`, `el Tab se salio del dialogo (pulsacion 5)` y `el foco se perdio en el <body>`.
+
+### T-171 · `<label>` sin `for` y sin envolver el campo
+
+- **Estado**: **completado** — los campos de administración y de cámaras tienen nombre accesible
+- **Contexto**: en los formularios de administración (sucursales, tarifas, usuarios, planes, cámaras) había `<label>` sin `for` y sin envolver el campo ⇒ los campos se anunciaban «sin nombre».
+- **Medido (antes, con navegador de verdad)**: **33 controles visibles sin nombre accesible** (`el.labels.length === 0` y sin `aria-label`): `/admin/parkings` 6, `/admin/tariffs` 8, `/admin/users` 5, `/admin/planes` 5, `/admin/costs` 1, `/admin/reports` 1, `/cameras` 7.
+- **El arreglo**: pares `for`/`id` en los 30 campos de formulario (`parking-*`, `tarifa-*`, `usuario-*`, `plan-*`, `camara-*`) y `aria-label="Sucursal"` en los tres `<select>` de filtro que no tenían etiqueta. **OJO**: las etiquetas que ya envolvían el campo (informes, costes, suscripciones) se dejan como estaban: envolver el campo ya da nombre accesible.
+- **Criterios de aceptación**:
+  - [x] Los 7 formularios comprobados tienen todos sus controles visibles con nombre accesible (medido: 0 sin nombre en `/admin/parkings` (7), `/admin/tariffs` (8), `/admin/users` (6), `/admin/planes` (10), `/admin/reports` (3), `/admin/costs` (7) y `/cameras` (7)).
+  - [x] La QA **no pasa en vacío**: exige un número mínimo de controles por vista (si la página no se pintara, la QA falla en vez de dar un verde falso).
+  - [x] QA de navegador (`frontend/scripts/qa_labels_admin.py`).
+  - [x] **Prueba inversa** (`frontend/scripts/qa_labels_admin_inversa.py`): quita el `for`/`id` de un par en tres formularios distintos (sucursales, tarifas y cámaras) y comprueba que la QA falla señalando **esa** vista. Medido el 2026-10-24: `FALLO (/admin/parkings)`, `FALLO (/admin/tariffs)` y `FALLO (/cameras)`.
+  - [ ] **Lo que queda (fuera del alcance de este ítem)**: la misma carencia sigue en `views/cliente/VehiclesView.vue` (3), `views/gestor/CalibrateView.vue` (5), `views/operador/IncidentModal.vue` (7) y `views/operador/ManualEntryView.vue` (3): **18 campos más** sin nombre accesible. No se han tocado porque el T-169…T-174 no los incluían; quedan medidos y documentados para decidirlos.
+
+### T-172 · El token de recuperación se queda en la URL
+
+- **Estado**: **completado** — el token se borra de la barra de direcciones
+- **Contexto**: el enlace de recuperación llega por correo con el token en la query (`/recuperar-contrasena?token=…`). Al cambiar la contraseña, el token **se quedaba en la barra de direcciones**: ahí queda en el historial del navegador, en el referrer y en cualquier «copiar enlace».
+- **Medido (antes, con navegador de verdad)**: tras cambiar la contraseña, `window.location.search` seguía siendo `?token=TOKEN_DE_PRUEBA_T172`.
+- **El arreglo**: al cambiar la contraseña se llama a `limpiarTokenDeLaUrl()`, que sustituye la entrada del historial por la ruta limpia que resuelve el router (con su `base`) — `history.replaceState` + `router.replace`. Como el token desaparece de la query, la vista ya no puede decidir el modo con `token`: se guarda aparte (`modoEnlace`), para que la pantalla siga diciendo «Contraseña actualizada» y no «Recuperar contraseña».
+- **Criterios de aceptación**:
+  - [x] Tras cambiar la contraseña, la URL no lleva el token (medido: `http://127.0.0.1:5173/recuperar-contrasena`, `location.search` vacío).
+  - [x] El flujo no se rompe: la pantalla «Contraseña actualizada» sigue apareciendo.
+  - [x] QA de navegador (`frontend/scripts/qa_token_url.py`).
+  - [x] **Prueba inversa** (`frontend/scripts/qa_token_url_inversa.py`): deja de llamar a `limpiarTokenDeLaUrl()` y comprueba que la QA falla. Medido el 2026-10-24: `el token de recuperacion se queda en la URL`.
+
+### T-173 · La URL RTSP (que puede llevar credenciales) se pinta en el DOM
+
+- **Estado**: **completado** — la contraseña no llega al DOM
+- **Contexto**: la tabla de cámaras pintaba la URL RTSP tal cual, y esa URL puede llevar usuario y **contraseña** (`rtsp://usuario:clave@host:puerto/stream`). El backend la devuelve entera, así que la contraseña se quedaba en el DOM (la lee cualquiera que abra las herramientas de desarrollo o el «ver código fuente»).
+- **Medido (antes, con navegador de verdad)**: con una cámara de prueba cuya URL era `rtsp://usuarioQA:claveSecretaT173@cam.example.invalid:554/stream1`, la página contenía la contraseña **y** la URL completa.
+- **El arreglo**: una función `enmascararRtsp()` que **reconstruye** la URL con la contraseña sustituida por `••••` (usuario y host se conservan: son lo que hace falta para identificar la cámara). Si la URL no lleva credenciales, se muestra tal cual; si no se puede entender, no se enseña nada de ella. La contraseña **no** llega nunca al DOM (ni al texto, ni a un atributo).
+- **Criterios de aceptación**:
+  - [x] La contraseña no aparece en el HTML de la página (medido: `claveSecretaT173` ausente).
+  - [x] La fila se sigue viendo, con la URL enmascarada (medido: `rtsp://usuarioQA:••••@cam.example.invalid:554/stream1`).
+  - [x] QA de navegador (`frontend/scripts/qa_rtsp_credenciales.py`).
+  - [x] **Prueba inversa** (`frontend/scripts/qa_rtsp_credenciales_inversa.py`): vuelve a pintar `cam.rtsp_url` en crudo y comprueba que la QA falla. Medido el 2026-10-24: `la contrasena de la URL RTSP esta en el DOM`.
+
+### T-174 · El logout no limpia el store `ui` y su toast nunca se ve
+
+- **Estado**: **completado** — el toast se ve, la navegación es del router y el store se limpia
+- **Contexto**: `onLogout()` hacía `location.assign('/login')`: eso **recargaba la página** (el toast de «Sesión cerrada» se lo comía la recarga) y escribía la ruta a mano (con un `base` distinto de `/`, `/login` no es la ruta de la app). Además, el store `ui` no se limpiaba.
+- **Medido (antes, con navegador de verdad)**: tras cerrar sesión, la página estaba en `/login` y **no había ningún toast** (0 elementos con el texto «Sesión cerrada»).
+- **El arreglo**: tres cosas, y las tres hacen falta:
+  1. `stores/ui.ts` gana un `reset()` (cierra el sidebar y vacía los toasts);
+  2. `onLogout()` navega con el **router** (`router.push({ name: 'login' })`), no con una ruta absoluta: el router sabe cuál es la ruta (usa `import.meta.env.BASE_URL`);
+  3. el **contenedor de toasts se mueve a la raíz** (`App.vue`), porque con la navegación del router el layout se desmonta al ir al login y el toast se perdía igualmente.
+- **Criterios de aceptación**:
+  - [x] El toast «Sesión cerrada» se ve en el login (medido: 1 elemento visible).
+  - [x] El cierre de sesión **no recarga** la página (medido: una marca puesta en `window` antes de cerrar sesión sigue ahí después ⇒ se usa el router, no `location.assign`).
+  - [x] El store de UI queda limpio (medido: tras volver a iniciar sesión en la misma pestaña, el sidebar móvil está cerrado; se inicia sesión **sin recargar**, porque con una recarga el store se crearía de cero y la comprobación pasaría en vacío).
+  - [x] QA de navegador (`frontend/scripts/qa_logout_limpieza.py`).
+  - [x] **Prueba inversa** (`frontend/scripts/qa_logout_limpieza_inversa.py`): deshace el arreglo **por partes** (recarga + store sin limpiar, y sólo store sin limpiar) y comprueba que la QA falla por el motivo correcto en cada parte. Medido el 2026-10-24: `el toast de 'Sesion cerrada' no se ve` y `el store de UI no se limpio al cerrar sesion`.
+### T-175 · P3 (documentación) — el docstring de la ingesta describía un modelo que ya no existe
+
+- **Estado**: **completado** — el docstring describe el modelo actual
+- **Contexto**: el docstring del módulo `backend/app/services/ingest_service.py` decía que «el mismo OCR dispara los dos» (si la matrícula no estaba dentro → ENTRADA; si ya estaba dentro → SALIDA) y que «haría falta un flag `direction` ... por ahora se asume la regla más simple».
+- **El defecto**: ese modelo **ya no existe**. La dirección la decide la **geocerca que matchea** (`CameraGeofence.direction`, con `GeofenceDirection.ENTRY` por defecto y `EXIT` si el operador la marcó al pintar la plaza). El código lo hace desde hace tiempo (`getattr(matched, "direction", GeofenceDirection.ENTRY)`), pero el docstring decía otra cosa: el que leyera el módulo se llevaría la impresión contraria.
+- **Lo que se ha hecho**: reescribir ese párrafo con el modelo real y **apuntar a los tests que lo cubren** (`backend/tests/test_ingest_service.py`: `test_exit_closes_active_ticket`, `test_mixed_cameras_independent`).
+- **Por qué NO hay una puerta nueva**: una puerta que sólo comprueba que un docstring dice una cosa no demuestra nada (el texto puede mentir). El comportamiento **ya está** cubierto por tests, y eso es lo que vigila. Una comprobación de prosa no se registra.
+
+### T-176 · P2 (proceso) — las puertas de QA se pisaban entre ellas con el rate-limit del login
+
+- **Estado**: **completado** — en desarrollo el límite es 50; en producción sigue siendo 10
+- **Contexto**: `POST /auth/login` tiene un rate-limit de **10 intentos por IP cada 5 minutos** (y cuenta también los exitosos). Las QAs de navegador hacen sus inicios de sesión desde la misma IP (el proxy de Vite), así que al encadenar varias puertas se sumaban los contadores.
+- **El defecto (medido)**: con el valor de producción, la ventana fija se llenaba y las puertas recibían un **429** que no tenía nada que ver con lo que vigilaban. Contadores vistos en Redis durante esta tanda: `rl:login:ip:172.24.0.9` con valor 4 y TTL 135 s tras sólo dos ejecuciones de la QA del T-165 (2 inicios cada una), y el límite de la puerta completa (8 inicios) quedaba a un intento del tope.
+- **Lo que se ha hecho**: `docker-compose.yml` (el de **desarrollo**) fija `LOGIN_RATE_LIMIT_MAX_ATTEMPTS=50`, con el motivo en el propio fichero. **`docker-compose.prod.yml` no lo toca**: en producción el límite sigue siendo 10.
+- **Por qué no rompe la suite**: los tests del backend fuerzan el valor con `monkeypatch` (`backend/tests/test_rate_limit_login.py`), así que no dependen del valor por defecto.
+- **Lo que NO se ha hecho**: no se ha cambiado el límite en el código (ni un parámetro ni un ajuste): el cambio es **sólo del entorno de desarrollo**, y la puerta que vigila el compose de producción (`tools/verificar_compose_produccion.py`) sigue exigiendo los valores de producción.
+- **Criterios de aceptación**:
+  - [x] En desarrollo, el backend arranca con `LOGIN_RATE_LIMIT_MAX_ATTEMPTS=50` (comprobado con `docker exec parking-backend-1 printenv LOGIN_RATE_LIMIT_MAX_ATTEMPTS`).
+  - [x] El compose de producción **no** menciona esa variable (el límite sigue siendo el de por defecto, 10).
+  - [x] `AGENTS.md` avisa del cambio y de que la ventana sigue siendo fija.
+
+
 
 ### T-14 · I3 — OCR con GPU
 

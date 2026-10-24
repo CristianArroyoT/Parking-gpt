@@ -29,11 +29,18 @@ un fallo al hacer commit del Ticket revertiría también la fila de
 perder. Mejor mantener transacciones independientes: la persistencia
 del raw siempre commitea, el ticket se crea o se cierra aparte.
 
-Modelo entrada/salida (MVP): el mismo OCR dispara los dos. Si la
-matrícula no estaba dentro → ENTRADA. Si ya estaba dentro (ticket
-activo) → SALIDA. Esta convención cubre el caso de una sola cámara;
-con dos (entrada y salida separadas) haría falta un flag ``direction``
-en CameraGeofence o Camera. Por ahora se asume la regla más simple.
+Modelo entrada/salida: lo decide la **geocerca que matchea**, no el
+orden de los hits. Cada ``CameraGeofence`` tiene su ``direction``
+(``GeofenceDirection.ENTRY`` por defecto; ``EXIT`` si el operador la
+marcó como salida al pintar la plaza), y ``process_plate_hit`` la mira:
+con ``EXIT`` cierra el ticket activo del vehículo; con ``ENTRY`` (o con
+el valor por defecto) abre uno nuevo.
+
+La regla anterior del MVP («si la matrícula no estaba dentro → ENTRADA;
+si ya estaba dentro → SALIDA») ya **no** existe: una misma cámara puede
+tener geocercas de entrada y de salida, y separarlas es cosa del
+operador. Lo cubren los tests de ``backend/tests/test_ingest_service.py``
+(``test_exit_closes_active_ticket``, ``test_mixed_cameras_independent``).
 """
 from __future__ import annotations
 

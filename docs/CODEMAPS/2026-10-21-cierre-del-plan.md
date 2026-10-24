@@ -3003,3 +3003,61 @@ La QA (`frontend/scripts/qa_login_redirect.py`) queda registrada en
 defecto y exige que la QA **falle por el motivo correcto**: sin el
 arreglo, la URL lleva el valor malicioso y el usuario se queda
 atrapado en el login.
+### 3-centésimosesentésimocuarenta y uno. Los datos limpios, la alarma con su ventana y los frames se limpian (2026-10-24)
+
+Tres hallazgos de la auditoría del pipeline, medidos contra el sistema en
+marcha:
+
+- **T-166**: el push externo (el camino real de datos) persistía en
+  `plates_detected` **una fila por hit, sin filtrar**: la basura se
+  escribía antes de que `process_plate_hits` la ignorara. Medido: antes
+  3 filas nuevas (2 de basura), después 1. El endpoint filtra **antes**
+  de persistir y loguea lo que descarta; el contrato de la respuesta no
+  cambia (un resultado por hit, con su motivo `skipped_*`).
+- **T-167**: el TTL del contador de fallos de OCR eran 600 s fijos contra
+  un umbral de 5 ⇒ si los fallos llegaban más espaciados que 120 s, la
+  alerta `OCR_FAILED` **nunca** saltaba. Ahora el TTL **se deriva del
+  umbral** y **se renueva en cada fallo** (ventana deslizante). Medido
+  contra el Redis real: antes el TTL no se renovaba y una serie de 5
+  fallos no creaba ninguna alerta; después la crea. OJO: la alarma
+  **sigue dormida** (la dispara `ping_camera`, que no se despacha).
+- **T-168**: la tarea `cleanup_failed_frames` sólo purgaba
+  `/tmp/ocr-failed`, no el directorio de **respaldo**
+  (`/tmp/solidapp-alerts-test`): sus frames se quedaban para siempre.
+  Ahora purga los dos con la misma retención.
+
+### 3-centésimosesentésimocuarenta y dos. Los seis hallazgos de accesibilidad del frontend (2026-10-24)
+
+Seis QAs de navegador nuevas, cada una con su prueba inversa (que vuelve
+a poner el defecto y exige que la QA falle por el motivo correcto):
+
+- **T-169**: los errores de formulario se **anuncian** (`role="alert"`).
+  La auditoría nombraba 3 vistas; al medirlo en la app eran **seis**
+  sitios (login, reset, alta manual, tickets, incidentes y calibrado).
+- **T-170**: el modal de cambiar contraseña **gestiona el foco**: entra al
+  abrir, el `Tab` queda atrapado dentro, el `Escape` cierra y el foco
+  vuelve al cerrarlo.
+- **T-171**: los `<label>` de administración y cámaras tienen `for`/`id`:
+  medidos **33** controles visibles sin nombre accesible, ahora **0**.
+  Quedan 18 más medidos y documentados, fuera del alcance de ese ítem.
+- **T-172**: el token de recuperación se borra de la URL al cambiar la
+  contraseña (no queda en el historial ni en el referrer).
+- **T-173**: la URL RTSP se muestra **enmascarada**: la contraseña no
+  llega nunca al DOM.
+- **T-174**: el cierre de sesión usa el **router** (no `location.assign`,
+  que recargaba y se comía el toast), el toast se ve y el store `ui` se
+  limpia.
+
+### 3-centésimosesentésimocuarenta y tres. El docstring que mentía y el límite que estorbaba a las puertas (2026-10-24)
+
+- **T-175**: el docstring de `ingest_service.py` describía el modelo del
+  MVP («el primer hit abre, el segundo cierra» y «haría falta un flag
+  `direction`»). Ese modelo ya no existe: lo decide la **geocerca que
+  matchea** (`CameraGeofence.direction`). El comportamiento ya estaba
+  cubierto por tests; lo que mentía era la prosa.
+- **T-176**: las puertas de QA se pisaban entre ellas con el rate-limit
+  del login (10 intentos por IP cada 5 minutos, y cuenta los
+  exitosos): al encadenar varias QAs se llenaba la ventana y alguna
+  recibía un 429 que no tenía nada que ver con lo que vigilaba. En
+  **desarrollo** el límite es 50 (`LOGIN_RATE_LIMIT_MAX_ATTEMPTS` en
+  `docker-compose.yml`); **en producción sigue siendo 10**.

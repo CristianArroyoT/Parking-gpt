@@ -140,6 +140,14 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       ENVIRONMENT: development
+      # T-176 (2026-10-24): en DESARROLLO el limite de intentos de login
+      # es 50, no 10. Motivo: las puertas de QA (QAS de navegador) hacen
+      # varios inicios de sesion seguidos desde la misma IP (el proxy de
+      # Vite), y con el valor de produccion (10 por IP cada 5 minutos) se
+      # pisan entre ellas y fallan con un 429 que no tiene nada que ver
+      # con lo que vigilan. En PRODUCCION sigue siendo 10: este cambio va
+      # solo en el compose de desarrollo.
+      LOGIN_RATE_LIMIT_MAX_ATTEMPTS: "50"
       # URL publica del frontend: la que va en los correos (el de recuperar
       # contrasena). En staging/produccion tiene que ser una URL real por
       # HTTPS: con el valor por defecto la API no arranca (T-61).
