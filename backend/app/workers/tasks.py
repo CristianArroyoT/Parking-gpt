@@ -2,6 +2,9 @@
 
 Estado en MVP (Fase 2 cerrada):
 - `tick_cameras` consulta el modelo Camera y loguea totales.
+- `ping_cameras` (T-177, 2026-10-24) es el **despacho**: cada 10 min
+  (ajuste `PING_CAMERA_INTERVAL_SECONDS`) encola un `ping_camera` por
+  cada cámara activa. Va en el `beat_schedule` de `celery_app.py`.
 - `ping_camera` distingue dos modos de fallo (sprint CAMERA_OFFLINE):
     * `grab_frame` devuelve ``None`` → cámara caída: alerta CRITICAL al
       admin, NO se envía a OCR. Resetea el contador de OCR_FAILED para
@@ -15,8 +18,10 @@ Estado en MVP (Fase 2 cerrada):
   (el de respaldo, T-168). Idempotente y seguro aunque estén vacíos.
 
 `ping_camera` NUNCA lanza excepción: si el servicio OCR no responde,
-el cliente devuelve [] y la tarea registra `plates_found=0` en el log.
-La app prefiere un "no hay lectura" a un 500 cuando OCR está caído.
+la tarea registra `plates_found=0` en el log y **no** cuenta un fallo
+de OCR (T-177: un servicio caído no dice nada de las cámaras; si no,
+51 cámaras caídas daría 51 alarmas por un solo servicio roto). La app
+prefiere un "no hay lectura" a un 500 cuando OCR está caído.
 """
 
 from __future__ import annotations
@@ -89,17 +94,66 @@ def tick_cameras() -> dict[str, int]:
     return payload
 
 
-@celery_app.task(name="solidapp.ping_camera")  # type: ignore[untyped-decorator]
-def ping_camera(camera_id: int) -> dict[str, Any]:
+async def _reconocer(ocr: Any, frame: bytes) -> tuple[list[Any], bool, str]:
+    """Llama al OCR y devuelve ``(hits, respondio, motivo)``.
+
+    ``respondio`` dice si el servicio OCR dio una **respuesta
+    utilizable** (HTTP 200 con una lista): es la diferencia entre «el OCR
+    no leyó nada» (problema de la cámara) y «el OCR no dio una respuesta
+    utilizable» (problema del servicio, que no dice nada de la cámara).
+
+    ``motivo`` explica el por qué (``no_disponible``, ``status_400``,
+    ``no_json``, ``formato``, ``sin_lecturas``…): sin él, el log diría
+    «el OCR no respondió» también cuando lo que pasó es que el servicio
+    **contestó y rechazó la imagen**.
+
+    T-177: si el cliente no sabe decirlo (p.ej. el doble de un test que
+    sólo implementa ``recognize``), se asume que respondió: es el
+    comportamiento de siempre y no se puede acusar a una cámara sin
+    pruebas.
+    """
+    reconocer = getattr(ocr, "reconocer", None)
+    if callable(reconocer):
+        resultado = await reconocer(frame)
+        return (
+            list(resultado.hits),
+            bool(resultado.respondio),
+            str(getattr(resultado, "motivo", "") or ""),
+        )
+    hits = await ocr.recognize(frame)
+    return list(hits), True, ""
+
+
+#: ``ignore_result=True`` (T-177): el ping es de «dispara y olvida»
+#: —nadie lee su resultado— y el fan-out encola **51** mensajes por
+#: ronda. Sin esto, cada publicación abre conexion con el result
+#: store para reservar sitio, y con ese Redis lento la llamada se
+#: queda reintentando (medido el 2026-10-23: **23 s** por envio,
+#: T-103): el fan-out entero se quedaria bloqueado.
+@celery_app.task(  # type: ignore[untyped-decorator]
+    name="solidapp.ping_camera", ignore_result=True,
+)
+def ping_camera(camera_id: int, token: str | None = None) -> dict[str, Any]:
     """Envía un frame al servicio OCR y persiste los hits detectados.
 
     Captura un frame real del stream RTSP de la cámara (vía
     `app.services.cameras.capture.grab_frame`). Si la captura falla —
-    URL inválida, cámara caída, timeout — hace fallback al placeholder
-    1×1 negro para mantener la tarea robusta en desarrollo (las URLs
-    del seed apuntan a `demo.invalid` a propósito). En cualquier caso,
-    el frame se envía a `ocr:8800/recognize` y los hits se persisten
-    en `plates_detected`. Si OCR tampoco responde, `plates_found=0`.
+    URL inválida, cámara caída, timeout — **no** se envía nada al OCR:
+    se avisa de la cámara caída (``record_camera_offline``) y se
+    resetea el contador de fallos de OCR (a la cámara no le vale la
+    pena el OCR si no hay frame). Si la captura va bien, el frame se
+    envía a `ocr:8800/recognize` y los hits se persisten en
+    `plates_detected`.
+
+    T-177 (2026-10-24): se distingue **«el OCR no respondió»** de
+    **«el OCR respondió y no leyó nada»**. Lo primero es un problema
+    del servicio y **no** cuenta como fallo de OCR (si no, un servicio
+    caído daría una alarma ``OCR_FAILED`` por cámara: 51 en este
+    repo). Lo segundo sí: es un problema de la cámara.
+
+    ``token`` es el del lock por cámara que tomó ``ping_cameras`` al
+    encolar este ping: al terminar, la cámara queda libre para la
+    siguiente ronda.
 
     Sprint Fase 3C (2026-07-01): un único ``correlation_id`` por
     invocación se pasa a TODOS los ``record_audit_worker`` y a todos
@@ -164,7 +218,7 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
 
         ocr = get_ocr_client()
         try:
-            hits = asyncio.run(ocr.recognize(frame))
+            hits, respondio, motivo = asyncio.run(_reconocer(ocr, frame))
         except Exception as exc:  # noqa: BLE001
             # OcrClient no debería lanzar, pero blindamos la tarea
             # igualmente: un fallo del worker no debe romper el beat.
@@ -172,7 +226,28 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
                 "ping_camera: OCR no disponible: %s", exc,
                 extra={"correlation_id": cid, "camera_id": cam.id},
             )
-            hits = []
+            hits, respondio, motivo = [], False, "error"
+
+        if not respondio:
+            # T-177 (2026-10-24): el servicio OCR **no respondió**. Esto
+            # no dice NADA de la cámara: si lo contáramos como fallo de
+            # OCR, un servicio caído daría una alarma OCR_FAILED por
+            # cámara (51 en este repo): ruido falso que culpa a las
+            # cámaras de un problema que es del servicio.
+            reset_ocr_failure(cam.id)
+            log.error(
+                "ping_camera: id=%s code=%s el servicio OCR no dio una "
+                "respuesta utilizable (motivo=%s); no se cuenta como "
+                "fallo de OCR de la cámara",
+                cam.id, cam.code, motivo or "desconocido",
+                extra={"correlation_id": cid, "camera_id": cam.id},
+            )
+            return {
+                "status": "ocr_no_disponible",
+                "motivo": motivo or "desconocido",
+                "code": cam.code,
+                "plates_found": 0,
+            }
 
         if not hits:
             # Sin lecturas: notificar al detector de N consecutivos.
@@ -324,6 +399,129 @@ def ping_camera(camera_id: int) -> dict[str, Any]:
         }
     finally:
         db.close()
+        # T-177: el lock por cámara (lo tomó ``ping_cameras`` al
+        # encolar este ping) se suelta **si sigue siendo nuestro**, para
+        # que la cámara pueda volver a pingarse en la siguiente ronda.
+        if token is not None:
+            _soltar_lock(f"ping_camera:{camera_id}", token)
+
+
+@celery_app.task(name="solidapp.ping_cameras")  # type: ignore[untyped-decorator]
+def ping_cameras() -> dict[str, Any]:
+    """Despacha un ping a **cada cámara activa** (T-177, 2026-10-24).
+
+    Decisión de producto (2026-10-24): el ping a las cámaras pasa a
+    ir **cada 10 minutos** (ajuste ``PING_CAMERA_INTERVAL_SECONDS``,
+    por defecto 600 s). Esta tarea es la que vive en el
+    ``beat_schedule``; ella encola un ``solidapp.ping_camera`` por
+    cámara.
+
+    POR QUÉ el heartbeat no basta: el heartbeat sondea cada 60 s las
+    cámaras que **no** skipea (``HEARTBEAT_SKIP_URL_PREFIXES``) y crea
+    la alarma ``CAMERA_OFFLINE``, así que la **liveness** del stream
+    RTSP ya está cubierta. Lo que el ping añade es el **viaje al OCR**
+    (detectar el motor OCR muerto aunque el push del fabricante siga
+    llegando) y una segunda fuente de matrículas.
+
+    Las **dos** sondas respetan la misma lista de URLs que se saltan
+    (T-177, integración): en desarrollo el seed apunta a
+    ``rtsp://demo.invalid`` a propósito, y pingear 49 cámaras de mentira
+    generaba 49 alertas ``CAMERA_OFFLINE`` por hora. En **producción** la
+    lista está vacía (el compose de producción no la define), así que
+    allí se sigue comprobando **todas** las cámaras: una cámara caída
+    tiene que dar la cara.
+
+    Resiliente: una cámara que falle al encolarse **no** impide
+    encolar las demás.
+
+    No se acumula: si el ping de una cámara ya está encolado o en
+    marcha, no se encola otro (lock por cámara en Redis, con TTL
+    igual al intervalo). Sin esto, con una cámara colgada la cola se
+    llenaba sola.
+    """
+    settings = get_settings()
+    intervalo = settings.ping_camera_interval_seconds
+    cid = make_worker_correlation_id()
+
+    # Lock de **ronda**: dos rondas a la vez duplicarían los pings.
+    token_ronda = _tomar_lock("ping_cameras", ttl=intervalo)
+    if token_ronda is None:
+        log.info(
+            "ping_cameras: ya hay una ronda en curso; se omite esta",
+            extra={"correlation_id": cid},
+        )
+        return {
+            "omitida": True,
+            "motivo": "ronda_en_curso",
+            "encoladas": 0,
+            "omitidas": 0,
+            "camaras": 0,
+            "intervalo": intervalo,
+        }
+
+    encoladas = 0
+    omitidas = 0
+    saltadas = 0
+    camaras = 0
+    # Las URLs que las sondas de cámara se saltan (en desarrollo, las
+    # cámaras de mentira del seed). La misma lista que usa el heartbeat.
+    skip_prefixes = tuple(settings.heartbeat_skip_url_prefixes_list)
+    try:
+        db = SessionLocal()
+        try:
+            cams = (
+                db.query(Camera)
+                .filter(Camera.is_active.is_(True))
+                .order_by(Camera.id)
+                .all()
+            )
+        finally:
+            db.close()
+        camaras = len(cams)
+        for cam in cams:
+            if skip_prefixes and (cam.rtsp_url or "").startswith(skip_prefixes):
+                saltadas += 1
+                continue
+            token_cam = make_worker_correlation_id()
+            if _tomar_lock(
+                f"ping_camera:{cam.id}", ttl=intervalo, token=token_cam
+            ) is None:
+                # Ya hay un ping de esta cámara encolado o en marcha.
+                omitidas += 1
+                continue
+            try:
+                ping_camera.delay(cam.id, token_cam)
+                encoladas += 1
+            except Exception as exc:  # noqa: BLE001 — defensiva
+                # Una cámara que falla NO impide encolar las demás.
+                log.warning(
+                    "ping_cameras: no se pudo encolar el ping de la "
+                    "cámara %s: %s", cam.id, exc,
+                    extra={"correlation_id": cid, "camera_id": cam.id},
+                )
+                omitidas += 1
+                _soltar_lock(f"ping_camera:{cam.id}", token_cam)
+    finally:
+        _soltar_lock("ping_cameras", token_ronda)
+
+    log.info(
+        "ping_cameras: camaras=%s encoladas=%s omitidas=%s saltadas=%s "
+        "intervalo=%s",
+        camaras, encoladas, omitidas, saltadas, intervalo,
+        extra={
+            "correlation_id": cid,
+            "encoladas": encoladas,
+            "omitidas": omitidas,
+            "saltadas": saltadas,
+        },
+    )
+    return {
+        "encoladas": encoladas,
+        "omitidas": omitidas,
+        "saltadas": saltadas,
+        "camaras": camaras,
+        "intervalo": intervalo,
+    }
 
 
 #: ``ignore_result=True`` por lo mismo que ``send_alert_email``: el
@@ -770,7 +968,20 @@ def purge_ghost_vehicles(max_age_hours: int | None = None) -> dict[str, Any]:
 LOCK_TTL_SEGUNDOS = 120
 
 
-def _tomar_lock(nombre: str, ttl: int = LOCK_TTL_SEGUNDOS) -> str | None:
+def _redis_client() -> redis.Redis:
+    """Cliente Redis de los locks (mismo patrón que ``app.services.alerts``).
+
+    T-177: en una función aparte para que los tests puedan sustituirla
+    por un Redis en memoria (y no depender de que haya un Redis en el
+    entorno).
+    """
+    return redis.Redis.from_url(
+        get_settings().redis_url, decode_responses=True,
+    )
+
+
+def _tomar_lock(nombre: str, ttl: int = LOCK_TTL_SEGUNDOS,
+                token: str | None = None) -> str | None:
     """Toma el lock de la tarea para que no se solape consigo misma.
 
     POR QUE (T-102, 2026-10-23): el beat lanza la ronda de heartbeat
@@ -789,12 +1000,17 @@ def _tomar_lock(nombre: str, ttl: int = LOCK_TTL_SEGUNDOS) -> str | None:
     ejecucion) o ``None`` si ya hay otra ronda en curso. Si Redis no
     responde, **no** se bloquea la tarea (sin Redis no hay ni colas ni
     rate-limit): se avisa y se sigue.
+
+    T-177 (2026-10-24): ``token`` permite que quien toma el lock lo
+    **suelte despues** (la tarea que lo encolo lo suelta al
+    terminar). Sin eso, el lock de una camara quedaria tomado hasta
+    que caducase (600 s) y esa camara no volveria a pingarse hasta
+    el doble de intervalo.
     """
-    token = make_worker_correlation_id()
+    if token is None:
+        token = make_worker_correlation_id()
     try:
-        rds = redis.Redis.from_url(
-            get_settings().redis_url, decode_responses=True,
-        )
+        rds = _redis_client()
         if rds.set(f"celery:lock:{nombre}", token, nx=True, ex=ttl):
             return token
         return None
@@ -823,9 +1039,7 @@ def _renovar_lock(nombre: str, token: str, ttl: int = LOCK_TTL_SEGUNDOS) -> bool
     """
     clave = f"celery:lock:{nombre}"
     try:
-        rds = redis.Redis.from_url(
-            get_settings().redis_url, decode_responses=True,
-        )
+        rds = _redis_client()
         # Atomico: si el valor de la clave no es nuestro token, no se toca.
         resultado = rds.eval(
             "if redis.call('get', KEYS[1]) == ARGV[1] "
@@ -853,9 +1067,7 @@ def _soltar_lock(nombre: str, token: str) -> None:
     """
     clave = f"celery:lock:{nombre}"
     try:
-        rds = redis.Redis.from_url(
-            get_settings().redis_url, decode_responses=True,
-        )
+        rds = _redis_client()
         rds.eval(
             "if redis.call('get', KEYS[1]) == ARGV[1] "
             "then return redis.call('del', KEYS[1]) else return 0 end",
@@ -890,13 +1102,10 @@ def probe_heartbeats() -> dict[str, Any]:
     este detector, así que sólo se crearía UNA alerta cuando hay caída
     real (no doble).
 
-    OJO (2026-10-22): ``ping_camera`` **NO se despacha hoy**. No está en
-    el ``beat_schedule`` y nadie la encola (el endpoint
-    ``/admin/cameras/{id}/ping`` que la dispararía nunca se añadió; ver
-    el commit 66c172f). Es decir: **la lectura automática de matrículas
-    no está activa**; el único detector de caída que corre es este, por
-    ``kind="heartbeat"``. La puerta ``tools/verificar_tareas_celery.py``
-    avisa si esa tarea sigue sin despacharse.
+    T-177 (2026-10-24): ``ping_camera`` **ya se despacha** (cada 10 min
+    por cámara, vía ``solidapp.ping_cameras``). Los dos detectores
+    comparten el lock de 1 h de ``CAMERA_OFFLINE``, así que sólo se crea
+    UNA alerta cuando hay caída real (no doble).
 
     Sprint Fase 3C (2026-07-01): un único ``correlation_id`` por
     invocación se propaga a TODOS los audit_logs + logs estructurados

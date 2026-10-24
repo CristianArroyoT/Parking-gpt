@@ -31,13 +31,16 @@ Pipeline:
 - La resolución del email del gestor (``_resolve_manager_email``) nunca
   aborta la creación de la alerta: si no hay gestor, el email se omite.
 
-OJO (T-167, 2026-10-24): **esta ruta está dormida**. La alarma
-``OCR_FAILED`` la dispara ``ping_camera``, que **no se despacha** (T-164:
-el pipeline real es el push externo a
-``POST /parkings/{id}/cameras/{id}/plates``). El arreglo de abajo es
-correcto y queda probado, pero **no vigila nada** hasta que alguien
-active ``ping_camera``. Que lo active quien lo haga, con el TTL ya
-coherente con el umbral.
+T-177 (2026-10-24): **esta ruta ya no está dormida**. La alarma
+``OCR_FAILED`` la dispara ``ping_camera``, que desde el 2026-10-24 se
+despacha **cada 10 min por cámara** (``solidapp.ping_cameras``, decisión
+de producto). El intervalo real (``OCR_PING_INTERVAL_SECONDS`` = 600 s)
+es el que se usa aquí para derivar el TTL del contador: con el ping
+cada 600 s, el TTL tiene que ser **mayor** que 600 s o el contador
+caducaría justo antes de que llegara el siguiente fallo (y la alarma
+no saltaría nunca). Con el umbral por defecto (5) hacen falta
+5 × 600 = 3000 s de fallos, así que el TTL (5 × 600 × 2 = 6000 s)
+cobra holgura de sobra.
 """
 from __future__ import annotations
 
@@ -232,6 +235,11 @@ def record_ocr_failure(camera: Camera, frame_bytes: bytes | None = None) -> Aler
         return None
     # T-167: el TTL se deriva del umbral (no es un número fijo) y se
     # renueva en cada fallo (ventana deslizante).
+    #
+    # T-177 (2026-10-24): el intervalo es el **real** del ping (600 s:
+    # el beat despacha ``solidapp.ping_cameras`` cada 10 min). Con 60 s
+    # el TTL (5 × 60 × 2 = 600 s) caducaría justo antes de que llegara
+    # el siguiente fallo y la alarma no saltaría nunca.
     ttl = ttl_contador_fallos(threshold, settings.ocr_ping_interval_seconds)
 
     try:

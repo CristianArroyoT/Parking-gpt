@@ -77,12 +77,28 @@ class Settings(BaseSettings):
     # ``600/5 = 120 s`` el contador caducaba antes de poder llegar al
     # umbral y **la alerta nunca saltaba**.
     #
-    # OJO (T-164): ``ping_camera`` **no se despacha** hoy (el pipeline
-    # real es el push externo). Este valor es el ritmo **esperado**
-    # para cuando se active; la ventana además se renueva en cada fallo,
-    # así que aguanta un ritmo más lento que éste.
+    # T-177 (2026-10-24): el ping **ya se despacha** (cada 10 min por
+    # cámara, decisión de producto), así que este valor es el ritmo
+    # **real** y tiene que ser **600 s** (10 min), no 60 s: con 60 s de
+    # TTL la ventana del contador (5 × 60 × 2 = 600 s) **caducaría justo
+    # antes** de que llegara el siguiente fallo (que llega a los 600 s) y
+    # la alarma ``OCR_FAILED`` volvería a no saltar nunca.
+    #
+    # OJO: este valor tiene que **coincidir** con
+    # ``ping_camera_interval_seconds`` (600 s). Si se cambia uno, hay que
+    # cambiar el otro: lo vigila un test (``test_ping_camera_despacho.py``).
     ocr_ping_interval_seconds: int = Field(
-        default=60, alias="OCR_PING_INTERVAL_SECONDS"
+        default=600, alias="OCR_PING_INTERVAL_SECONDS"
+    )
+    # T-177 (2026-10-24): intervalo **real** entre pings a la misma
+    # cámara. Es lo que lee el ``beat_schedule`` (``celery_app.py``) para
+    # saber cada cuánto despachar ``solidapp.ping_cameras``, y el TTL del
+    # lock por cámara (para que los pings no se acumulen) y del contador
+    # de fallos de OCR.
+    #
+    # 600 s = 10 min (decisión de producto del 2026-10-24).
+    ping_camera_interval_seconds: int = Field(
+        default=600, alias="PING_CAMERA_INTERVAL_SECONDS"
     )
     # T-167 (2026-10-24): ritmo real del ``probe_heartbeats`` (el beat lo
     # despacha cada 60 s, en ``app/workers/celery_app.py``). Mismo uso:

@@ -16,6 +16,13 @@ que no existía**: que corría "en paralelo" con el detector de heartbeat.
 Medido en la base de datos: la última matrícula leída por el sistema es
 del **2026-06-30**, tres meses y medio antes de este hallazgo.
 
+T-177 (2026-10-24): ese caso está **cerrado** por decisión de producto:
+``solidapp.ping_camera`` se despacha ya (lo encola
+``solidapp.ping_cameras``, que vive en el ``beat_schedule``). La puerta
+ya no lo exime y su autoprueba **vuelve a meter el defecto** (quitar el
+despacho) sobre una **copia** del código, para comprobar que la puerta
+sigue viéndolo.
+
 Este script no juzga si la tarea *debería* ejecutarse: comprueba que
 nadie la ha dejado en el limbo. Las que están en la lista de
 ``EXENCIONES`` se avisan (con su motivo), pero no rompen el CI: son
@@ -31,7 +38,9 @@ import argparse
 import ast
 import json
 import re
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -40,24 +49,22 @@ TAREAS = APP / "workers" / "tasks.py"
 CELERY_APP = APP / "workers" / "celery_app.py"
 
 #: Tareas que NO se despachan, con el motivo (decisión tomada a propósito).
-EXENCIONES: dict[str, str] = {
-    "solidapp.ping_camera": (
-        "Diseñada para que la encolara el endpoint /admin/cameras/{id}/ping, "
-        "que nunca se añadió (commit 66c172f, 2026-06-30: 'cuando se añada'). "
-        "La lectura automática de matrículas NO está activa: la última "
-        "matrícula leída por el sistema es del 2026-06-30. El pipeline real "
-        "es el push externo al endpoint POST /parkings/{id}/plates-detected. "
-        "Despacharla es una decisión de producto, no un olvido."
-    ),
-}
+#:
+#: T-177 (2026-10-24): ``solidapp.ping_camera`` **ya no está aquí**: la
+#: decisión de producto del 2026-10-24 fue despacharla (cada 10 min por
+#: cámara, vía ``solidapp.ping_cameras``). Sin esa exención, la puerta
+#: vigila que el despacho **no desaparezca** otra vez.
+EXENCIONES: dict[str, str] = {}
 
 #: Métodos de Celery que despachan una tarea.
 METODOS_DESPACHO = {"delay", "apply_async", "apply", "si", "signature"}
 
 
-def _tareas_definidas() -> dict[str, str]:
+def _tareas_definidas(app_dir: Path = APP) -> dict[str, str]:
     """``{nombre_de_la_tarea: función}`` de las tareas declaradas."""
-    arbol = ast.parse(TAREAS.read_text(encoding="utf-8"))
+    arbol = ast.parse(
+        (app_dir / "workers" / "tasks.py").read_text(encoding="utf-8")
+    )
     salida: dict[str, str] = {}
     for nodo in ast.walk(arbol):
         if not isinstance(nodo, ast.FunctionDef):
@@ -80,9 +87,11 @@ def _tareas_definidas() -> dict[str, str]:
     return salida
 
 
-def _tareas_programadas() -> set[str]:
+def _tareas_programadas(app_dir: Path = APP) -> set[str]:
     """Los nombres de tarea que aparecen en el ``beat_schedule``."""
-    arbol = ast.parse(CELERY_APP.read_text(encoding="utf-8"))
+    arbol = ast.parse(
+        (app_dir / "workers" / "celery_app.py").read_text(encoding="utf-8")
+    )
     for nodo in ast.walk(arbol):
         if not isinstance(nodo, ast.Assign):
             continue
@@ -167,7 +176,7 @@ def _tareas_que_le_faltan_al_worker(
     return sorted(fuente - worker)
 
 
-def _despachos() -> set[str]:
+def _despachos(app_dir: Path = APP) -> set[str]:
     """Los nombres de tarea que alguien despacha o llama en el código de la app.
 
     Se recorre el AST (no un grep) para no contar menciones en
@@ -175,7 +184,7 @@ def _despachos() -> set[str]:
     este script viene a desmontar.
     """
     nombres: set[str] = set()
-    for fichero in sorted(APP.rglob("*.py")):
+    for fichero in sorted(app_dir.rglob("*.py")):
         try:
             arbol = ast.parse(fichero.read_text(encoding="utf-8"))
         except SyntaxError:  # pragma: no cover
@@ -201,15 +210,16 @@ def _despachos() -> set[str]:
     return nombres
 
 
-def _llamadas_directas() -> set[str]:
+def _llamadas_directas(app_dir: Path = APP) -> set[str]:
     """Las tareas que el código de la app llama directamente (no como tarea).
 
     Llamar a la función directamente **sí** la ejecuta, así que cuenta
     como viva (aunque no sea una ejecución en el worker).
     """
     nombres: set[str] = set()
-    for fichero in sorted(APP.rglob("*.py")):
-        if fichero == TAREAS:
+    tareas = app_dir / "workers" / "tasks.py"
+    for fichero in sorted(app_dir.rglob("*.py")):
+        if fichero == tareas:
             continue
         try:
             arbol = ast.parse(fichero.read_text(encoding="utf-8"))
@@ -221,12 +231,12 @@ def _llamadas_directas() -> set[str]:
     return nombres
 
 
-def _muertas() -> dict[str, str]:
+def _muertas(app_dir: Path = APP) -> dict[str, str]:
     """``{tarea: motivo}`` de las tareas que no se ejecutan de ninguna forma."""
-    definidas = _tareas_definidas()
-    programadas = _tareas_programadas()
-    despachadas = _despachos()
-    directas = _llamadas_directas()
+    definidas = _tareas_definidas(app_dir)
+    programadas = _tareas_programadas(app_dir)
+    despachadas = _despachos(app_dir)
+    directas = _llamadas_directas(app_dir)
 
     muertas: dict[str, str] = {}
     for nombre, funcion in definidas.items():
@@ -238,6 +248,104 @@ def _muertas() -> dict[str, str]:
             continue
         muertas[nombre] = funcion
     return muertas
+
+
+def _copiar_app(destino: Path) -> Path:
+    """Copia ``backend/app`` a un directorio temporal.
+
+    POR QUÉ una copia y no el repositorio (T-135, 2026-10-24): una puerta
+    que **mete el defecto en el repositorio** deja el árbol sucio, y el
+    CI puede leer el código con el defecto puesto (pasó: el job leyó el
+    árbol con el defecto y las pruebas se rompieron por el fichero
+    modificado, no por lo que la puerta vigilaba).
+    """
+    app_dir = destino / "app"
+    shutil.copytree(APP, app_dir)
+    return app_dir
+
+
+def _quitar_entrada_del_beat(app_dir: Path, tarea: str) -> bool:
+    """Quita del ``beat_schedule`` la entrada que publica ``tarea``.
+
+    Se edita el **AST** (y se vuelve a volcar con ``ast.unparse``) en vez
+    de buscar texto: así el caso de mentira aguanta que cambien el
+    formato del fichero.
+    """
+    celery = app_dir / "workers" / "celery_app.py"
+    arbol = ast.parse(celery.read_text(encoding="utf-8"))
+    quitada = False
+
+    class _QuitarBeat(ast.NodeTransformer):
+        def visit_Assign(self, node: ast.Assign) -> ast.Assign:
+            objetivo = node.targets[0]
+            if not (
+                isinstance(objetivo, ast.Attribute)
+                and objetivo.attr == "beat_schedule"
+            ):
+                return node
+            if not isinstance(node.value, ast.Dict):
+                return node
+            claves: list[ast.expr] = []
+            valores: list[ast.expr] = []
+            for clave, valor in zip(node.value.keys, node.value.values, strict=True):
+                # Cada entrada del beat es un dict {"task": ..., ...}:
+                # si su "task" es el que se busca, se quita la entrada
+                # **entera**.
+                if isinstance(valor, ast.Dict):
+                    for k, v in zip(valor.keys, valor.values, strict=True):
+                        if (
+                            isinstance(k, ast.Constant)
+                            and k.value == "task"
+                            and isinstance(v, ast.Constant)
+                            and v.value == tarea
+                        ):
+                            nonlocal quitada
+                            quitada = True
+                            break
+                    else:
+                        claves.append(clave)
+                        valores.append(valor)
+                        continue
+                    continue
+                claves.append(clave)
+                valores.append(valor)
+            node.value = ast.Dict(keys=claves, values=valores)
+            return node
+
+    arbol = _QuitarBeat().visit(arbol)
+    ast.fix_missing_locations(arbol)
+    celery.write_text(ast.unparse(arbol) + "\n", encoding="utf-8")
+    return quitada
+
+
+def _quitar_despacho(app_dir: Path, funcion: str) -> bool:
+    """Quita el ``.delay()`` (o ``.apply_async()``…) de una tarea.
+
+    Se deja el ``None`` en su sitio: lo que se quiere es que la tarea
+    **no se despache**, no romper el fichero.
+    """
+    tasks_py = app_dir / "workers" / "tasks.py"
+    arbol = ast.parse(tasks_py.read_text(encoding="utf-8"))
+    quitado = False
+
+    class _QuitarDespacho(ast.NodeTransformer):
+        def visit_Call(self, node: ast.Call) -> ast.expr:
+            func = node.func
+            if (
+                isinstance(func, ast.Attribute)
+                and func.attr in METODOS_DESPACHO
+                and isinstance(func.value, ast.Name)
+                and func.value.id == funcion
+            ):
+                nonlocal quitado
+                quitado = True
+                return ast.copy_location(ast.Constant(value=None), node)
+            return node
+
+    arbol = _QuitarDespacho().visit(arbol)
+    ast.fix_missing_locations(arbol)
+    tasks_py.write_text(ast.unparse(arbol) + "\n", encoding="utf-8")
+    return quitado
 
 
 def _autoprueba() -> int:
@@ -300,6 +408,70 @@ def _autoprueba() -> int:
     else:
         print("  FALLO: con el worker al dia se reportan tareas que faltan")
         fallos += 1
+
+    # ── T-177 (2026-10-24): el defecto REAL, sobre una COPIA ──────────
+    # La puerta tiene que ver que ``ping_camera`` **ya no se despacha**
+    # si alguien quita el despacho del beat. Se monta el defecto en una
+    # copia del código (nunca en el repositorio: T-135).
+    #
+    # Control: sin mutar, la puerta NO puede ver nada muerto (si lo
+    # viera, los casos de abajo no probarían nada).
+    with tempfile.TemporaryDirectory() as tmp:
+        control = _copiar_app(Path(tmp))
+        muertas_control = _muertas(control)
+        if (
+            "solidapp.ping_camera" in muertas_control
+            or "solidapp.ping_cameras" in muertas_control
+        ):
+            print(
+                "  FALLO: la puerta ve muerta una tarea que sí se despacha "
+                f"({sorted(muertas_control)})"
+            )
+            fallos += 1
+        else:
+            print("  OK: con el despacho puesto, la puerta no ve nada muerto")
+
+    # Caso a: se quita la entrada del beat (la tarea del fan-out deja de
+    # estar programada) → tiene que salir como muerta.
+    with tempfile.TemporaryDirectory() as tmp:
+        app_dir = _copiar_app(Path(tmp))
+        if not _quitar_entrada_del_beat(app_dir, "solidapp.ping_cameras"):
+            print(
+                "  FALLO: no se ha encontrado la entrada del beat del ping: "
+                "el caso de mentira no se ha montado"
+            )
+            fallos += 1
+        else:
+            muertas = _muertas(app_dir)
+            if "solidapp.ping_cameras" not in muertas:
+                print(
+                    "  FALLO: quitar el despacho del beat NO se ha detectado "
+                    f"(muertas={sorted(muertas)})"
+                )
+                fallos += 1
+            else:
+                print("  OK: sin la entrada del beat, la puerta ve la tarea muerta")
+
+    # Caso b: se quita el ``.delay()`` del ping (la entrada del beat se
+    # queda) → ``solidapp.ping_camera`` tiene que salir como muerta.
+    with tempfile.TemporaryDirectory() as tmp:
+        app_dir = _copiar_app(Path(tmp))
+        if not _quitar_despacho(app_dir, "ping_camera"):
+            print(
+                "  FALLO: no se ha encontrado el despacho de ping_camera: "
+                "el caso de mentira no se ha montado"
+            )
+            fallos += 1
+        else:
+            muertas = _muertas(app_dir)
+            if "solidapp.ping_camera" not in muertas:
+                print(
+                    "  FALLO: quitar el .delay() del ping NO se ha detectado "
+                    f"(muertas={sorted(muertas)})"
+                )
+                fallos += 1
+            else:
+                print("  OK: sin el despacho del ping, la puerta lo ve muerto")
 
     if fallos:
         print(f"Autoprueba FALLIDA: {fallos} caso(s).")

@@ -72,13 +72,34 @@ celery_app.conf.beat_schedule = {
     # Tras N fallos consecutivos (``heartbeat_failures_before_alert``)
     # crea alerta CAMERA_OFFLINE con ``context.kind="heartbeat"``.
     #
-    # OJO (2026-10-22): el detector por ``kind="frame"``
-    # (``solidapp.ping_camera``) **no se despacha**: no está en este
-    # horario y nadie la encola. Así que hoy sólo corre este detector.
-    # La puerta ``tools/verificar_tareas_celery.py`` lo comprueba.
+    # OJO (2026-10-22, actualizado el 2026-10-24): el detector por
+    # ``kind="frame"`` (``solidapp.ping_camera``) **ya se despacha**: lo
+    # encola ``solidapp.ping_cameras`` (ver más abajo). Los dos
+    # detectores comparten el lock de 1 h de ``CAMERA_OFFLINE``, así que
+    # no duplican la alerta. La puerta
+    # ``tools/verificar_tareas_celery.py`` lo comprueba.
     "probe-heartbeats-every-minute": {
         "task": "solidapp.probe_heartbeats",
         "schedule": 60.0,  # cada 60 segundos exactos
+    },
+    # T-177 (2026-10-24): el ping a las cámaras pasa a despacharse
+    # **cada 10 minutos por cámara** (decisión de producto del
+    # 2026-10-24). El intervalo sale de un **ajuste**
+    # (``PING_CAMERA_INTERVAL_SECONDS``), no de un número escrito a
+    # fuego: si cambia, cambian el beat, el TTL del lock por cámara y el
+    # TTL del contador de fallos de OCR (``app/services/alerts.py``).
+    #
+    # ``solidapp.ping_cameras`` encola un ``solidapp.ping_camera`` por
+    # cada cámara activa, con un lock por cámara (Redis, TTL igual al
+    # intervalo) para que los pings no se acumulen si una cámara se
+    # queda colgada.
+    #
+    # OJO: el heartbeat de arriba ya cubre la **liveness** del stream
+    # RTSP. Lo que el ping añade es el **viaje al OCR** (detectar el
+    # motor OCR muerto aunque el push del fabricante siga llegando).
+    "ping-cameras-every-10min": {
+        "task": "solidapp.ping_cameras",
+        "schedule": settings.ping_camera_interval_seconds,
     },
     # T-95 (2026-10-23): purga diaria de las fotos de incidentes que han
     # pasado la retencion (90 dias por defecto, LOPDGDD). Antes era un
