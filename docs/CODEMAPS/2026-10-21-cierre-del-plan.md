@@ -2806,3 +2806,31 @@ El síntoma era un `Page.goto` que agotaba los 30 s al navegar a
 `/login`, con el backend y el frontend perfectamente sanos: cuatro
 comprobaciones del `verificar_repo.py` en rojo sin que hubiera ningún
 defecto en la aplicación. Las cinco QAS ahora apuntan a `127.0.0.1`.
+### 3-centésimosesentésimocuarto. El CI remoto vuelve a correr (2026-10-24)
+
+El repositorio, que era **privado**, pasó a **público** (decisión del
+usuario). Con un repositorio privado y la cuenta sin método de pago
+válido, GitHub **rechazaba los jobs antes de asignarles un runner**: los
+4 jobs terminaban en `failure` **sin ejecutar un solo paso**, y **87
+commits** de `main` pasaron sin esa red entre el 2026-07-07 y el
+2026-10-24. Con el repositorio público, los runners estándar son
+gratuitos: **el CI volvió a arrancar**.
+
+**Medido** (2026-10-24, run `40073818792`): los **4 jobs en `success`** —
+Backend, Integration, Build de imágenes Docker y Frontend. Es el último
+criterio del plan, y con él el plan queda **completo (744 de 744)**.
+
+Lo más útil de que el CI arrancara: **enseñó dos fallos latentes** que
+nadie podía ver (estaban dormidos desde hacía meses, porque el job nunca
+había ejecutado un paso):
+
+- la puerta del compose importaba `Settings` (que necesita `pydantic`) y
+  corría en jobs **sin** las dependencias del backend ⇒ fallaba **por el
+  entorno** y no por lo que vigila;
+- la puerta de pruebas inversas **ejecuta pytest** y se lanzaba **antes**
+  del `pip install` ⇒ por lo mismo.
+
+Los dos corregidos (T-147): la puerta avisa en vez de callar, y el
+`pip install` del backend pasa a estar antes de las comprobaciones (el
+escáner de texto sigue siendo lo primero, porque es sólo biblioteca
+estándar y falla en dos segundos).

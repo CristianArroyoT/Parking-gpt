@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **743 de 744 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **744 de 744 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -18,21 +18,34 @@
 > | Lint y tipos | `ruff` en verde (backend **y** `tools/`); **`mypy` en verde (0 errores en modo `strict`)**, y su paso del CI ya **no** va con `continue-on-error`; **`eslint` en verde (0 problemas)**, con paso propio en el CI; `vue-tsc` y `npm run build` en verde; `actionlint` exit 0 |
 > | CI replicado en local | Los **4 jobs** del workflow (backend, integration, docker-build y frontend) pasan **completos, incluidos los dos pasos de test**: `python tools/ejecutar_ci_local.py --all` |
 >
+> **Estado del CI remoto: EN VERDE** ✅ (2026-10-24). Los 4 jobs del
+> workflow sobre `main` pasan en GitHub Actions: Backend, Integration,
+> Build de imágenes Docker y Frontend. El último run en verde es el
+> `40073818792`. **El último criterio del plan está cumplido.**
+> - Para comprobarlo de un vistazo: `python tools/estado_ci.py`
+>   (distingue verde / rojo de verdad / rechazado por la cuenta).
+> - **Cómo se desbloqueó** (2026-10-24): el repositorio, que era
+>   **privado**, pasó a **público** (`gh repo edit --visibility public`).
+>   Con un repositorio privado y la cuenta sin método de pago válido,
+>   GitHub **rechazaba los jobs antes de asignarles un runner** (los 4
+>   jobs terminaban en `failure` **sin ejecutar un solo paso**). Con el
+>   repositorio público, los runners estándar son gratuitos y el CI
+>   volvió a arrancar. Antes de hacerlo se comprobó que el historial
+>   **no tenía secretos** (138.365 líneas escaneadas, 0 hallazgos).
+> - **Lo que el CI enseñó al arrancar** (y que nadie podía ver antes):
+>   dos fallos **latentes** de las puertas (la del compose, que importaba
+>   `Settings` sin tener `pydantic`; y la puerta de pruebas inversas, que
+>   ejecuta `pytest` y se lanzaba **antes** del `pip install`). Los dos
+>   están corregidos (T-147) y el CI vuelve a estar en verde.
+> - Antes de esto, el CI llevaba **más de tres meses sin validar nada**:
+>   el último run que ejecutó un solo paso fue el del **2026-07-07** y
+>   **87 commits** de `main` pasaron sin pasar por él.
+>
 > **Lo que queda depende de ti** (y sólo de ti):
-> 1. **La facturación de la cuenta de GitHub.** Sin ella los jobs de Actions
->    no arrancan (*"recent account payments have failed"*) y no se puede
->    marcar el último criterio, que es precisamente el que depende del
->    CI. **Todos** los jobs del workflow están replicados a mano y en
->    verde, así que deberían pasar en cuanto lo arregles.
->    - Ojo al alcance: el **último run que ejecutó un solo paso** fue el
->      del **2026-07-07**; desde entonces **ningún** run ha llegado a
->      arrancar un job. De los 100 runs revisados, **44** fueron
->      rechazados así. El CI lleva **más de tres meses sin validar nada**
->      (no es sólo que hoy falle), así que esto no es un trámite menor:
->      es la única red de seguridad que le queda al repo, y **87 commits
->      de `main` siguen sin pasar por ella**.
->    - Para comprobarlo de un vistazo: `python tools/estado_ci.py`
->      (distingue verde / rojo de verdad / rechazado por la cuenta).
+> 1. ~~La facturación de la cuenta de GitHub.~~ **Resuelto** el
+>    2026-10-24 haciendo el repositorio público (ver arriba). La
+>    facturación sigue pendiente, pero **ya no bloquea nada**: con el
+>    repositorio público los runners estándar no consumen cuota.
 >    - **Tres vías para recuperar el CI**, de menos a más invasiva (el
 >      repositorio es **privado**, así que los runners de pago son
 >      inevitables mientras la cuenta no esté al día):
@@ -132,7 +145,7 @@ Suite completa tras los arreglos: **265 passed, 0 failed** (antes: 48 failed, 21
 - **Criterios de aceptación**:
   - [x] `ruff check app tests` → *All checks passed!*
   - [x] `mypy app` → **0 errores** (en modo `strict`; ver T-28). Su paso del CI ya no va con `continue-on-error`.
-  - [ ] Los **4 checks del CI sobre `main`** en SUCCESS (Backend, Integration, Build de imágenes Docker y Frontend).
+  - [x] Los **4 checks del CI sobre `main`** en SUCCESS (Backend, Integration, Build de imágenes Docker y Frontend). **Cumplido el 2026-10-24** (run `40073818792`, los 4 jobs en `success`).
       > El criterio original decía `gh pr checks 14`, pero **el PR #14 está fusionado desde el 2026-07-07** y no queda ningún PR abierto: la referencia correcta hoy es el CI sobre `main`. Ver `python tools/estado_ci.py`.
 - **Cómo verificarlo**: `cd backend && ruff check app tests && python tools/estado_ci.py`
 - **Depende de**: T-01 (el fix está en `test_vehicle_detector.py`, sin commitear).

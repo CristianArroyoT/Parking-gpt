@@ -435,21 +435,28 @@ por las buenas. Ver T-124 y T-125 en el plan.
   frontend manda el JWT en la query string para las miniaturas y el stream
   MJPEG (un `<img>` no puede mandar cabeceras), así que **cualquier log de
   peticiones** es un sitio donde puede aparecer una credencial.
-- **El bloqueo conocido**
+- **El CI remoto vuelve a correr** (desde el 2026-10-24, y en verde)
 
-El **CI remoto no puede correr**: la cuenta de GitHub tiene el pago
-pendiente y GitHub rechaza los jobs antes de asignarles un runner. El
-último run que llegó a ejecutar un paso fue el del **2026-07-07**; desde
-entonces ningún run ha arrancado un job, y **87 commits** de `main`
-pasaron sin esa red.
+  Hasta entonces estaba bloqueado: la cuenta de GitHub tenía el pago
+  pendiente y GitHub **rechazaba los jobs antes de asignarles un
+  runner** (los 4 jobs terminaban en `failure` **sin ejecutar un solo
+  paso**). Entre el 2026-07-07 y el 2026-10-24, **87 commits** de `main`
+  pasaron sin esa red.
 
-Esto es lo **único** que queda del plan (el último criterio depende del
-CI) y **sólo lo puede resolver quien tiene la cuenta**: arreglando la
-facturación (*Billing & plans*) o abriendo el repositorio a público.
+  **Cómo se desbloqueó**: el repositorio, que era **privado**, pasó a
+  **público** (`gh repo edit --visibility public --accept-visibility-change-consequences`).
+  Con un repositorio privado y la cuenta sin método de pago válido,
+  GitHub bloquea el uso; en un repositorio público los runners estándar
+  son gratuitos. Antes de hacerlo se comprobó que el historial **no tenía
+  secretos** (`python tools/escanear_secretos.py --historial`).
 
-Mientras tanto, la réplica local (`tools/ejecutar_ci_local.py --all`) **es**
-el CI completo de facto, y `tools/verificar_repo.py` da el veredicto.
-Para ver el estado del CI remoto: `python tools/estado_ci.py`.
+  Lo que el CI enseñó al arrancar, y que nadie podía ver antes: **dos
+  fallos latentes de las puertas** (la del compose importaba `Settings`
+  sin tener `pydantic`; y la de pruebas inversas ejecuta `pytest` y se
+  lanzaba **antes** del `pip install`). Los dos corregidos (T-147).
+
+  Para ver el estado: `python tools/estado_ci.py`. La réplica local
+  (`tools/ejecutar_ci_local.py --all`) replica el workflow en local.
 
 `estado_ci.py` devuelve un código por estado, y **ninguno de ellos es
 "verde" por defecto**:
