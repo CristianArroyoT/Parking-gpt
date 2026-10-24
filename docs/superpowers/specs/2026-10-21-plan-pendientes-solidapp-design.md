@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **782 de 782 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **785 de 785 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -3090,10 +3090,6 @@ comportamiento en marcha, marcados como tales). Ordenados por gravedad:
 - **[MEDIA] `<label>` sin `for` y sin envolver el campo** en los
   formularios de administración (sucursales, tarifas, usuarios, planes,
   cámaras): los campos se anuncian «sin nombre».
-- **[MEDIA] La ingesta asigna tickets a plazas desactivadas**
-  (`is_active=False`): sólo comprueba `is_broken`.
-- **[MEDIA] `Parking.is_active` no lo lee nadie**: desactivar una
-  sucursal no la desactiva (el admin tiene el botón y no hace nada).
 - **[MEDIA] El servicio OCR no limita la concurrencia** y hace el
   `ocr()` **síncrono dentro de un endpoint async** ⇒ con una ráfaga de
   cámaras se caducan los 4 s de timeout y **las lecturas se pierden sin
@@ -3182,6 +3178,19 @@ decisiones de producto y un despliegue real.
       peticiones mas de 20 s despues de salir: 0
   ```
 - **Lo que NO se ha hecho, y por qué** (para que no se dé por hecho): la QA de navegador (`frontend/scripts/qa_temporizadores.py`) **detecta el síntoma** (el temporizador se repite a los 30 s) pero **no causa el defecto**: en el entorno de QA el clic al menú **no sale de la vista** (la URL sigue en `/mapa`), así que no reproduce el desmontaje limpio. Por eso **no está registrada como puerta** en el `verificar_repo.py`: una puerta que no demuestra nada es peor que no tenerla. La puerta de verdad sería una prueba de componente (montar la vista, resolver el `await` **después** de desmontarla y comprobar que no queda ningún temporizador), que requiere un entorno de pruebas de componentes que el repo todavía no tiene.
+
+
+### T-163 · P1 (negocio) — una sucursal o una plaza desactivada seguía admitiendo tickets (y cobrando)
+
+- **Estado**: **completado** — la ingesta no admite entradas en lo que está desactivado
+- **Contexto**: el admin tiene un botón «Activa» para las sucursales y otro para las plazas, pero **`Parking.is_active` no lo leía nadie** en el backend (sólo se escribía), y la ingesta sólo comprobaba `ParkingSpace.is_broken` (la plaza *averiada*), no `is_active` (la plaza *desactivada*).
+- **El defecto**: una sucursal «desactivada» **seguía recibiendo pushes**: la ingesta le creaba vehículo y ticket con su tarifa ⇒ **la sucursal cerrada seguía cobrando** y ocupando plazas. Y una plaza desactivada (obra, reservado, fuera de servicio) seguía admitiendo tickets: justo lo que el operador quería evitar al desactivarla.
+- **El arreglo**: dos skips explícitos en la ingesta (`skipped_parking_inactive` y `skipped_space_inactive`). Son valores de un `StrEnum` de Python, así que **no hace falta migración**.
+- **OJO (lo que NO se toca)**: el listado de sucursales **no** se filtra por `is_active`: el admin tiene que poder ver las inactivas para reactivarlas. Lo que no puede pasar es que una sucursal inactiva **reciba datos**.
+- **Criterios de aceptación**:
+  - [x] Una sucursal desactivada: sin vehículo y sin ticket (test).
+  - [x] Una plaza desactivada: sin ticket (test).
+  - [x] Prueba inversa en `tools/verificar_pruebas_inversas.py`.
 
 ### T-14 · I3 — OCR con GPU
 

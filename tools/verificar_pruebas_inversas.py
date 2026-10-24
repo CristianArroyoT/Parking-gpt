@@ -574,6 +574,37 @@ CASOS: list[Caso] = [
             "test_el_alta_del_cliente_normaliza_la_matricula"
         ),
     ),
+    Caso(
+        nombre="T-163 · la sucursal desactivada vuelve a admitir entradas",
+        fichero="app/services/ingest_service.py",
+        cambios=[
+            (
+                """    parking = db.get(Parking, camera.parking_id)
+    if parking is not None and not parking.is_active:
+        log.warning(
+            "ingest: sucursal %s desactivada, se omite (plate=%s camera=%s)",
+            camera.parking_id,
+            hit.plate,
+            camera.id,
+        )
+        return IngestResult(
+            plate=hit.plate,
+            camera_id=camera.id,
+            parking_id=camera.parking_id,
+            status=IngestStatus.SKIPPED_PARKING_INACTIVE,
+            confidence=hit.confidence,
+            reason="Sucursal desactivada; no se admiten entradas",
+        )
+
+""",
+                "",
+            ),
+        ],
+        test=(
+            "tests/test_ingest_service.py::"
+            "test_una_sucursal_desactivada_no_admite_entradas"
+        ),
+    ),
 ]
 
 

@@ -49,7 +49,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.db import SessionLocal
 from app.models.enums import GeofenceDirection, TicketStatus
 from app.models.geofence import CameraGeofence
-from app.models.parking import Camera, ParkingSpace
+from app.models.parking import Camera, Parking, ParkingSpace
 from app.models.ticket import Ticket
 from app.models.vehicle import Vehicle
 from app.schemas.plate import PlateHit
@@ -72,6 +72,15 @@ class IngestStatus(StrEnum):
     SKIPPED_CLOSE_FAILED = "skipped_close_failed"
     SKIPPED_SPACE_OCCUPIED = "skipped_space_occupied"
     SKIPPED_SPACE_BROKEN = "skipped_space_broken"
+    #: T-163 (2026-10-24): la plaza esta **desactivada** (obra, reservado,
+    #: fuera de servicio). Antes solo se comprobaba ``is_broken`` (la
+    #: averiada), asi que una plaza desactivada seguia admitiendo
+    #: tickets: justo lo que el operador queria evitar.
+    SKIPPED_SPACE_INACTIVE = "skipped_space_inactive"
+    #: T-163 (2026-10-24): la sucursal esta **desactivada**. Antes
+    #: ``Parking.is_active`` no lo leia nadie: una sucursal cerrada
+    #: seguia recibiendo pushes, creando tickets y **cobrando**.
+    SKIPPED_PARKING_INACTIVE = "skipped_parking_inactive"
     SKIPPED_ALREADY_INSIDE = "skipped_already_inside"
     #: El OCR leyó un texto que no es una matrícula (2026-10-22): el
     #: timestamp quemado de la cámara, el rótulo de la marca... No se
@@ -181,6 +190,27 @@ def _process_in_tx(
     now: datetime,
 ) -> IngestResult:
     """Lógica de cruce + creación/cierre. La sesión es del servicio (no del caller)."""
+    # 0. T-163 (2026-10-24): la sucursal tiene que estar ACTIVA. Antes
+    # ``Parking.is_active`` no lo leia nadie, asi que una sucursal
+    # desactivada seguia recibiendo pushes: le creaba ticket con su
+    # tarifa (o sea, cobra) y ocupaba plazas.
+    parking = db.get(Parking, camera.parking_id)
+    if parking is not None and not parking.is_active:
+        log.warning(
+            "ingest: sucursal %s desactivada, se omite (plate=%s camera=%s)",
+            camera.parking_id,
+            hit.plate,
+            camera.id,
+        )
+        return IngestResult(
+            plate=hit.plate,
+            camera_id=camera.id,
+            parking_id=camera.parking_id,
+            status=IngestStatus.SKIPPED_PARKING_INACTIVE,
+            confidence=hit.confidence,
+            reason="Sucursal desactivada; no se admiten entradas",
+        )
+
     # 1. Geocercas de la cámara
     geofences = (
         db.query(CameraGeofence)
@@ -431,8 +461,25 @@ def _process_in_tx(
             reason="Plaza ya tiene ticket activo",
         )
 
-    # 5b. ¿Plaza del geofence está marcada como averiada?
+    # 5b. ¿Plaza del geofence está marcada como averiada o desactivada?
+    # T-163 (2026-10-24): antes solo se miraba ``is_broken``; una plaza
+    # **desactivada** (obra, reservado, fuera de servicio) seguia
+    # admitiendo tickets.
     space = db.get(ParkingSpace, matched.parking_space_id)
+    if space is not None and not space.is_active:
+        log.info(
+            "ingest: plaza %s desactivada, se omite creación de ticket",
+            matched.parking_space_id,
+        )
+        return IngestResult(
+            plate=hit.plate,
+            camera_id=camera.id,
+            parking_id=camera.parking_id,
+            status=IngestStatus.SKIPPED_SPACE_INACTIVE,
+            confidence=hit.confidence,
+            parking_space_id=matched.parking_space_id,
+            reason="Plaza desactivada; no se admiten entradas",
+        )
     if space is not None and space.is_broken:
         log.info(
             "ingest: plaza %s averiada, se omite creación de ticket",

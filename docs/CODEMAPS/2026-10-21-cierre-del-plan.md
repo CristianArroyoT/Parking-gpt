@@ -2958,3 +2958,15 @@ La QA de navegador detecta el síntoma pero **no** reproduce el
 desmontaje limpio (en el entorno de QA el clic al menú no sale de la
 vista), así que **no se ha registrado como puerta**: una puerta que no
 demuestra nada es peor que no tenerla.
+### 3-centésimosesentésimooctavo. Lo desactivado ya no admite entradas (2026-10-24)
+
+`Parking.is_active` **no lo leía nadie**: una sucursal «desactivada»
+seguía recibiendo pushes, le creaba ticket con su tarifa (o sea, **cobraba**) y
+recibiendo pushes, le creaba ticket con su tarifa (o sea, **cobraba**) y
+ocupaba plazas. Y la ingesta sólo miraba `ParkingSpace.is_broken` (la
+averiada), no `is_active` (la plaza desactivada).
+
+Ahora la ingesta tiene dos skips explícitos (`skipped_parking_inactive` y
+`skipped_space_inactive`). El **listado** no se toca: el admin tiene que
+poder ver las inactivas para reactivarlas; lo que no puede pasar es que
+reciban datos.

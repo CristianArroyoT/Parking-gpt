@@ -663,3 +663,43 @@ def test_un_integrity_error_que_no_es_de_la_matricula_se_propaga(
     assert "foreign key" in (result.reason or "").lower(), (
         f"la causa original se perdio: {result.reason}"
     )
+
+# ── T-163 (2026-10-24): lo desactivado no admite entradas ────────────────
+
+
+def test_una_sucursal_desactivada_no_admite_entradas(ingest_env) -> None:
+    """Una sucursal desactivada no debe recibir pushes (ni cobrar).
+
+    Antes ``Parking.is_active`` no lo leia nadie: la sucursal «cerrada»
+    seguia creando vehiculo y ticket con su tarifa.
+    """
+    db = ingest_env
+    parking, space, camera = _setup_with_geofence(db)
+    _add_tariff(db, parking.id)
+    parking.is_active = False
+    db.commit()
+
+    hit = PlateHit(plate="1234ABC", confidence=0.95, bbox=[10, 10, 50, 50])
+    result = process_plate_hit(hit, camera)
+
+    assert result.status == IngestStatus.SKIPPED_PARKING_INACTIVE
+    assert db.query(Ticket).count() == 0
+    assert db.query(Vehicle).count() == 0, "no debe crearse ni el vehiculo"
+
+
+def test_una_plaza_desactivada_no_admite_entradas(ingest_env) -> None:
+    """Una plaza desactivada (obra, reservado) no admite tickets.
+
+    Antes solo se comprobaba ``is_broken`` (la averiada).
+    """
+    db = ingest_env
+    parking, space, camera = _setup_with_geofence(db)
+    _add_tariff(db, parking.id)
+    space.is_active = False
+    db.commit()
+
+    hit = PlateHit(plate="1234ABC", confidence=0.95, bbox=[10, 10, 50, 50])
+    result = process_plate_hit(hit, camera)
+
+    assert result.status == IngestStatus.SKIPPED_SPACE_INACTIVE
+    assert db.query(Ticket).count() == 0
