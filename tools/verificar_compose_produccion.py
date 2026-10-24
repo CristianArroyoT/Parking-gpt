@@ -253,7 +253,13 @@ def comprobar(
     for servicio, valor in _politicas_de_restart(texto_prod).items():
         if valor is not None:
             reinicios[servicio] = valor
+    # T-155 (2026-10-24): los one-shot (los que declaran `profiles`) quedan
+    # exentos: se ejecutan a proposito y terminan; con
+    # `restart: unless-stopped` Docker los volveria a arrancar en bucle.
+    one_shot = _servicios_one_shot(texto_dev) | _servicios_one_shot(texto_prod)
     for servicio, valor in sorted(reinicios.items()):
+        if servicio in one_shot:
+            continue
         if valor != "unless-stopped":
             problemas.append(
                 f"el servicio {servicio} no tiene 'restart: unless-stopped' "
@@ -401,6 +407,44 @@ def _politicas_de_restart(texto: str) -> dict[str, str | None]:
     if nombre and es_servicio:
         servicios[nombre] = reinicio
     return servicios
+
+
+def _servicios_one_shot(texto: str) -> set[str]:
+    """Los servicios que declaran ``profiles``: se ejecutan a proposito.
+
+    T-155 (2026-10-24): un one-shot (por ejemplo el servicio ``backup``)
+    **no** puede llevar ``restart: unless-stopped``: el script termina al
+    hacer su trabajo, Docker lo ve caido y lo vuelve a arrancar en bucle.
+    Asi que estos servicios quedan exentos de la regla del reinicio
+    automatico.
+    """
+    one_shot: set[str] = set()
+    nombre: str | None = None
+    es_servicio = False
+    tiene_profiles = False
+    for linea in texto.splitlines():
+        if not linea.strip() or linea.strip().startswith("#"):
+            continue
+        sangria = len(linea) - len(linea.lstrip())
+        if sangria == 2 and linea.rstrip().endswith(":"):
+            if nombre and es_servicio and tiene_profiles:
+                one_shot.add(nombre)
+            nombre = linea.strip()[:-1]
+            es_servicio = False
+            tiene_profiles = False
+            continue
+        if sangria == 4 and (
+            linea.strip().startswith("image:")
+            or linea.strip().startswith("build:")
+        ):
+            es_servicio = True
+            continue
+        if sangria == 4 and linea.strip().startswith("profiles:"):
+            tiene_profiles = True
+            continue
+    if nombre and es_servicio and tiene_profiles:
+        one_shot.add(nombre)
+    return one_shot
 
 
 def _cargar_en_settings(variables: dict[str, str]) -> str | None:
@@ -633,6 +677,21 @@ def autoprueba() -> int:
             texto_ok,
             False,
             "  backend:\n    image: ejemplo\n    restart: unless-stopped\n",
+        ),
+        (
+            "un servicio one-shot (con profiles) no necesita politica de reinicio",
+            {},
+            prod_ok,
+            "  backend:\n"
+            "    command: !override [\"uvicorn\", \"app.main:app\"]\n"
+            "    volumes: !override\n"
+            "      - incident_attachments:/var/lib/solidapp/incident-attachments\n"
+            "      dockerfile: Dockerfile.prod\n"
+            "  backup:\n"
+            "    image: ejemplo\n"
+            "    profiles: [\"backup\"]\n"
+            "    restart: \"no\"\n",
+            False,
         ),
         (
             "un valor de entorno que el backend no puede cargar",

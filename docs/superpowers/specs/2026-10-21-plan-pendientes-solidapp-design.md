@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **764 de 764 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **767 de 767 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2994,6 +2994,19 @@ producto.
   - [x] El `cron` documentado ejecuta el servicio (no el script suelto).
   - [x] Medido: el backup produce el tar de adjuntos cifrado y, al descifrarlo, contiene las fotos.
   - [x] Puerta nueva `tools/verificar_backup_adjuntos.py` (5 casos de mentira), registrada en `tools/autopruebas.py` y en `tools/verificar_repo.py`.
+
+
+### T-155 · P2 (puerta) — la puerta del compose exigía `restart` a los servicios one-shot
+
+- **Estado**: **completado** — los one-shot quedan exentos, y está documentado por qué
+- **Contexto**: la regla del T-101 («todos los servicios se levantan solos si mueren») se aplicaba a **todos** los servicios, incluidos los **one-shot** (los que declaran `profiles` y se ejecutan a propósito, como el nuevo servicio `backup`).
+- **El defecto**: para un one-shot, `restart: unless-stopped` es **contraproducente**: el script termina al hacer su trabajo, Docker lo ve caído y lo vuelve a arrancar, **en bucle**. Es decir: la puerta obligaba a poner una política **peor** que la que corresponde, y su única forma de «cumplir» era mentir sobre el comportamiento del servicio.
+- **Cómo salió**: al añadir el servicio `backup` (T-154), el `verificar_repo.py` puso la puerta del compose en rojo («el servicio backup no tiene 'restart: unless-stopped'»). El defecto estaba en la **puerta**, no en el compose.
+- **El arreglo**: los servicios con `profiles` quedan exentos de la regla del reinicio automático, y la puerta lo documenta (con un caso de autoprueba propio).
+- **Criterios de aceptación**:
+  - [x] La puerta del compose pasa con el servicio `backup` (que es one-shot).
+  - [x] La puerta sigue exigiendo `restart: unless-stopped` a los servicios **normales**.
+  - [x] Caso de autoprueba: un one-shot con `restart: "no"` no es un fallo.
 
 ### T-14 · I3 — OCR con GPU
 

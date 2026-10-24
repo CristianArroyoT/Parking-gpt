@@ -2910,3 +2910,14 @@ Ahora hay un servicio `backup` en el compose que monta **el mismo volumen
 que el backend** y define `ATTACHMENTS_DIR`, y el `cron` lo ejecuta.
 **Medido**: el backup produce el tar cifrado y, al descifrarlo, contiene
 las fotos.
+### 3-centésimosesentésimosexto y uno. Los one-shot no necesitan politica de reinicio (2026-10-24)
+
+La regla del T-101 («todos los servicios se levantan solos si mueren») se
+aplicaba también a los servicios **one-shot** (los que declaran `profiles`
+y se ejecutan a propósito, como el nuevo `backup`). Para un one-shot,
+`restart: unless-stopped` es contraproducente: el script termina, Docker
+lo ve caído y lo vuelve a arrancar **en bucle**.
+
+Lo detectó el propio `verificar_repo.py` al añadir el servicio `backup`:
+el defecto estaba en la **puerta**, no en el compose. Ahora los one-shot
+quedan exentos, con su caso de autoprueba.
