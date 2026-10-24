@@ -254,6 +254,16 @@ por las buenas. Ver T-124 y T-125 en el plan.
   WebSocket del HMR); **sin** reiniciar (frontend ya caliente + 30 s),
   130 capturas y **0 y 0**. Ojo: el `informe.json` se escribe al final, y
   hasta entonces es el de la ejecución anterior.
+- **El dev-server de Vite puede dejar de responder SIN reiniciarse**
+  (2026-10-23): con la máquina saturada (otras sesiones), el contenedor
+  del frontend sigue `healthy` y sus logs muestran **un único arranque**,
+  pero Vite deja de aceptar conexiones: la QA visual falla con
+  `ERR_CONNECTION_RESET` en **todas** las peticiones y `Page.goto` a 30
+  s, y no llega ni una sola petición al backend. No es un fallo de la
+  app, y se distingue así: **ninguna** petición llega al backend y el
+  contenedor no se reinició (logs con un solo arranque). La solución es
+  dejar que la máquina se calme y reintentar; con la máquina libre, la
+  misma QA da 130 capturas y 0 y 0.
 - **Dos suites del host sí pueden ir en paralelo** (SQLite y PostgreSQL a
   la vez): la base de Redis de cada una se **toma con un lock** (`SET NX`).
   Pero **dos suites de PostgreSQL no**: la segunda hace `DROP DATABASE` de
