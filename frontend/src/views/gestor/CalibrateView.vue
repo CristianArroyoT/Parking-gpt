@@ -695,9 +695,11 @@ async function runVehicleDetection(): Promise<void> {
               <div><span class="text-slate-500">ancho</span> <span class="font-mono">{{ Math.round(draft.w) }}</span></div>
               <div><span class="text-slate-500">alto</span> <span class="font-mono">{{ Math.round(draft.h) }}</span></div>
             </div>
+            <!-- T-182 (2026-10-24): estos campos no tenian par `for`/`id`, asi
+                 que se anunciaban "sin nombre". -->
             <div>
-              <label class="block text-slate-700 font-medium mb-1">Plaza a asignar</label>
-              <select v-model.number="form.parking_space_id" class="input">
+              <label class="block text-slate-700 font-medium mb-1" for="cal-plaza">Plaza a asignar</label>
+              <select id="cal-plaza" v-model.number="form.parking_space_id" class="input">
                 <option :value="null" disabled>Selecciona plaza…</option>
                 <option v-for="s in spaces" :key="s.id" :value="s.id">
                   {{ s.lane }}-{{ s.number }} {{ s.is_active ? '' : '(inactiva)' }}
@@ -705,15 +707,15 @@ async function runVehicleDetection(): Promise<void> {
               </select>
             </div>
             <div>
-              <label class="block text-slate-700 font-medium mb-1">Umbral de confianza</label>
+              <label class="block text-slate-700 font-medium mb-1" for="cal-umbral">Umbral de confianza</label>
               <div class="flex items-center gap-3">
-                <input v-model.number="form.confidence_threshold" type="range" min="0" max="1" step="0.01" class="flex-1" />
+                <input id="cal-umbral" v-model.number="form.confidence_threshold" type="range" min="0" max="1" step="0.01" class="flex-1" />
                 <span class="text-sm font-mono w-12 text-right">{{ Math.round(form.confidence_threshold * 100) }} %</span>
               </div>
             </div>
             <div>
-              <label class="block text-slate-700 font-medium mb-1">Dirección de la cámara</label>
-              <select v-model="form.direction" class="input">
+              <label class="block text-slate-700 font-medium mb-1" for="cal-direccion">Dirección de la cámara</label>
+              <select id="cal-direccion" v-model="form.direction" class="input">
                 <option value="entry">Entrada (vehículos entran)</option>
                 <option value="exit">Salida (vehículos salen)</option>
               </select>
@@ -735,9 +737,10 @@ async function runVehicleDetection(): Promise<void> {
                 <div class="text-xs text-slate-500 mb-1">Plaza asignada</div>
                 <div class="font-medium">{{ fenceLabel(g) }}</div>
                 <div class="mt-3">
-                  <label class="block text-slate-700 font-medium mb-1">Umbral de confianza</label>
+                  <label class="block text-slate-700 font-medium mb-1" for="cal-umbral-seleccion">Umbral de confianza</label>
                   <div class="flex items-center gap-3">
                     <input
+                      id="cal-umbral-seleccion"
                       type="range" min="0" max="1" step="0.01"
                       :value="g.confidence_threshold"
                       class="flex-1"
@@ -747,8 +750,9 @@ async function runVehicleDetection(): Promise<void> {
                   </div>
                 </div>
                 <div class="mt-3">
-                  <label class="block text-slate-700 font-medium mb-1">Dirección de la cámara</label>
+                  <label class="block text-slate-700 font-medium mb-1" for="cal-direccion-seleccion">Dirección de la cámara</label>
                   <select
+                    id="cal-direccion-seleccion"
                     :value="g.direction"
                     class="input"
                     @change="updateDirection(g, ($event.target as HTMLSelectElement).value as Direction)"

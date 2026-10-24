@@ -260,6 +260,9 @@ function close(): void {
   <div
     v-if="open"
     class="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Reportar incidente"
     @click.self="close"
   >
     <div class="bg-white rounded-xl shadow-card max-w-2xl w-full max-h-[90vh] overflow-y-auto">
@@ -296,17 +299,19 @@ function close(): void {
         </div>
 
         <template v-if="activeTab !== 'robery'">
+          <!-- T-182 (2026-10-24): estos campos no tenian par `for`/`id`, asi
+               que se anunciaban "sin nombre". -->
           <div>
-            <label class="block text-xs font-medium text-slate-700 mb-1">Plaza</label>
-            <select v-model.number="form.spaceId" class="input">
+            <label class="block text-xs font-medium text-slate-700 mb-1" for="inc-plaza">Plaza</label>
+            <select id="inc-plaza" v-model.number="form.spaceId" class="input">
               <option v-for="s in availableSpaces" :key="s.id" :value="s.id">
                 {{ s.lane }}-{{ s.number }}{{ s.is_broken ? ' (averiada)' : '' }}
               </option>
             </select>
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-700 mb-1">Motivo</label>
-            <select v-model="form.reason" class="input">
+            <label class="block text-xs font-medium text-slate-700 mb-1" for="inc-motivo">Motivo</label>
+            <select id="inc-motivo" v-model="form.reason" class="input">
               <option v-for="r in SPACE_REASONS" :key="r.value" :value="r.value">
                 {{ r.label }}
               </option>
@@ -316,10 +321,10 @@ function close(): void {
 
         <template v-else>
           <div>
-            <label class="block text-xs font-medium text-slate-700 mb-1">
+            <label class="block text-xs font-medium text-slate-700 mb-1" for="inc-plaza-robo">
               Plaza (opcional)
             </label>
-            <select v-model.number="form.spaceId" class="input">
+            <select id="inc-plaza-robo" v-model.number="form.spaceId" class="input">
               <option :value="null">— No determinada —</option>
               <option v-for="s in availableSpaces" :key="s.id" :value="s.id">
                 {{ s.lane }}-{{ s.number }}
@@ -327,18 +332,19 @@ function close(): void {
             </select>
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-700 mb-1">Motivo</label>
-            <select v-model="form.reason" class="input">
+            <label class="block text-xs font-medium text-slate-700 mb-1" for="inc-motivo-robo">Motivo</label>
+            <select id="inc-motivo-robo" v-model="form.reason" class="input">
               <option v-for="r in ROBERY_REASONS" :key="r.value" :value="r.value">
                 {{ r.label }}
               </option>
             </select>
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-700 mb-1">
+            <label class="block text-xs font-medium text-slate-700 mb-1" for="inc-matricula">
               Matrícula (opcional)
             </label>
             <input
+              id="inc-matricula"
               v-model="form.plate"
               type="text"
               maxlength="16"
@@ -349,10 +355,11 @@ function close(): void {
         </template>
 
         <div>
-          <label class="block text-xs font-medium text-slate-700 mb-1">
+          <label class="block text-xs font-medium text-slate-700 mb-1" for="inc-fotos">
             Fotos (máx. {{ MAX_FOTOS }})
           </label>
           <input
+            id="inc-fotos"
             type="file"
             accept="image/jpeg,image/png,image/webp"
             multiple
@@ -380,8 +387,9 @@ function close(): void {
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-slate-700 mb-1">Notas</label>
+          <label class="block text-xs font-medium text-slate-700 mb-1" for="inc-notas">Notas</label>
           <textarea
+            id="inc-notas"
             v-model="form.notes"
             rows="3"
             maxlength="500"

@@ -3163,3 +3163,36 @@ Queda anotado: si el servicio OCR está caído, sale **una alarma por
 cámara** (con su lock de 1 h). Es ruido por servicio, no por cámara; lo
 ideal sería una alerta de servicio única, y eso es un cambio de modelo
 (la alerta vive dentro de una sucursal).
+### 3-centésimosesentésimocuarenta y ocho. Ningún control se queda sin nombre (2026-10-24)
+
+El T-171 arregló los `<label>` sin `for` de los formularios de
+administración, pero dejó cuatro vistas fuera y, sobre todo, no miró los
+controles que **no tenían etiqueta en absoluto**. Medido el 2026-10-24 con
+un navegador de verdad (controles VISIBLES sin nombre accesible):
+
+    /mis-vehiculos                 3 campos (el formulario de edición:
+                                       marca, modelo, color)
+    /calibrate (geocerca nueva)    3 campos (plaza, umbral, dirección)
+    /calibrate (geocerca el.)      2 campos (umbral, dirección)
+    /operador/alta-manual          6 campos (sucursal, cámara, plaza y los
+                                       tres que NO tenían etiqueta: los dos
+                                       de la matrícula y las notas)
+    /vivo (modal: averiada)        4 campos (plaza, motivo, fotos, notas)
+    /vivo (modal: robo)            5 campos (plaza, motivo, matrícula,
+                                       fotos, notas)
+                                    ---
+                                    23 controles sin nombre
+
+Ahora la puerta `qa_labels_admin.py` tiene **14 escenas** (antes 7) y
+vigila las cuatro vistas nuevas **más** la pantalla «En vivo»; y su
+inversa vuelve a quitar el `for`/`id` y comprueba que la QA **falla
+señalando esa vista**.
+
+Dos cosas que sólo aparecieron al integrar (y que la puerta cazó):
+
+- el `<select>` de sucursal de la pantalla «En vivo» seguía sin nombre
+  (1 control): se le puso `aria-label` (el patrón del repo para selects
+  compactos) y se añadió la escena de esa página;
+- el campo «Marca» del formulario de edición de «Mis vehículos» se había
+  quedado **sin `for` ni `id`** en la última edición: lo cazó la QA al
+  ejecutarla (y no el código, que «se veía bien»).

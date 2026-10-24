@@ -213,11 +213,13 @@ onMounted(loadParkings)
 
         <div class="bg-white rounded-xl shadow-card p-5 space-y-4">
           <h2 class="font-semibold">Sucursal, cámara y plaza</h2>
+          <!-- T-182 (2026-10-24): estos campos no tenian par `for`/`id`, asi
+               que se anunciaban "sin nombre". -->
           <div>
-            <label class="block text-xs font-medium text-slate-700 mb-1">
+            <label class="block text-xs font-medium text-slate-700 mb-1" for="alta-sucursal">
               Sucursal
             </label>
-            <select v-model.number="form.parkingId" class="input">
+            <select id="alta-sucursal" v-model.number="form.parkingId" class="input">
               <option v-for="p in parkings" :key="p.id" :value="p.id">
                 {{ p.name }}
               </option>
@@ -225,10 +227,10 @@ onMounted(loadParkings)
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label class="block text-xs font-medium text-slate-700 mb-1">
+              <label class="block text-xs font-medium text-slate-700 mb-1" for="alta-camara">
                 Cámara (opcional)
               </label>
-              <select v-model.number="form.cameraId" class="input">
+              <select id="alta-camara" v-model.number="form.cameraId" class="input">
                 <option :value="null">— Sin asignar —</option>
                 <option v-for="c in cameras" :key="c.id" :value="c.id">
                   {{ c.code }}
@@ -236,10 +238,10 @@ onMounted(loadParkings)
               </select>
             </div>
             <div>
-              <label class="block text-xs font-medium text-slate-700 mb-1">
+              <label class="block text-xs font-medium text-slate-700 mb-1" for="alta-plaza">
                 Plaza (opcional)
               </label>
-              <select v-model.number="form.spaceId" class="input">
+              <select id="alta-plaza" v-model.number="form.spaceId" class="input">
                 <option :value="null">— Sin asignar —</option>
                 <option v-for="s in spaces" :key="s.id" :value="s.id">
                   {{ s.lane }}-{{ s.number }}
@@ -251,21 +253,28 @@ onMounted(loadParkings)
 
         <div class="bg-white rounded-xl shadow-card p-5">
           <h2 class="font-semibold mb-3">Matrícula</h2>
+          <!-- T-182 (2026-10-24): los dos campos de la matricula no tenian
+               etiqueta (solo el placeholder, que no es nombre accesible):
+               se anunciaban "sin nombre". -->
           <div class="flex items-center gap-3">
             <input
+              id="alta-matricula-digitos"
               v-model="form.plateDigits"
               type="text"
               inputmode="numeric"
               maxlength="4"
               placeholder="0000"
+              aria-label="Matrícula: 4 dígitos"
               class="input w-24 text-center font-mono tracking-widest uppercase"
             />
             <span class="text-2xl text-slate-400">·</span>
             <input
+              id="alta-matricula-letras"
               v-model="form.plateLetters"
               type="text"
               maxlength="3"
               placeholder="ABC"
+              aria-label="Matrícula: 3 letras"
               class="input w-24 text-center font-mono tracking-widest uppercase"
             />
             <span
@@ -279,10 +288,14 @@ onMounted(loadParkings)
 
         <div class="bg-white rounded-xl shadow-card p-5">
           <h2 class="font-semibold mb-3">Notas</h2>
+          <!-- T-182 (2026-10-24): el textarea no tenia etiqueta (el <h2> de
+               arriba no la suple): se anunciaba "sin nombre". -->
           <textarea
+            id="alta-notas"
             v-model="form.notes"
             rows="3"
             maxlength="500"
+            aria-label="Notas"
             class="input"
             placeholder="Contexto adicional para auditoría (opcional)"
           />

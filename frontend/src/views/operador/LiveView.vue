@@ -196,7 +196,10 @@ onBeforeUnmount(() => {
           <span>· Actualización en vivo por SSE (fallback 30 s)</span>
         </p>
       </div>
+      <!-- T-182: sin nombre accesible (medido: 1 control). El patron
+           del repo para los selects compactos es `aria-label`. -->
       <select v-model.number="selectedId" class="input w-auto"
+        aria-label="Sucursal"
         @change="selectedId && (loadContext(selectedId), refreshAll())">
         <option v-for="p in parkings" :key="p.id" :value="p.id">{{ p.name }}</option>
       </select>

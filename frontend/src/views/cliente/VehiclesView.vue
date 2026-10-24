@@ -325,9 +325,16 @@ onMounted(reload)
             class="mt-3 grid gap-3 sm:grid-cols-4 bg-slate-50 rounded-lg p-3"
             @submit.prevent="onSaveEdit(v)"
           >
+            <!-- T-182 (2026-10-24): el formulario de edicion no tenia el par
+                 `for`/`id` (el de alta si lo tiene), asi que sus campos se
+                 anunciaban "sin nombre". -->
             <div>
-              <label class="block text-xs font-medium text-slate-700 mb-1">Marca</label>
+              <label
+                class="block text-xs font-medium text-slate-700 mb-1"
+                for="veh-edicion-marca"
+              >Marca</label>
               <input
+                id="veh-edicion-marca"
                 v-model="editForm.brand"
                 type="text"
                 maxlength="64"
@@ -335,8 +342,9 @@ onMounted(reload)
               />
             </div>
             <div>
-              <label class="block text-xs font-medium text-slate-700 mb-1">Modelo</label>
+              <label class="block text-xs font-medium text-slate-700 mb-1" for="veh-edicion-modelo">Modelo</label>
               <input
+                id="veh-edicion-modelo"
                 v-model="editForm.model"
                 type="text"
                 maxlength="64"
@@ -344,8 +352,9 @@ onMounted(reload)
               />
             </div>
             <div>
-              <label class="block text-xs font-medium text-slate-700 mb-1">Color</label>
+              <label class="block text-xs font-medium text-slate-700 mb-1" for="veh-edicion-color">Color</label>
               <input
+                id="veh-edicion-color"
                 v-model="editForm.color"
                 type="text"
                 maxlength="32"

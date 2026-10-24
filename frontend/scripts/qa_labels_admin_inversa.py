@@ -1,12 +1,21 @@
-"""Prueba inversa del T-171: sin ``for``/``id``, los campos de los
-formularios de administracion (y el de cams) se anuncian SIN NOMBRE.
+"""Prueba inversa del T-171 y del T-182: sin ``for``/``id``, los campos de
+los formularios se anuncian SIN NOMBRE.
 
 OJO: hay que **reiniciar el frontend** tras quitar o restaurar el
 arreglo (con el bind mount, el HMR de Vite no siempre aplica y se mide
 el bundle viejo).
 
-Se deshace el arreglo en un formulario cada vez (sucursales, tarifas y
-cams) y se exige que la QA falle por el motivo correcto en cada caso.
+Se deshace el arreglo en un formulario cada vez (sucursales, tarifas,
+cams, alta manual, vehiculos del cliente y modal de incidentes) y se
+exige que la QA falle por el motivo correcto en cada caso.
+
+OJO (T-182): la QA vigila ahora las cuatro vistas que faltaban (cliente,
+calibracion, operador), asi que la inversa tiene que comprobarlas tambien:
+si la QA se queda en las de administracion, es una puerta ciega para las
+otras.
+
+Al final se vuelve a dejar el fichero como estaba y se corre la QA otra
+vez: el verde tiene que volver (si no, el defecto se ha dejado puesto).
 """
 from __future__ import annotations
 
@@ -24,12 +33,51 @@ SRC = RAIZ / "frontend" / "src"
 COPIA = Path(r"D:\tmp\_copias_t171")
 COPIA.mkdir(parents=True, exist_ok=True)
 
-# (fichero, id del par etiqueta/campo, motivo esperado)
+# (fichero, id del par etiqueta/campo, vista que tiene que señalar el fallo)
 MUTACIONES: list[tuple[str, str, str]] = [
     ("views/admin/ParkingsView.vue", "parking-codigo", "/admin/parkings"),
     ("views/admin/TariffsView.vue", "tarifa-nombre", "/admin/tariffs"),
     ("views/gestor/CamerasView.vue", "camara-rtsp", "/cameras"),
+    # T-182: las cuatro vistas nuevas.
+    ("views/operador/ManualEntryView.vue", "alta-sucursal", "/operador/alta-manual"),
+    ("views/cliente/VehiclesView.vue", "veh-edicion-marca", "/mis-vehiculos"),
+    (
+        "views/operador/IncidentModal.vue",
+        "inc-plaza",
+        "/vivo (modal de incidentes: averiada)",
+    ),
 ]
+
+
+def _calentar_frontend() -> None:
+    """Fuerza a Vite a terminar la reoptimización de dependencias.
+
+    Al arrancar, Vite reoptimiza las dependencias (escribe en
+    node_modules/.vite) y el dev-server se reinicia otra vez: si la QA pide
+    la página justo en ese momento, mide un bundle a medias o se queda
+    esperando el <h1> hasta agotar el tiempo. Abriendo la pantalla de
+    login en un navegador de verdad, ese trabajo se adelanta (medido: con
+    la máquina saturada, sin calentar, la QA falló por un tiempo de espera
+    agotado en una escena que no tenía nada que ver).
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        time.sleep(20)
+        return
+    try:
+        with sync_playwright() as p:
+            navegador = p.chromium.launch()
+            pagina = navegador.new_page()
+            pagina.goto(
+                "http://127.0.0.1:5173/login",
+                wait_until="domcontentloaded",
+                timeout=90000,
+            )
+            pagina.wait_for_selector("input[type=email]", timeout=90000)
+            navegador.close()
+    except Exception as exc:  # noqa: BLE001
+        print(f"AVISO: no se pudo calentar el frontend: {type(exc).__name__}: {exc}")
 
 
 def reiniciar_frontend() -> None:
@@ -44,13 +92,32 @@ def reiniciar_frontend() -> None:
         try:
             with urllib.request.urlopen("http://127.0.0.1:5173/login", timeout=5) as r:
                 if r.status == 200:
+                    _calentar_frontend()
+                    time.sleep(5)
                     return
         except Exception:
             time.sleep(3)
     print("AVISO: el frontend no respondio tras el reinicio.")
 
 
+def correr_qa() -> tuple[int, str]:
+    proc = subprocess.run(
+        [sys.executable, "frontend/scripts/qa_labels_admin.py"],
+        cwd=RAIZ,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
+
+
+def _fallos_de(salida: str) -> list[str]:
+    return [linea for linea in salida.splitlines() if linea.startswith("FALLO")]
+
+
 def main() -> int:
+    fallo: str | None = None
     for relativo, id_campo, vista in MUTACIONES:
         ruta = SRC / relativo
         original = ruta.read_text(encoding="utf-8")
@@ -60,12 +127,13 @@ def main() -> int:
             con_for = f' for="{id_campo}"'
             con_id = f' id="{id_campo}"'
             if original.count(con_for) != 1 or original.count(con_id) != 1:
-                print(
+                fallo = (
                     f"ERROR: en {relativo} el par {id_campo!r} aparece "
                     f"{original.count(con_for)} veces como for= y "
                     f"{original.count(con_id)} como id=."
                 )
-                return 1
+                print(fallo)
+                break
 
             texto = original.replace(con_for, "").replace(con_id, "")
             ruta.write_text(texto, encoding="utf-8", newline="")
@@ -74,37 +142,53 @@ def main() -> int:
             print("  reiniciando el frontend...")
             reiniciar_frontend()
 
-            proc = subprocess.run(
-                [sys.executable, "frontend/scripts/qa_labels_admin.py"],
-                cwd=RAIZ,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-            )
-            salida = (proc.stdout or "") + (proc.stderr or "")
-            print("\nSalida de la QA con el defecto:")
-            print(salida.strip()[:900])
-            print(f"\ncodigo de salida: {proc.returncode}")
-            if proc.returncode == 0:
-                print("*** FALLO: la QA pasa sin el arreglo: no demuestra nada.")
-                return 1
+            codigo, salida = correr_qa()
+            print("\nSalida de la QA con el defecto (lineas de FALLO):")
+            for linea in _fallos_de(salida):
+                print("   ", linea)
+            print(f"\ncodigo de salida: {codigo}")
+            if codigo == 0:
+                fallo = "*** FALLO: la QA pasa sin el arreglo: no demuestra nada."
+                print(fallo)
+                break
             if "SIN NOMBRE" not in salida:
-                print("*** AVISO: fallo por otro motivo: la prueba no vale.")
-                return 1
-            if vista not in salida:
-                print(
+                fallo = "*** AVISO: fallo por otro motivo: la prueba no vale."
+                print(fallo)
+                break
+            # La QA tiene que senalar ESTA vista, no otra: si no, la puerta
+            # podria estar fallando por el motivo equivocado.
+            if f"FALLO ({vista})" not in salida:
+                fallo = (
                     f"*** AVISO: la QA fallo por otra vista (se esperaba "
                     f"{vista!r}): la prueba no vale."
                 )
-                return 1
+                print(fallo)
+                break
             print(f"OK: sin el arreglo, la QA falla por el motivo correcto ({vista}).")
         finally:
             shutil.copy2(copia, ruta)
             print(f"restaurado: frontend/src/{relativo}")
-            print("  reiniciando el frontend...")
-            reiniciar_frontend()
-    print("\nOK: la QA detecta el defecto en los tres formularios")
+
+    # El frontend tiene que volver a servir el codigo restaurado, **tambien
+    # si algo ha fallado**: si no, la app se queda sirviendo el defecto
+    # puesto (el fallo mas caro de todos).
+    print("\n  reiniciando el frontend (codigo restaurado)...")
+    reiniciar_frontend()
+    if fallo:
+        return 1
+
+    # El arbol tiene que volver a estar bien: se corre la QA otra vez (una
+    # puerta que se queda en rojo no vale).
+    codigo, salida = correr_qa()
+    if codigo != 0:
+        print("*** FALLO: con los ficheros restaurados la QA sigue en rojo:")
+        for linea in _fallos_de(salida):
+            print("   ", linea)
+        return 1
+    print("OK: con los ficheros restaurados, la QA vuelve a dar verde.")
+    print(
+        f"\nOK: la QA detecta el defecto en los {len(MUTACIONES)} formularios"
+    )
     return 0
 
 

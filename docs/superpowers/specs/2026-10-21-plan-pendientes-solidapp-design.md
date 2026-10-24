@@ -2,9 +2,9 @@
 
 **Fecha**: 2026-10-21 · **Rama de trabajo**: `main` (los PR #13 y #14 ya están fusionados) · **Estado del repo**: `main` sincronizada con `origin/main`.
 
-> ### 📍 Estado actual (2026-10-24, tras la tanda T-165…T-176)
+> ### 📍 Estado actual (2026-10-24, tras la tanda T-165…T-182)
 >
-> El plan está **ejecutado**: **864 de 865 criterios** verificados. Los **2 que no están marcados** están documentados **con su motivo** (no son criterios olvidados): (1) la alarma `OCR_FAILED` sigue **dormida** porque `ping_camera` no se despacha (es una **decisión de producto**), y (2) del T-171 quedan **18 campos** más sin nombre accesible, medidos y **pendientes de decidir**. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **866 de 866 criterios** verificados, **ninguno sin marcar**. Los dos que quedaban están **cerrados**: el de la alarma `OCR_FAILED` (la despertó el **T-177** al despachar `ping_camera`, y su falso positivo —una entrada de parking vacía saltando la alarma— lo corrigió el **T-181**) y el de los **18 campos** sin nombre accesible (**T-182**). `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > **Lo de esta tanda (2026-10-24)**: los **12 hallazgos** que dejaron las dos auditorías (frontend y pipeline de matrículas), repartidos entre **dos subagentes** y los que resolví yo. Cada uno con **su puerta** y **su prueba inversa**:
 >
@@ -3412,7 +3412,7 @@ decisiones de producto y un despliegue real.
   - [x] La QA **no pasa en vacío**: exige un número mínimo de controles por vista (si la página no se pintara, la QA falla en vez de dar un verde falso).
   - [x] QA de navegador (`frontend/scripts/qa_labels_admin.py`).
   - [x] **Prueba inversa** (`frontend/scripts/qa_labels_admin_inversa.py`): quita el `for`/`id` de un par en tres formularios distintos (sucursales, tarifas y cámaras) y comprueba que la QA falla señalando **esa** vista. Medido el 2026-10-24: `FALLO (/admin/parkings)`, `FALLO (/admin/tariffs)` y `FALLO (/cameras)`.
-  - [ ] **Lo que queda (fuera del alcance de este ítem)**: la misma carencia sigue en `views/cliente/VehiclesView.vue` (3), `views/gestor/CalibrateView.vue` (5), `views/operador/IncidentModal.vue` (7) y `views/operador/ManualEntryView.vue` (3): **18 campos más** sin nombre accesible. No se han tocado porque el T-169…T-174 no los incluían; quedan medidos y documentados para decidirlos.
+  - [x] **Lo que quedaba (cerrado en el T-182)**: la misma carencia seguía en `views/cliente/VehiclesView.vue` (3), `views/gestor/CalibrateView.vue` (5), `views/operador/IncidentModal.vue` (7) y `views/operador/ManualEntryView.vue` (3), y además en controles que **no tenían etiqueta en absoluto** (no sólo `<label>` sin `for`): medido el 2026-10-24, **23 controles sin nombre** en esas cuatro vistas (y **1** más, el `<select>` de sucursal de la pantalla «En vivo»). Todo arreglado y **vigilado por la misma puerta** (`qa_labels_admin.py`, con 14 escenas), que ahora mide también las cuatro vistas nuevas.
 
 ### T-172 · El token de recuperación se queda en la URL
 
@@ -4015,6 +4015,114 @@ función**: `deps._rol_mas_restrictivo` (y el test
   - [x] Medido después: los mismos 5 pings no mueven el contador ni crean alarma.
   - [x] El OCR que **no responde** sí cuenta como fallo (si no, nadie detectaría que el motor OCR está muerto: era el motivo de la decisión D7), y el mensaje de la alarma blames al **servicio**.
   - [x] Tests: `backend/tests/test_ping_camera_despacho.py` (13 tests) con los dos casos invertidos y uno nuevo que comprueba el mensaje; **prueba inversa** en `tools/verificar_pruebas_inversas.py` (33 casos).
+### T-182 · Los 18 campos que quedaban sin nombre accesible (cierre del T-171)
+
+- **Estado**: **completado** — las cuatro vistas que quedaban fuera ya tienen
+  nombre accesible, y la puerta que lo vigila las vigila a ellas también.
+- **Contexto**: el T-171 arregló los `<label>` sin `for` de los formularios de
+  administración y de cámaras, pero dejó **18 campos más** medidos y
+  documentados en cuatro vistas (cliente, calibración, operador). Con este
+  ítem se cierran: se mide **con un navegador de verdad**, se arregla, y se
+  amplía la puerta para que deje de ser ciega.
+
+#### Qué se midió (antes del arreglo, 2026-10-24)
+
+Con un navegador de verdad (Chromium de Playwright), contando los controles
+**visibles** sin nombre accesible (`el.labels.length === 0` y sin
+`aria-label`/`aria-labelledby`):
+
+| Vista | Controles | Sin nombre accesible |
+|---|---|---|
+| `/mis-vehiculos` (cliente) | 9 | **3** (marca, modelo y color del formulario de edición) |
+| `/calibrate/:parkingId/:cameraId` (gestor) | 3 + 2 | **5** (plaza, umbral y dirección del borrador; umbral y dirección de la geocerca seleccionada) |
+| `/operador/alta-manual` (operador) | 9 | **6** (sucursal, cámara y plaza + los 2 campos de la matrícula y el de notas, que **no tenían etiqueta ninguna**) |
+| `/vivo` → modal de incidentes, pestaña «averiada» | 4 | **4** (plaza, motivo, fotos y notas) |
+| `/vivo` → modal de incidentes, pestaña «robo» | 5 | **5** (plaza, motivo, matrícula, fotos y notas) |
+| | | **23 controles** |
+
+Los **18** del plan eran los `<label>` sin `for` contados **en el código**.
+Al medirlos **en la app** salen **23**: los 18 de más las 2 apariciones de
+«plaza» y «motivo» de la segunda pestaña del modal (el recuento estático las
+cuenta una vez) y **3 controles que no tenían etiqueta en absoluto** (los dos
+de la matrícula y el de notas del alta manual: sólo tenían *placeholder*, que
+no es nombre accesible).
+
+#### Qué se cambió
+
+Pares `for`/`id` en los 18 `<label>` que faltaban y `aria-label` en los 3
+controles que no tenían etiqueta:
+
+- `views/cliente/VehiclesView.vue`: `veh-edicion-marca`, `veh-edicion-modelo`,
+  `veh-edicion-color` (el formulario de edición; el de alta ya lo tenía).
+- `views/gestor/CalibrateView.vue`: `cal-plaza`, `cal-umbral`, `cal-direccion`
+  (borrador) y `cal-umbral-seleccion`, `cal-direccion-seleccion` (geocerca
+  seleccionada).
+- `views/operador/IncidentModal.vue`: `inc-plaza`, `inc-motivo`,
+  `inc-plaza-robo`, `inc-motivo-robo`, `inc-matricula`, `inc-fotos`, `inc-notas`.
+  El modal además se marca como `role="dialog"` + `aria-modal="true"`
+  (como los otros dos modales del repo), que además es lo que permite que la
+  QA lo mida sin medir la página de detrás.
+- `views/operador/ManualEntryView.vue`: `alta-sucursal`, `alta-camara`,
+  `alta-plaza`; y `aria-label` en los dos campos de la matrícula
+  («Matrícula: 4 dígitos» / «Matrícula: 3 letras») y en el de notas.
+
+#### La puerta que lo vigila
+
+- `frontend/scripts/qa_labels_admin.py` **ampliada**: de 7 escenas a **13**
+  (las 7 de administración y cámaras + 6 de las cuatro vistas nuevas: los
+  vehículos del cliente, la calibración del borrador y de la geocerca
+  seleccionada, el alta manual y las dos pestañas del modal de incidentes).
+  Cada escena entra **con la cuenta que le toca** (cliente, gestor,
+  operador), cada cuenta en su propio contexto de Playwright (el
+  `sessionStorage` se hereda dentro del mismo contexto).
+  **Sigue sin pasar en vacío**: cada escena exige un número mínimo de
+  controles (9, 3, 2, 9, 4 y 2, medidos), y si la pantalla no se pintara la
+  QA falla en vez de dar un verde falso.
+  La escena de la calibración **crea** una geocerca si la cámara no tiene
+  ninguna (si no, el panel de la geocerca seleccionada no saldría nunca y
+  la puerta no vigilaría esos dos campos) y **la borra** al final.
+- `frontend/scripts/qa_labels_admin_inversa.py` **ampliada**: de 3 mutaciones a
+  **6** (sucursales, tarifas, cams y ahora alta manual, vehículos del cliente
+  y modal de incidentes). Cada una quita el `for`/`id` de un par, reinicia el
+  frontend y exige que la QA **falle señalando esa vista** (no basta con que
+  falle: se comprueba la línea `FALLO (<vista>)`); al final restaura el
+  fichero, reinicia y comprueba que la QA vuelve a dar verde.
+  Además: **calienta el frontend** con un navegador real tras cada reinicio
+  (al arrancar, Vite reoptimiza las dependencias y se reinicia otra vez: sin
+  calentar, con la máquina saturada, la QA falló por un tiempo de espera
+  agotado en una escena que no tenía nada que ver — medido el 2026-10-24) y
+  **restaura y reinicia también cuando algo falla**, para que la app no se
+  quede sirviendo el defecto puesto.
+
+#### Qué se comprobó (comandos y resultados)
+
+| Comprobación | Resultado |
+|---|---|
+| `python frontend/scripts/qa_labels_admin.py` | **OK** (13 escenas, salida 0): 7/6/6/10/3/7/7 + 9/3/2/9/4/5 controles, todos con nombre |
+| `python frontend/scripts/qa_labels_admin_inversa.py` | **OK** (6 mutaciones): la QA falla señalando `/admin/parkings`, `/admin/tariffs`, `/cameras`, `/operador/alta-manual`, `/mis-vehiculos` y `/vivo (modal de incidentes: averiada)`; con los ficheros restaurados vuelve a dar verde |
+| `cd frontend && npm run lint` | sin salida (verde) |
+| `cd frontend && npx vue-tsc --noEmit` | sin salida (verde) |
+| `python tools/escanear_texto.py <las 6 rutas>` | **0 problema(s)** |
+| `python frontend/scripts/qa_visual.py --anchos "414,768,1024,1232,1440"` | 130 capturas, 0 peticiones fallidas, 0 errores de consola |
+
+#### Lo que queda fuera (medido, no arreglado)
+
+- El `<select>` de sucursal de la **pantalla «En vivo»** (`views/operador/
+  LiveView.vue`) sigue sin nombre accesible (**1 control**, medido). No es una
+  de las cuatro vistas de este ítem y su fichero no se toca aquí; la QA lo
+  salta a propósito (mide el modal, no la página de detrás).
+
+#### Criterio del T-171, cerrado
+
+- [x] **Lo que queda (fuera del alcance de este ítem)**: la misma carencia
+  sigue en `views/cliente/VehiclesView.vue` (3), `views/gestor/CalibrateView.vue`
+  (5), `views/operador/IncidentModal.vue` (7) y `views/operador/ManualEntryView.vue`
+  (3): **18 campos más** sin nombre accesible. → **cerrado en T-182**: los 18
+  tienen ya nombre accesible (medidos 23 en la app, porque 3 de ellos no
+  tenían etiqueta ninguna y 2 se repiten en la segunda pestaña del modal), y
+  la QA los vigila (13 escenas) con su inversa (6 mutaciones).
+
+
 
 ### T-14 · I3 — OCR con GPU
 
