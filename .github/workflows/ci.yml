@@ -62,6 +62,19 @@ jobs:
         # exactamente lo versionado: ni ``node_modules``, ni ``dist``.
         run: python ../tools/escanear_texto.py --tracked --salida ../tools/_informe_texto.txt
 
+      - name: Instalar dependencias del backend
+        # POR QUÉ AQUÍ (2026-10-24, T-147): el escáner de texto va antes,
+        # porque es sólo biblioteca estándar y falla en dos segundos, sin
+        # instalar nada. Pero a partir de aquí, **todo** necesita las
+        # dependencias del backend: la puerta de pruebas inversas ejecuta
+        # pytest, y la del compose importa ``Settings`` (pydantic). Con el
+        # install después, esas dos comprobaciones fallaban por el
+        # entorno y no por lo que vigilan: el CI remoto (que ya arrancaba
+        # desde que el repositorio es público) lo enseñó.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
       - name: El navegador para la autoprueba de la QA visual
         # POR QUÉ (2026-10-22): la autoprueba del detector de desbordes
         # evalúa el JavaScript en un Chromium de verdad (el JS mide
@@ -69,10 +82,10 @@ jobs:
         # Sin playwright, esa autoprueba no se puede comprobar, y el
         # paso siguiente fallaría con un ModuleNotFoundError.
         #
-        # Se instala AQUÍ, antes de las autopruebas, y no en el
-        # ``pip install -e ".[dev]"`` del backend, porque el job corre
-        # las autopruebas ANTES de instalar el backend (para que fallen
-        # en segundos y no después de un install largo).
+        # Se instala AQUÍ, y no en el ``pip install -e ".[dev]"`` del
+        # backend, porque **playwright no es dependencia del backend**:
+        # si fuera una extra del backend, el paquete de la API
+        # arrastraría un navegador de más de 100 MB.
         #
         # ``--with-deps`` sólo existe en Linux (instala las librerías
         # del sistema con apt). En Windows y macOS no hace falta.
@@ -159,10 +172,6 @@ jobs:
         # rojo en el primer minuto.
         run: python ../tools/verificar_aislamiento_sucursal.py
 
-      - name: Instalar dependencias
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
 
       - name: El compose de produccion es seguro y sus valores cargan
         # POR QUE (2026-10-24, T-147): esta puerta comprueba, ademas de las

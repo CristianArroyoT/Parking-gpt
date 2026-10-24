@@ -2842,9 +2842,9 @@ producto.
   1. el job `Backend` corre las autopruebas **antes** del `pip install` (a propósito, para fallar en segundos) ⇒ la autoprueba de la puerta del compose falló con `No module named 'pydantic'`;
   2. el job `Build de imágenes Docker` no instala el backend ⇒ la puerta del compose falló **por el mismo motivo**.
   Es decir: la puerta fallaba **por el entorno**, no por lo que vigila. Era un fallo **latente desde el T-75** que sólo se ha podido ver cuando el CI ha arrancado de verdad.
-- **El arreglo**:
+- **El arreglo** (dos cosas, porque el CI enseñó dos fallos distintos):
   1. la puerta del compose **no falla** si no puede importar la configuración del backend: lo dice en un **aviso** (un verde silencioso sobre una comprobación que no se ha hecho no vale);
-  2. el workflow añade un paso en el job `backend`, **después** de instalar las dependencias, donde la comprobación de que las variables cargan en `Settings` **sí** se hace de verdad.
+  2. el **orden** del job `backend` cambia: el `pip install` del backend pasa a **antes** de las comprobaciones. Antes estaba al final, a propósito («que fallen en dos segundos en vez de esperar al install»), pero la puerta de pruebas inversas **ejecuta pytest** y la del compose **importa `Settings`**: sin las dependencias, ambas fallaban por el entorno y no por lo que vigilan. El escáner de texto (que es sólo biblioteca estándar) sigue siendo lo primero, así que se conserva la ventaja de fallar rápido.
 - **Medido** (2026-10-24, en un venv **vacío**, que es lo que ve el job de Docker): la puerta y su autoprueba pasan sin las dependencias, y la puerta **avisa** de que la comprobación de `Settings` no se ha hecho ahí.
 - **Criterios de aceptación**:
   - [x] La puerta del compose no depende de `pydantic` para vigilar el compose (medido en un venv vacío).
