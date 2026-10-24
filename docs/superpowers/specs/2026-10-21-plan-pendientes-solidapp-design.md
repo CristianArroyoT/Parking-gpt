@@ -4065,19 +4065,36 @@ controles que no tenían etiqueta:
 - `views/operador/ManualEntryView.vue`: `alta-sucursal`, `alta-camara`,
   `alta-plaza`; y `aria-label` en los dos campos de la matrícula
   («Matrícula: 4 dígitos» / «Matrícula: 3 letras») y en el de notas.
+- `views/operador/LiveView.vue`: el `<select>` de sucursal de la pantalla
+  «En vivo» (1 control más, que quedaba fuera de las cuatro vistas) lleva
+  `aria-label="Sucursal"` (el patrón del repo para los selects compactos,
+  como en `views/admin/CostsView.vue`).
+
+**Dos cosas que aparecieron al integrar** (y que cazó la puerta, no el
+código):
+
+- El `<select>` de la pantalla «En vivo» seguía sin nombre: era el control
+  que el subagente dejó anotado como «fuera del alcance». Se arregló (una
+  línea) y **la QA ahora mide esa página** (escena nueva), no sólo el modal.
+- El campo «Marca» del formulario de edición de «Mis vehículos» se había
+  quedado **sin `for` ni `id`** en la última edición (el código «se veía
+  bien»): lo cazó la QA al ejecutarla, con `FALLO (/mis-vehiculos): 1 de 9
+  campos se anuncian SIN NOMBRE`. Sin esa puerta, se habría commiteado.
 
 #### La puerta que lo vigila
 
-- `frontend/scripts/qa_labels_admin.py` **ampliada**: de 7 escenas a **13**
-  (las 7 de administración y cámaras + 6 de las cuatro vistas nuevas: los
+- `frontend/scripts/qa_labels_admin.py` **ampliada**: de 7 escenas a **14**
+  (las 7 de administración y cámaras + 7 de las cuatro vistas nuevas: los
   vehículos del cliente, la calibración del borrador y de la geocerca
-  seleccionada, el alta manual y las dos pestañas del modal de incidentes).
+  seleccionada, el alta manual, **la página del «En vivo»** y las dos
+  pestañas del modal de incidentes).
   Cada escena entra **con la cuenta que le toca** (cliente, gestor,
   operador), cada cuenta en su propio contexto de Playwright (el
   `sessionStorage` se hereda dentro del mismo contexto).
   **Sigue sin pasar en vacío**: cada escena exige un número mínimo de
   controles (9, 3, 2, 9, 4 y 2, medidos), y si la pantalla no se pintara la
-  QA falla en vez de dar un verde falso.
+  QA falla en vez de dar un verde falso. (La escena del «En vivo» mide
+  **1** control: el `<select>` de sucursal.)
   La escena de la calibración **crea** una geocerca si la cámara no tiene
   ninguna (si no, el panel de la geocerca seleccionada no saldría nunca y
   la puerta no vigilaría esos dos campos) y **la borra** al final.
