@@ -148,6 +148,12 @@ class Settings(BaseSettings):
     # task ``solidapp.purge_audit_logs`` (sprint Fase 3C 2026-07-01)
     # que borra filas con ``created_at < now - retention_days``.
     audit_log_retention_days: int = Field(default=365, alias="AUDIT_LOG_RETENTION_DAYS")
+    # T-164 (2026-10-24): minutos sin llegadas de una camara para dar la
+    # alarma de «ha dejado de empujar lecturas». El push externo es el
+    # camino real de datos y no tenia ninguna vigilancia.
+    camera_push_silence_minutes: int = Field(
+        default=30, alias="CAMERA_PUSH_SILENCE_MINUTES"
+    )
 
     # Sprint Fase 3C (2026-07-01): rate-limit en ``POST /auth/login``.
     # El ``LoginRateLimiter`` usa 2 buckets Redis (IP + email). Si

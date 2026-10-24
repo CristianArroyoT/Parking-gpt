@@ -539,6 +539,91 @@ def enviar_correo_cierre_automatico(
     return {"enviado": enviado, "ticket_id": ticket_id}
 
 
+@celery_app.task(name="solidapp.check_camera_pushes")  # type: ignore[untyped-decorator]
+def check_camera_pushes(minutes: int | None = None) -> dict[str, Any]:
+    """Avisa de las camaras que han dejado de empujar lecturas (T-164).
+
+    El push externo es el camino real de datos y no tenia ninguna
+    vigilancia: si la camara (o el OCR del fabricante) dejan de hablar,
+    no saltaba nada y se seguia sin cobrar, en silencio.
+
+    Con el mismo patron de «una vez por hora» que las demas alarmas, para
+    no avisar en cada vuelta.
+    """
+    from app.models.audit import Alert
+    from app.models.enums import AlertSeverity, AlertType
+    from app.models.parking import Parking
+    from app.services.alerts import una_vez_por_hora
+    from app.services.camera_push_watch import camaras_sin_push
+    from app.services.email import encolar_correo_alerta
+
+    settings = get_settings()
+    minutos = (
+        settings.camera_push_silence_minutes if minutes is None else minutes
+    )
+    skip_prefixes = tuple(settings.heartbeat_skip_url_prefixes_list)
+
+    with SessionLocal() as db:
+        silenciosas = camaras_sin_push(
+            db, minutos_max=minutos, skip_prefixes=skip_prefixes
+        )
+        created = 0
+        for camera, ultimo in silenciosas:
+            if not una_vez_por_hora(f"camera:{camera.id}:push_silent_alert"):
+                continue
+            desde = (
+                "nunca ha enviado lecturas"
+                if ultimo is None
+                else f"no envia lecturas desde {ultimo.isoformat()}"
+            )
+            alert = Alert(
+                parking_id=camera.parking_id,
+                type=AlertType.CAMERA_PUSH_SILENT,
+                severity=AlertSeverity.CRITICAL,
+                message=(
+                    f"Cámara {camera.code} sin lecturas — {desde} "
+                    f"(más de {minutos} min)"
+                ),
+                context={
+                    "camera_id": camera.id,
+                    "camera_code": camera.code,
+                    "minutos_sin_push": minutos,
+                    "ultimo_push": ultimo.isoformat() if ultimo else None,
+                },
+            )
+            db.add(alert)
+            db.commit()
+            db.refresh(alert)
+            created += 1
+            parking = db.get(Parking, camera.parking_id)
+            encolar_correo_alerta(
+                alert_id=alert.id,
+                destinatario=None,
+                template_kind="camera_offline",
+                camera_code=camera.code,
+                parking_name=parking.name if parking else "",
+                count=minutos,
+                threshold=minutos,
+            )
+            log.warning(
+                "check_camera_pushes: alerta %s camera=%s sin lecturas",
+                alert.id,
+                camera.code,
+            )
+
+    log.info(
+        "check_camera_pushes: silenciosas=%s alertas=%s minutos=%s",
+        len(silenciosas),
+        created,
+        minutos,
+    )
+    return {
+        "silenciosas": len(silenciosas),
+        "alertas": created,
+        "minutos": minutos,
+    }
+
+
 @celery_app.task(name="solidapp.cleanup_failed_frames")  # type: ignore[untyped-decorator]
 def cleanup_failed_frames() -> dict[str, int]:
     """Purga /tmp/ocr-failed/*.jpg con mtime > N días.

@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **785 de 785 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **790 de 790 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -3190,6 +3190,21 @@ decisiones de producto y un despliegue real.
 - **Criterios de aceptación**:
   - [x] Una sucursal desactivada: sin vehículo y sin ticket (test).
   - [x] Una plaza desactivada: sin ticket (test).
+  - [x] Prueba inversa en `tools/verificar_pruebas_inversas.py`.
+
+
+### T-164 · P1 (observabilidad) — el push externo no dejaba ninguna alarma de «la cámara dejó de empujar»
+
+- **Estado**: **completado** — ahora hay una tarea que vigila que las cámaras sigan enviando lecturas
+- **Contexto**: el pipeline real de lectura es el **push externo** a `POST /parkings/{id}/plates-detected`. Y la única vigilancia de OCR (`OCR_FAILED`) cuelga de `ping_camera`, que **no se despacha** (decisión de producto documentada).
+- **El defecto**: en el camino real de datos, **nadie comprobaba que la cámara siguiera hablando**. Si el OCR del fabricante moría, o empezaba a mandar basura, o la cámara dejaba de empujar, **no saltaba ninguna alarma**: la cámara seguía apareciendo como «healthy» (si el RTSP iba) mientras no se estaba cobrando. Una pérdida de ingreso silenciosa.
+- **El arreglo**: una tarea (`solidapp.check_camera_pushes`, cada 15 min) que, por cámara activa, mira cuándo fue el **último push** (`plates_detected.detected_at`) y avisa si hace más de 30 min que no llega (configurable con `CAMERA_PUSH_SILENCE_MINUTES`). Con el mismo patrón de «una vez por hora» que las demás alarmas, para no avisar en cada vuelta. Las cámaras de demo (`rtsp://demo.invalid`) se ignoran, igual que en el resto.
+- **El tipo de alerta es nuevo** (`CAMERA_PUSH_SILENT`): es distinto de `camera_offline` (el RTSP no responde) — aquí la cámara puede estar bien y lo que falla es que no llega nada. La columna es un `String(32)`, así que **no hace falta migración**.
+- **Criterios de aceptación**:
+  - [x] Una cámara que nunca ha empujado se detecta (test).
+  - [x] Una cámara que empuja hace poco, no (test).
+  - [x] Una cámara que empujó hace mucho, sí (test).
+  - [x] Las cámaras de demo no avisan (test).
   - [x] Prueba inversa en `tools/verificar_pruebas_inversas.py`.
 
 ### T-14 · I3 — OCR con GPU

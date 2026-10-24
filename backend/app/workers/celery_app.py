@@ -115,6 +115,14 @@ celery_app.conf.beat_schedule = {
         "task": "solidapp.auto_close_tickets",
         "schedule": crontab(minute=10),  # cada hora, al minuto 10.
     },
+    # T-164 (2026-10-24): vigilar que las camaras **sigan empujando
+    # lecturas**. El push externo es el camino real de datos y no tenia
+    # ninguna vigilancia (la unica alarma de OCR cuelga de
+    # ``ping_camera``, que no se despacha).
+    "check-camera-pushes": {
+        "task": "solidapp.check_camera_pushes",
+        "schedule": crontab(minute="*/15"),  # cada 15 minutos.
+    },
     # Sprint Fase 3C: rotación de audit_logs (sprint 2026-07-01).
     # Borra ``audit_logs`` con ``created_at < now - audit_log_retention_days``
     # (default 365). Necesita el índice ``ix_audit_logs_created_at``

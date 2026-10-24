@@ -2970,3 +2970,15 @@ Ahora la ingesta tiene dos skips explícitos (`skipped_parking_inactive` y
 `skipped_space_inactive`). El **listado** no se toca: el admin tiene que
 poder ver las inactivas para reactivarlas; lo que no puede pasar es que
 reciban datos.
+### 3-centésimosesentésimonoveno. Ahora se vigila que las cámaras sigan empujando (2026-10-24)
+
+El push externo es el camino real de datos y **no tenía ninguna
+vigilancia**: la única alarma de OCR cuelga de `ping_camera`, que no se
+despacha. Si el OCR del fabricante moría, no saltaba nada y se seguía sin
+cobrar, en silencio.
+
+Ahora hay una tarea (`solidapp.check_camera_pushes`, cada 15 min) que
+mira por cámara cuándo fue el último push y avisa si hace más de 30 min
+que no llega. El tipo de alerta es nuevo (`CAMERA_PUSH_SILENT`): es
+distinto de «cámara caída» (el RTSP no responde); la columna es un
+`String(32)`, así que no hizo falta migración.

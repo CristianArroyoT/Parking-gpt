@@ -32,6 +32,11 @@ class AlertSeverity(str, enum.Enum):
 class AlertType(str, enum.Enum):
     OCR_FAILED = "ocr_failed"
     CAMERA_OFFLINE = "camera_offline"
+    #: T-164 (2026-10-24): la camara no envia lecturas (el push externo
+    #: dejo de llegar). Es distinto de «camera_offline» (el RTSP no
+    #: responde): aqui la camara puede estar bien y lo que falla es que
+    #: no llega nada.
+    CAMERA_PUSH_SILENT = "camera_push_silent"
     SPACE_EMPTY_TOO_LONG = "space_empty_too_long"
     ROBERY_REPORTED = "robery_reported"
     SPACE_BROKEN = "space_broken"

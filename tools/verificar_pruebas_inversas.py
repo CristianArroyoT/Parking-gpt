@@ -605,6 +605,20 @@ CASOS: list[Caso] = [
             "test_una_sucursal_desactivada_no_admite_entradas"
         ),
     ),
+    Caso(
+        nombre="T-164 · la camara que dejo de empujar deja de detectarse",
+        fichero="app/services/camera_push_watch.py",
+        cambios=[
+            (
+                "        if ultimo is None or ultimo < corte:\n",
+                "        if False:  # T-164 (defecto)\n",
+            ),
+        ],
+        test=(
+            "tests/test_camera_push_watch.py::"
+            "test_una_camara_que_no_empuja_nada_se_detecta"
+        ),
+    ),
 ]
 
 
