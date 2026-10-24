@@ -8,7 +8,7 @@
 >
 > | Comprobación | Resultado |
 > |---|---|
-> | Suite completa | **755 passed, 9 skipped** en SQLite · **764 passed** en PostgreSQL (medido el 2026-10-23; la línea base del commit 305e1e9 era 732/741: +23 tests nuevos) |
+> | Suite completa | **774 passed, 9 skipped** en SQLite · **783 passed** en PostgreSQL (medido el 2026-10-23; la línea base del commit 305e1e9 era 732/741: +42 tests nuevos) |
 > | QA visual (Chromium) | **26 pantallas** a **5 anchos** (414, 768, 1024, 1232, 1440 px): 130 capturas, **0 desbordes, 0 errores de consola, 0 errores de login** |
 > | PWA | verificado: instalable y **arranca sin red** |
 > | API | **103 rutas** inventariadas (coinciden con el código) y **101 de 101 endpoints con test**; el inventario se genera del código y **el CI lo comprueba** |

@@ -278,8 +278,8 @@ por las buenas. Ver T-124 y T-125 en el plan.
   una vez por rol, así que **no la lances 5 veces seguidas** (15 inicios →
   429): usa `python frontend/scripts/qa_visual.py --anchos
   "414,768,1024,1232,1440"`, que recorre los 5 anchos con 3 inicios.
-- La suite da **755 passed, 9 skipped** en SQLite y **764 passed** en PostgreSQL
-  en el host (lo que ve el CI), y **754 passed, 10 skipped** / **763 passed, 1 skipped** en el
+- La suite da **774 passed, 9 skipped** en SQLite y **783 passed** en PostgreSQL
+  en el host (lo que ve el CI), y **773 passed, 10 skipped** / **782 passed, 1 skipped** en el
   contenedor de desarrollo: allí sólo se monta `backend/`, así que el test
   que comprueba la nota del README sobre el reconocimiento facial se salta
   (el contenedor no tiene el README). No es una deriva.
