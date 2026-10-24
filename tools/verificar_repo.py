@@ -218,6 +218,16 @@ def _comprobaciones() -> list[Comprobacion]:
             timeout=600,
         ),
         Comprobacion(
+            "El RBAC por sucursal se gestiona desde la pantalla",
+            # T-179 (2026-10-24): con el RBAC por sucursal (ADR 0005) el
+            # admin tiene que poder ver, añadir, cambiar el rol y quitar
+            # las membresías de un usuario **desde la interfaz**: sin eso,
+            # el rol por sucursal solo se podía cambiar por API.
+            [py, "frontend/scripts/qa_membresias_rbac.py"],
+            patron=r"(OK: el ciclo de membresías por sucursal.*)",
+            timeout=600,
+        ),
+        Comprobacion(
             "El destino del login se valida",
             # T-165 (2026-10-24): el `redirect` de la query se pasaba a
             # `router.push()` sin validar ni capturar. Medido: un destino

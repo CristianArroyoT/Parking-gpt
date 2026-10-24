@@ -139,7 +139,21 @@ def main() -> int:
             # UNA peticion de la app, **sin navegar**: el 401 dispara el
             # interceptor, que renueva (y falla) y avisa con el evento.
             try:
-                pagina.get_by_role("button", name="Refrescar").first.click(timeout=15000)
+                boton = pagina.get_by_role("button", name="Refrescar").first
+                try:
+                    boton.click(timeout=15000)
+                except Exception as exc:  # noqa: BLE001
+                    # T-180 (2026-10-24): el LiveView re-pinta el boton en
+                    # cada ronda de polling, asi que el nodo puede detachmentarse
+                    # entre la busqueda y el clic; con la maquina saturada los
+                    # reintentos de Playwright se agotan. Se pulsa por
+                    # JavaScript (mismo manejador): lo que se comprueba
+                    # despues (que la URL acabe en /login) no cambia.
+                    print(
+                        "  (el boton se ha despegado; se pulsa por JavaScript: "
+                        f"{type(exc).__name__})"
+                    )
+                    boton.evaluate("el => el.click()")
             except Exception as exc:  # noqa: BLE001
                 print(f"FALLO: no se pudo pulsar Refrescar: {type(exc).__name__}: {exc}")
                 return 1

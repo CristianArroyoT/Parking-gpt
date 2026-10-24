@@ -11,7 +11,10 @@
  *   - `POST /api/v1/parkings/{id}/alerts/{aid}/acknowledge` → revisar alerta.
  *   - `GET  /api/v1/users`                           → usuarios (**admin**).
  *   - `POST /api/v1/users`                           → alta de usuario (**admin**).
- *   - `POST /api/v1/users/{id}/memberships`          → asignar a sucursal (**admin**).
+ *   - `POST   /api/v1/users/{id}/memberships`         → asignar a sucursal (**admin**).
+ *   - `GET    /api/v1/users/{id}/memberships`         → membresías (**admin**).
+ *   - `PATCH  /api/v1/users/{id}/memberships/{mid}`   → rol en la sucursal (**admin**).
+ *   - `DELETE /api/v1/users/{id}/memberships/{mid}`   → quitar (**admin**).
  *
  * Límites del backend que la UI debe respetar (documentados en las vistas):
  *   - `GET /tickets` sólo filtra por `parking_id` y `only_active`; el resto
@@ -94,12 +97,24 @@ export interface StaffUser {
   is_active: boolean
 }
 
+/**
+ * Rol por sucursal (ADR 0005).
+ *
+ * OJO: el `admin` **no** es un rol por sucursal (el admin es global), asi
+ * que no esta en esta lista: el backend lo rechaza con 422 y la interfaz
+ * no lo ofrece.
+ */
+export type MembershipRole = 'gestor' | 'operador' | 'cliente'
+
+/** Los roles que se pueden asignar en una sucursal (nunca `admin`). */
+export const ROLES_DE_SUCURSAL: MembershipRole[] = ['gestor', 'operador', 'cliente']
+
 /** Membresía de un usuario en una sucursal. */
 export interface Membership {
   id: number
   user_id: number
   parking_id: number
-  role_in_parking: string
+  role_in_parking: MembershipRole
 }
 
 export async function listParkings(): Promise<Parking[]> {
@@ -193,13 +208,45 @@ export async function createStaffUser(payload: {
 export async function assignUserToParking(
   userId: number,
   parkingId: number,
-  roleInParking: string,
+  roleInParking: MembershipRole,
 ): Promise<Membership> {
   const { data } = await http.post<Membership>(
     `/users/${userId}/memberships`,
     { parking_id: parkingId, role_in_parking: roleInParking },
   )
   return data
+}
+
+/**
+ * Membresías de un usuario: en qué sucursales está y de qué rol es en
+ * cada una. **Sólo admin** (el gestor recibe 403).
+ */
+export async function listMemberships(userId: number): Promise<Membership[]> {
+  const { data } = await http.get<Membership[]>(`/users/${userId}/memberships`)
+  return data
+}
+
+/**
+ * Cambia el rol de un usuario **en una sucursal** (ADR 0005).
+ *
+ * El backend valida el valor: `admin` no es un rol por sucursal y se
+ * rechaza con 422. Devuelve la membresía ya actualizada.
+ */
+export async function updateMembershipRole(
+  userId: number,
+  membershipId: number,
+  roleInParking: MembershipRole,
+): Promise<Membership> {
+  const { data } = await http.patch<Membership>(
+    `/users/${userId}/memberships/${membershipId}`,
+    { role_in_parking: roleInParking },
+  )
+  return data
+}
+
+/** Quita la asignación de un usuario a una sucursal. **Sólo admin**. */
+export async function removeMembership(userId: number, membershipId: number): Promise<void> {
+  await http.delete(`/users/${userId}/memberships/${membershipId}`)
 }
 
 // ── Operadores de la sucursal (T-20) ──────────────────────────────────────
