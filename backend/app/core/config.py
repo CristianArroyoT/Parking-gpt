@@ -68,6 +68,28 @@ class Settings(BaseSettings):
     ocr_lang: str = Field(default="es", alias="OCR_LANG")
     ocr_confidence_threshold: float = Field(default=0.85, alias="OCR_CONFIDENCE_THRESHOLD")
     ocr_frames_before_fail: int = Field(default=5, alias="OCR_FRAMES_BEFORE_FAIL")
+    # T-167 (2026-10-24): cada cuántos segundos se espera que llegue un
+    # fallo de OCR (o una lectura) por cámara. El TTL del contador de
+    # fallos consecutivos se calcula con este intervalo
+    # (``umbral × intervalo × margen``, en ``app/services/alerts.py``):
+    # antes el TTL eran 600 s fijos y la ventana iba desde el primer
+    # fallo, así que si los fallos llegaban más espaciados que
+    # ``600/5 = 120 s`` el contador caducaba antes de poder llegar al
+    # umbral y **la alerta nunca saltaba**.
+    #
+    # OJO (T-164): ``ping_camera`` **no se despacha** hoy (el pipeline
+    # real es el push externo). Este valor es el ritmo **esperado**
+    # para cuando se active; la ventana además se renueva en cada fallo,
+    # así que aguanta un ritmo más lento que éste.
+    ocr_ping_interval_seconds: int = Field(
+        default=60, alias="OCR_PING_INTERVAL_SECONDS"
+    )
+    # T-167 (2026-10-24): ritmo real del ``probe_heartbeats`` (el beat lo
+    # despacha cada 60 s, en ``app/workers/celery_app.py``). Mismo uso:
+    # el TTL del contador de fallos consecutivos de ``CAMERA_OFFLINE``.
+    heartbeat_interval_seconds: int = Field(
+        default=60, alias="HEARTBEAT_INTERVAL_SECONDS"
+    )
 
     # Heartbeat real (sprint CAMERA_OFFLINE v2): probe ligero cada 60s.
     # Si falla N heartbeats consecutivos → alerta CAMERA_OFFLINE con

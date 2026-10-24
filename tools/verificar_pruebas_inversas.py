@@ -619,6 +619,100 @@ CASOS: list[Caso] = [
             "test_una_camara_que_no_empuja_nada_se_detecta"
         ),
     ),
+
+    Caso(
+        nombre="T-166 · el push externo vuelve a persistir la basura del OCR",
+        fichero="app/api/v1/plates.py",
+        cambios=[
+            (
+                """    hits_validos: list[PlateHit] = []
+    for hit in payload.hits:
+        if not parece_matricula(hit.plate):
+            log.warning(
+                "plates: el OCR no leyó una matrícula (no se persiste): %r",
+                hit.plate,
+                extra={"camera_id": camera.id},
+            )
+            continue
+        hits_validos.append(hit)
+""",
+                """    hits_validos: list[PlateHit] = list(payload.hits)
+""",
+            ),
+        ],
+        test=(
+            "tests/test_plates_push_filtrado.py::"
+            "test_el_push_no_persiste_una_lectura_que_no_es_matricula"
+        ),
+    ),
+    Caso(
+        nombre="T-167 · la ventana del contador de fallos vuelve a anclarse en el primero",
+        fichero="app/services/alerts.py",
+        cambios=[
+            (
+                """        count = cast(int, rds.incr(_consecutive_key(camera.id)))
+        # T-167: el TTL se renueva en **cada** fallo. Antes sólo se
+        # ponía en el primero (``if count == 1``), o sea que la ventana
+        # iba desde el primer fallo: si los fallos llegaban más
+        # espaciados que TTL/umbral, el contador caducaba antes de
+        # poder llegar al umbral y la alerta NUNCA saltaba.
+        rds.expire(_consecutive_key(camera.id), ttl)
+""",
+                """        count = cast(int, rds.incr(_consecutive_key(camera.id)))
+        if count == 1:
+            rds.expire(_consecutive_key(camera.id), ttl)
+""",
+            ),
+        ],
+        test=(
+            "tests/test_alerta_ocr_ventana.py::"
+            "test_una_serie_de_fallos_mas_espaciada_que_el_umbral_dispara_la_alerta"
+        ),
+    ),
+    Caso(
+        nombre="T-168 · el directorio de respaldo de los frames vuelve a no limpiarse",
+        fichero="app/workers/tasks.py",
+        cambios=[
+            (
+                """    for directorio in (DEFAULT_OCR_FAILED_DIR, FALLBACK_OCR_FAILED_DIR):
+        if not directorio.exists():
+            continue
+        for entry in directorio.iterdir():
+            if not entry.is_file():
+                continue
+            mtime = datetime.fromtimestamp(entry.stat().st_mtime, tz=timezone.utc)
+            if mtime < cutoff:
+                try:
+                    entry.unlink()
+                    deleted += 1
+                except OSError as exc:
+                    log.warning("No se pudo borrar %s: %s", entry, exc)
+            else:
+                kept += 1
+""",
+                """    if not DEFAULT_OCR_FAILED_DIR.exists():
+        return {"deleted": 0, "kept": 0}
+    for entry in DEFAULT_OCR_FAILED_DIR.iterdir():
+        if not entry.is_file():
+            continue
+        mtime = datetime.fromtimestamp(entry.stat().st_mtime, tz=timezone.utc)
+        if mtime < cutoff:
+            try:
+                entry.unlink()
+                deleted += 1
+            except OSError as exc:
+                log.warning("No se pudo borrar %s: %s", entry, exc)
+        else:
+            kept += 1
+""",
+            ),
+        ],
+        test=(
+            "tests/test_limpieza_frames_ocr.py::"
+            "test_la_tarea_limpia_el_directorio_de_respaldo"
+        ),
+    ),
+
 ]
 
 

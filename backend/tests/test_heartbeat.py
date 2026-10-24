@@ -218,6 +218,10 @@ def heartbeat_env(monkeypatch, motor_de_test):
         # T-75: ``tasks.py`` usa la property del ajuste real.
         heartbeat_skip_url_prefixes_list = ("rtsp://demo.invalid",)
         redis_url = "redis://stub"
+        # T-167: el TTL de los contadores se deriva del umbral y del
+        # intervalo esperado.
+        ocr_ping_interval_seconds = 60
+        heartbeat_interval_seconds = 60
 
     monkeypatch.setattr(
         "app.services.alerts.get_settings", lambda: _StubSettings(),

@@ -11,6 +11,7 @@ Ambos pasan por `parking_context`, así que:
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -25,14 +26,18 @@ from app.schemas.ingest import IngestResultRead
 from app.schemas.plate import (
     PlateDetectedCreate,
     PlateDetectedRead,
+    PlateHit,
 )
 from app.services.ingest_service import process_plate_hits
+from app.services.plates import parece_matricula
 
 router = APIRouter(
     prefix="/parkings/{parking_id}",
     tags=["placas"],
     dependencies=[Depends(parking_context)],
 )
+
+log = logging.getLogger(__name__)
 
 
 @router.get("/plates-detected", response_model=list[PlateDetectedRead])
@@ -73,10 +78,17 @@ def create_plates_detected(
 ) -> list[IngestResultRead]:
     """Empuja manualmente una lista de hits y dispara el flujo ENTRADA.
 
-    Persiste una fila cruda en ``plates_detected`` por cada hit (registro
-    de auditoría de la lectura OCR) y, a continuación, llama a
-    ``process_plate_hits`` para cruzar el bbox con las geocercas de la
-    cámara y crear el ticket correspondiente (o registrar el skip).
+    Filtra **antes de persistir**: el OCR devuelve TEXTO, no
+    matrículas (el timestamp quemado en la imagen, el rótulo de la
+    marca...), y eso no se guarda en ``plates_detected`` (T-166). Antes
+    se guardaba todo hit tal cual y el gestor veía la basura en
+    ``GET /parkings/{id}/plates-detected``.
+
+    Persiste una fila cruda en ``plates_detected`` por cada hit **que
+    sea una matrícula** (registro de auditoría de la lectura OCR) y, a
+    continuación, llama a ``process_plate_hits`` para cruzar el bbox con
+    las geocercas de la cámara y crear el ticket correspondiente (o
+    registrar el skip).
 
     Pensado para:
     - tests de integración (smoke test del POST),
@@ -87,7 +99,11 @@ def create_plates_detected(
     en lugar de este endpoint HTTP.
 
     Devuelve ``list[IngestResultRead]`` con el resultado por hit: status
-    ``ticket_created`` con sus IDs, o ``skipped_*`` con el motivo.
+    ``ticket_created`` con sus IDs, o ``skipped_*`` con el motivo. El
+    contrato **no** cambia: los hits descartados también aparecen en la
+    respuesta, con su motivo ``skipped_not_a_plate`` (lo decide
+    ``process_plate_hits``); lo único que cambia es que **no** se
+    persisten.
     """
     camera = (
         db.query(Camera)
@@ -99,9 +115,32 @@ def create_plates_detected(
             status_code=404, detail="Cámara no encontrada en esta sucursal"
         )
 
+    # T-166: el filtro va ANTES de tocar la base de datos, igual que en
+    # el worker (``ping_camera``). Se descarta lo que no tiene forma de
+    # matrícula: es texto quemado en la imagen, no una lectura de
+    # matrícula, y en ``plates_detected`` sólo se guarda lo segundo.
+    hits_validos: list[PlateHit] = []
+    for hit in payload.hits:
+        if not parece_matricula(hit.plate):
+            log.warning(
+                "plates: el OCR no leyó una matrícula (no se persiste): %r",
+                hit.plate,
+                extra={"camera_id": camera.id},
+            )
+            continue
+        hits_validos.append(hit)
+    if len(hits_validos) != len(payload.hits):
+        log.info(
+            "plates: camera=%s leídos=%s descartados=%s (no eran matrículas)",
+            camera.id,
+            len(payload.hits),
+            len(payload.hits) - len(hits_validos),
+            extra={"camera_id": camera.id},
+        )
+
     now = datetime.now(timezone.utc)
     rows: list[PlatesDetected] = []
-    for hit in payload.hits:
+    for hit in hits_validos:
         rows.append(
             PlatesDetected(
                 camera_id=camera.id,
@@ -123,5 +162,9 @@ def create_plates_detected(
     # Tras persistir la fila cruda, cruzamos con geocercas. El servicio
     # abre su propia sesión por hit para no acoplar su commit al de este
     # endpoint.
+    #
+    # OJO: se pasan **todos** los hits (también los descartados): el
+    # contrato de la respuesta es uno por hit, y el descartado vuelve con
+    # su motivo ``skipped_not_a_plate``.
     ingest = process_plate_hits(payload.hits, camera)
     return [IngestResultRead.model_validate(r) for r in ingest]

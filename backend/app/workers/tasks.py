@@ -10,8 +10,9 @@ Estado en MVP (Fase 2 cerrada):
       alerta WARN al gestor (igual que en sprint ALERTAS).
   El frame se persiste en `plates_detected` cuando hay lecturas y se
   envía a `process_plate_hits` para crear/cerrar tickets.
-- `cleanup_failed_frames` purga el directorio /tmp/ocr-failed de frames
-  con más de N días. Idempotente y seguro aunque esté vacío.
+- `cleanup_failed_frames` purga los frames con más de N días de **los
+  dos** directorios: /tmp/ocr-failed (el normal) y /tmp/solidapp-alerts-test
+  (el de respaldo, T-168). Idempotente y seguro aunque estén vacíos.
 
 `ping_camera` NUNCA lanza excepción: si el servicio OCR no responde,
 el cliente devuelve [] y la tarea registra `plates_found=0` en el log.
@@ -24,7 +25,6 @@ import asyncio
 import logging
 import threading
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
 
 import redis
@@ -37,6 +37,8 @@ from app.models.parking import Camera
 from app.models.password_reset_token import PasswordResetToken
 from app.models.plates_detected import PlatesDetected
 from app.services.alerts import (
+    FALLBACK_FRAMES_DIR,
+    FAILED_FRAMES_DIR,
     una_vez_por_hora,
     record_camera_offline,
     record_ocr_failure,
@@ -59,7 +61,13 @@ log = logging.getLogger(__name__)
 
 # Retención de frames fallidos (días) — corte limpio cada pasada.
 FAILED_FRAMES_RETENTION_DAYS = 30
-DEFAULT_OCR_FAILED_DIR = Path("/tmp/ocr-failed")
+#: Directorio **normal** de los frames fallidos (el que escribe
+#: ``alerts._save_frame``).
+DEFAULT_OCR_FAILED_DIR = FAILED_FRAMES_DIR
+#: Directorio de **respaldo** (donde caen los frames cuando el normal no
+#: se puede escribir). T-168: antes esta tarea sólo purgaba el normal, y
+#: los frames del respaldo se quedaban **para siempre**.
+FALLBACK_OCR_FAILED_DIR = FALLBACK_FRAMES_DIR
 
 
 @celery_app.task(name="solidapp.tick_cameras")  # type: ignore[untyped-decorator]
@@ -626,28 +634,40 @@ def check_camera_pushes(minutes: int | None = None) -> dict[str, Any]:
 
 @celery_app.task(name="solidapp.cleanup_failed_frames")  # type: ignore[untyped-decorator]
 def cleanup_failed_frames() -> dict[str, int]:
-    """Purga /tmp/ocr-failed/*.jpg con mtime > N días.
+    """Purga los frames fallidos con mtime > N días.
+
+    Purga **los dos** directorios (T-168, 2026-10-24):
+
+    - ``/tmp/ocr-failed``: el normal, donde guarda ``alerts._save_frame``.
+    - ``/tmp/solidapp-alerts-test``: el de **respaldo**, donde caen los
+      frames cuando el normal no se puede escribir. Antes esta tarea
+      sólo miraba el normal, así que los frames del respaldo se
+      quedaban **para siempre** (medido: un frame de 45 días seguía
+      ahí después de pasar la tarea).
 
     Idempotente y tolerante a directorio inexistente (no falla el
-    worker si todavía no se ha creado).
+    worker si todavía no se ha creado). Devuelve el recuento con el
+    mismo formato que usa el resto del repo: ``{"deleted": N,
+    "kept": M}`` (sumando los dos directorios).
     """
-    if not DEFAULT_OCR_FAILED_DIR.exists():
-        return {"deleted": 0, "kept": 0}
     cutoff = datetime.now(timezone.utc) - timedelta(days=FAILED_FRAMES_RETENTION_DAYS)
     deleted = 0
     kept = 0
-    for entry in DEFAULT_OCR_FAILED_DIR.iterdir():
-        if not entry.is_file():
+    for directorio in (DEFAULT_OCR_FAILED_DIR, FALLBACK_OCR_FAILED_DIR):
+        if not directorio.exists():
             continue
-        mtime = datetime.fromtimestamp(entry.stat().st_mtime, tz=timezone.utc)
-        if mtime < cutoff:
-            try:
-                entry.unlink()
-                deleted += 1
-            except OSError as exc:
-                log.warning("No se pudo borrar %s: %s", entry, exc)
-        else:
-            kept += 1
+        for entry in directorio.iterdir():
+            if not entry.is_file():
+                continue
+            mtime = datetime.fromtimestamp(entry.stat().st_mtime, tz=timezone.utc)
+            if mtime < cutoff:
+                try:
+                    entry.unlink()
+                    deleted += 1
+                except OSError as exc:
+                    log.warning("No se pudo borrar %s: %s", entry, exc)
+            else:
+                kept += 1
     log.info("cleanup_failed_frames: deleted=%s kept=%s", deleted, kept)
     return {"deleted": deleted, "kept": kept}
 

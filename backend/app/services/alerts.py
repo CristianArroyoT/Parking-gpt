@@ -6,8 +6,9 @@ Pipeline:
    ``record_ocr_failure(camera, frame_bytes)`` cuando ``hits == []``.
 2. Esta función usa Redis como contador efímero:
 
-   - ``camera:{id}:consecutive_fails`` — contador ``INCR`` con TTL 10 min
-     para que no quede huérfano si la cámara desaparece.
+   - ``camera:{id}:consecutive_fails`` — contador ``INCR`` con TTL
+     **renovado en cada fallo** (ventana deslizante) y **calculado a
+     partir del umbral** (T-167: el TTL ya no es un número mágico).
    - ``camera:{id}:ocr_alert_lock`` — ``SET NX EX 3600`` que evita crear
      más de una alerta por hora para la misma cámara.
 
@@ -29,6 +30,14 @@ Pipeline:
   24 h.
 - La resolución del email del gestor (``_resolve_manager_email``) nunca
   aborta la creación de la alerta: si no hay gestor, el email se omite.
+
+OJO (T-167, 2026-10-24): **esta ruta está dormida**. La alarma
+``OCR_FAILED`` la dispara ``ping_camera``, que **no se despacha** (T-164:
+el pipeline real es el push externo a
+``POST /parkings/{id}/cameras/{id}/plates``). El arreglo de abajo es
+correcto y queda probado, pero **no vigila nada** hasta que alguien
+active ``ping_camera``. Que lo active quien lo haga, con el TTL ya
+coherente con el umbral.
 """
 from __future__ import annotations
 
@@ -52,13 +61,60 @@ from app.services import email as email_module
 log = logging.getLogger(__name__)
 
 # ── Configuración ────────────────────────────────────────────────
-_OCR_FAILED_FRAMES_DIR: Final[Path] = Path("/tmp/ocr-failed")
-_DRY_RUN_DIR: Final[Path] = Path("/tmp/solidapp-alerts-test")
+#: Directorio **normal** de los frames fallidos.
+FAILED_FRAMES_DIR: Final[Path] = Path("/tmp/ocr-failed")
+#: Directorio de **respaldo**: donde caen los frames cuando el normal no
+#: se puede escribir (p.ej. tests en Windows). T-168: la tarea de
+#: limpieza tiene que purgar **los dos** (si no, estos frames se
+#: quedan para siempre).
+FALLBACK_FRAMES_DIR: Final[Path] = Path("/tmp/solidapp-alerts-test")
 
 # TTL del lock de "ya alertamos en la última hora".
 ALERT_LOCK_TTL_SECONDS: Final[int] = 3600
-# TTL del contador de fallos para que la clave no quede huérfana.
-COUNT_TTL_SECONDS: Final[int] = 600
+#: TTL **mínimo** del contador de fallos consecutivos: por debajo de
+#: esto el contador caduca entre dos fallos aunque lleguen pegados.
+MIN_COUNT_TTL_SECONDS: Final[int] = 60
+#: Margen sobre (umbral × intervalo esperado). Con el margen 2, la
+#: ventana del contador aguanta el doble de lo que necesita.
+COUNT_TTL_MARGIN: Final[int] = 2
+
+
+def ttl_contador_fallos(threshold: int, intervalo_s: int) -> int:
+    """TTL del contador de fallos consecutivos, coherente con el umbral.
+
+    POR QUÉ (T-167, 2026-10-24): el TTL eran **600 s fijos**, sea cual
+    fuera el umbral. El TTL se ponía **sólo en el primer ``INCR``**, o
+    sea que la ventana iba desde el primer fallo. Con el umbral por
+    defecto (5) eso significa que el contador tenía que aguantar 600 s
+    para llegar a 5: si los fallos llegaban más espaciados que
+    ``600/5 = 120 s``, el contador caducaba **antes** de poder llegar al
+    umbral y **la alerta nunca saltaba**.
+
+    Medido (2026-10-24, contra el Redis real del stack): una serie de 5
+    fallos separados 3 s con un TTL de 8 s dejó el contador en 2 y **no
+    creó ninguna alerta**.
+
+    El TTL ahora se **deriva del umbral** (``umbral × intervalo
+    esperado × margen``), de modo que la ventana siempre puede guardar
+    los fallos que hacen falta para cruzar el umbral, y por tanto el
+    TTL **cambia con el umbral** (ya no es un número mágico).
+
+    OJO: esto **no** contradice el T-150. Allí lo que se renovaba era
+    el TTL de un **lock** (exclusión mutua entre dos rondas): la ronda
+    puede tardar más que el TTL, así que renovarlo mientras la ronda
+    vive es lo correcto. Aquí lo que se renueva es el TTL de un
+    **contador**, y la renovación es lo que convierte la ventana fija en
+    **deslizante**: el contador sobrevive mientras los fallos lleguen
+    separados menos que el TTL, en vez de morir en el primero que pase
+    del TTL. El "consecutivo" lo sigue marcando el reset explícito
+    (``reset_ocr_failure``) cuando llega una lectura válida.
+    """
+    if threshold <= 0 or intervalo_s <= 0:
+        return MIN_COUNT_TTL_SECONDS
+    return max(
+        MIN_COUNT_TTL_SECONDS,
+        threshold * intervalo_s * COUNT_TTL_MARGIN,
+    )
 
 
 def _redis_client() -> redis.Redis:
@@ -140,10 +196,15 @@ def _save_frame(camera_code: str, frame_bytes: bytes) -> str | None:
     En entornos donde ``/tmp/ocr-failed`` no se pueda escribir (tests
     en Windows), cae a ``/tmp/solidapp-alerts-test`` para no perder
     la captura ni romper el flujo.
+
+    OJO (T-168): ese directorio de respaldo lo limpia **también** la
+    tarea ``cleanup_failed_frames`` (con la misma retención); antes sólo
+    se purgaba el directorio normal y estos frames se quedaban para
+    siempre.
     """
-    _OCR_FAILED_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+    FAILED_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-    target = _OCR_FAILED_FRAMES_DIR / f"{camera_code}-{ts}.jpg"
+    target = FAILED_FRAMES_DIR / f"{camera_code}-{ts}.jpg"
     try:
         target.write_bytes(frame_bytes)
         return str(target)
@@ -154,8 +215,8 @@ def _save_frame(camera_code: str, frame_bytes: bytes) -> str | None:
             exc,
         )
         try:
-            _DRY_RUN_DIR.mkdir(parents=True, exist_ok=True)
-            fallback = _DRY_RUN_DIR / target.name
+            FALLBACK_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+            fallback = FALLBACK_FRAMES_DIR / target.name
             fallback.write_bytes(frame_bytes)
             return str(fallback)
         except OSError as exc2:
@@ -169,14 +230,21 @@ def record_ocr_failure(camera: Camera, frame_bytes: bytes | None = None) -> Aler
     threshold = settings.ocr_frames_before_fail
     if threshold <= 0:
         return None
+    # T-167: el TTL se deriva del umbral (no es un número fijo) y se
+    # renueva en cada fallo (ventana deslizante).
+    ttl = ttl_contador_fallos(threshold, settings.ocr_ping_interval_seconds)
 
     try:
         rds = _redis_client()
         # \incr\ devuelve \Awaitable[Any] | Any\ en los tipos de
         # redis-py, pero el cliente es síncrono y devuelve un int.
         count = cast(int, rds.incr(_consecutive_key(camera.id)))
-        if count == 1:
-            rds.expire(_consecutive_key(camera.id), COUNT_TTL_SECONDS)
+        # T-167: el TTL se renueva en **cada** fallo. Antes sólo se
+        # ponía en el primero (``if count == 1``), o sea que la ventana
+        # iba desde el primer fallo: si los fallos llegaban más
+        # espaciados que TTL/umbral, el contador caducaba antes de
+        # poder llegar al umbral y la alerta NUNCA saltaba.
+        rds.expire(_consecutive_key(camera.id), ttl)
     except RedisError as exc:
         log.warning(
             "alerts: Redis no disponible, alerta omitida camera=%s: %s",
@@ -326,12 +394,25 @@ def record_camera_offline(camera: Camera, *, kind: str = "frame") -> Alert | Non
     )
     if threshold <= 0:
         return None
+    # T-167: mismo criterio que en el contador de OCR: el TTL se deriva
+    # del umbral y se renueva en cada fallo (ventana deslizante). El
+    # intervalo esperado es el del probe que está contando: el del
+    # heartbeat (cada 60 s, ``celery_app.py``) o el del ping, según el
+    # ``kind``.
+    intervalo = (
+        settings.ocr_ping_interval_seconds
+        if kind == "frame"
+        else settings.heartbeat_interval_seconds
+    )
+    ttl = ttl_contador_fallos(threshold, intervalo)
 
     try:
         rds = _redis_client()
         count = cast(int, rds.incr(_consecutive_offline_key(camera.id)))
-        if count == 1:
-            rds.expire(_consecutive_offline_key(camera.id), COUNT_TTL_SECONDS)
+        # T-167: el TTL se renueva en cada fallo (antes sólo en el
+        # primero, con lo que la ventana moría en el primer fallo que
+        # se pasara del TTL).
+        rds.expire(_consecutive_offline_key(camera.id), ttl)
     except RedisError as exc:
         log.warning(
             "alerts: Redis no disponible en offline counter camera=%s: %s",
@@ -451,4 +532,10 @@ __all__ = [
     "reset_ocr_failure",
     "record_camera_offline",
     "reset_camera_offline",
+    "ttl_contador_fallos",
+    "FAILED_FRAMES_DIR",
+    "FALLBACK_FRAMES_DIR",
+    "ALERT_LOCK_TTL_SECONDS",
+    "MIN_COUNT_TTL_SECONDS",
+    "COUNT_TTL_MARGIN",
 ]

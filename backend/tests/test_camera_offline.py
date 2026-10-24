@@ -84,6 +84,10 @@ def offline_env(monkeypatch, motor_de_test):
     class _StubSettings:
         ocr_frames_before_fail = 3
         redis_url = "redis://stub"
+        # T-167: el TTL del contador se deriva del umbral y del intervalo
+        # esperado (aquí el del heartbeat).
+        ocr_ping_interval_seconds = 60
+        heartbeat_interval_seconds = 60
     monkeypatch.setattr(
         "app.services.alerts.get_settings", lambda: _StubSettings()
     )

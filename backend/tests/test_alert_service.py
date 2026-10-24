@@ -88,6 +88,11 @@ def alert_env(monkeypatch, motor_de_test):
     class _StubSettings:
         ocr_frames_before_fail = 3
         redis_url = "redis://stub"
+        # T-167: el TTL del contador se deriva del umbral y del intervalo
+        # esperado. Aquí da igual (el fake no caduca), pero el stub tiene
+        # que tener el atributo o el código peta.
+        ocr_ping_interval_seconds = 60
+        heartbeat_interval_seconds = 60
     monkeypatch.setattr(
         "app.services.alerts.get_settings", lambda: _StubSettings()
     )
