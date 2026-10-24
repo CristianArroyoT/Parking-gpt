@@ -43,15 +43,18 @@
 >         nada. **Ojo**: el repositorio tiene el histórico completo y
 >         datos de ejemplo; es una decisión de producto sobre la
 >         visibilidad, no una decisión técnica.
->         - **Medido** (2026-10-24): el repositorio está **privado**
+>         - **Medido** (2026-10-24): el repositorio estaba **privado**
 >           (`gh repo view` → `"isPrivate": true`), y el historial
->           **no tiene secretos** (`python tools/escanear_secretos.py
+>           **no tenía secretos** (`python tools/escanear_secretos.py
 >           --historial` → 138.365 líneas escaneadas, 0 hallazgos). Es
->           decir: hacerlo público **no filtraría credenciales**, y es la
+>           decir: hacerlo público **no filtraba credenciales**, y es la
 >           vía que GitHub documenta como gratuita ("the use of standard
 >           GitHub-hosted runners is free: in public repositories"; y
 >           "if your account does not have a valid payment method on
 >           file, usage is blocked").
+>         - **HECHO** (2026-10-24, por decisión del usuario):
+>           `gh repo edit --visibility public --accept-visibility-change-consequences`
+>           ⇒ `"visibility": "PUBLIC"`.
 >      3. **Runner self-hosted en esta máquina.** Es lo que se ha
 >         intentado medir: el token de registro funciona y no hay
 >         runners dados de alta, pero **no es viable sin tocar el
