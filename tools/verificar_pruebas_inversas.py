@@ -505,6 +505,25 @@ CASOS: list[Caso] = [
             "test_el_worker_reentrega_las_tareas_si_muere"
         ),
     ),
+    Caso(
+        nombre="T-152 · el endpoint de health vuelve a restar una fecha naive",
+        fichero="app/api/v1/cameras.py",
+        cambios=[
+            (
+                """    # T-152 (2026-10-24): un ``DateTime(timezone=True)`` vuelve **naive**
+    # al releerlo de SQLite, y restar un naive de un datetime con zona da
+    # ``TypeError`` (un 500). Es el mismo ajuste que hacen el resto de
+    # servicios del repo (y que este fichero no hacia).
+    if last_at is not None and last_at.tzinfo is None:
+        last_at = last_at.replace(tzinfo=timezone.utc)
+""",
+                "",
+            ),
+        ],
+        test=(
+            "tests/test_camera_health_api.py::test_health_con_fecha_naive_no_da_500"
+        ),
+    ),
 ]
 
 

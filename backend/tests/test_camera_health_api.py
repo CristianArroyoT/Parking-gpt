@@ -223,3 +223,41 @@ def test_health_redis_failure_falls_back_to_zero(
     assert body["consecutive_failures"] == 0
     # El status sigue derivándose correctamente de los health fields de BD.
     assert body["status"] == "never_probed"
+
+def test_health_con_fecha_naive_no_da_500(client: TestClient, db_session) -> None:
+    """Un datetime *naive* (como el que devuelve SQLite) no puede dar un 500.
+
+    T-152 (2026-10-24): el endpoint restaba ``last_heartbeat_at`` de un
+    datetime con zona sin normalizar. En SQLite el valor **viene naive**
+    al releerlo de la BD ⇒ ``TypeError`` ⇒ 500. Los tests que ya habia no
+    lo detectaban porque asignaban la fecha **en memoria** (y ahi sigue
+    siendo *aware*); este la asigna naive y **relee de la BD**.
+    """
+    parking, cam, admin = _seed(db_session)
+    ahora = datetime.now(timezone.utc)
+    # Naive, como lo deja SQLite.
+    cam.last_heartbeat_at = ahora.replace(tzinfo=None)
+    cam.last_heartbeat_ok = True
+    db_session.commit()
+    db_session.refresh(cam)
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": admin.email, "password": "admin12345"},
+    )
+    token = login.json()["access_token"]
+    try:
+        respuesta = client.get(
+            f"/api/v1/parkings/{parking.id}/cameras/{cam.id}/health",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    except TypeError as exc:
+        # OJO: sin la normalizacion, el endpoint peta con un TypeError
+        # (que en produccion es un 500). Se convierte en un AssertionError
+        # para que el fallo del test sea una **asercion** y no un error de
+        # codigo (la puerta de pruebas inversas lo exige).
+        raise AssertionError(
+            f"la fecha naive ha petado el endpoint de health: {exc}"
+        ) from exc
+    assert respuesta.status_code == 200, respuesta.text
+    assert respuesta.json()["status"] == "healthy"

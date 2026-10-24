@@ -293,6 +293,12 @@ def camera_health(
     stale = settings.camera_health_stale_threshold_seconds
     last_at = cam.last_heartbeat_at
     last_ok = cam.last_heartbeat_ok
+    # T-152 (2026-10-24): un ``DateTime(timezone=True)`` vuelve **naive**
+    # al releerlo de SQLite, y restar un naive de un datetime con zona da
+    # ``TypeError`` (un 500). Es el mismo ajuste que hacen el resto de
+    # servicios del repo (y que este fichero no hacia).
+    if last_at is not None and last_at.tzinfo is None:
+        last_at = last_at.replace(tzinfo=timezone.utc)
 
     # Status derivado de 4 estados posibles (ver docs de ``CameraHealthRead``).
     status_value: Literal["never_probed", "offline", "healthy", "degraded"]

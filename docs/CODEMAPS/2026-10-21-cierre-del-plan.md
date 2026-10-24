@@ -2870,3 +2870,14 @@ fallaba se reentregaba en bucle.
 Ahora: `task_reject_on_worker_lost=True`, `task_soft_time_limit=1800` /
 `task_time_limit=1860` y `task_acks_on_failure_or_timeout=True`. **Medido**
 preguntándole la configuración al worker en marcha.
+### 3-centésimosesentésimocuarto. El endpoint de health no da un 500 con la fecha naive (2026-10-24)
+
+`cameras.py` restaba `last_heartbeat_at` de un datetime con zona **sin
+normalizar**. En SQLite el valor vuelve *naive* al releerlo de la BD ⇒
+`TypeError` ⇒ **500** (en PostgreSQL no se reproducía: depende del
+motor).
+
+Y ningún test lo detectaba: asignaban la fecha **en memoria**, donde
+sigue siendo *aware*. El test nuevo la asigna naive y **relee de la BD**,
+y convierte el `TypeError` en un `AssertionError` (la puerta de pruebas
+inversas exige que el fallo sea una aserción, no un error de código).

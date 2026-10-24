@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **754 de 754 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **757 de 757 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2807,12 +2807,6 @@ que no se pierdan, en orden de gravedad. **Ninguno está arreglado**: son
 cambios de más calado que los de esta tanda, y varios son decisiones de
 producto.
 
-- **[MEDIA] `GET /cameras/{id}/health` resta un `datetime` *naive*.**
-  `cameras.py` no normaliza el `tzinfo` (el patrón que el propio AGENTS.md
-  exige y que sí está en el resto de ficheros). En SQLite un
-  `DateTime(timezone=True)` vuelve *naive* al releerlo ⇒ `TypeError` ⇒ 500.
-  **El test actual no lo ve** porque reutiliza la sesión y no relee de la
-  BD (`expire_on_commit=False`): el `datetime` sigue *aware* en memoria.
 - **[MEDIA] Dos de las tres purgas traen todos los registros a memoria**
   (`vehicle_purge.py` y `purgar_adjuntos_vencidos`, esta última con N+1),
   sin lotes, frente a `purge_audit_logs`, que sí va por lotes (T-104).
@@ -2930,6 +2924,19 @@ producto.
   - [x] Ninguna tarea puede ocupar el slot para siempre (límites blando y duro).
   - [x] Una tarea que falla no se reintenta en bucle.
   - [x] Tests (3) y **prueba inversa** en `tools/verificar_pruebas_inversas.py`.
+
+
+### T-152 · P2 (funcional) — `GET /cameras/{id}/health` daba un 500 con la fecha *naive*
+
+- **Estado**: **completado** — el endpoint normaliza la zona horaria
+- **Contexto**: `cameras.py` **no** normalizaba el `tzinfo` de `last_heartbeat_at` antes de restarlo de `datetime.now(timezone.utc)`. Es el patrón que el AGENTS.md repite y que el resto de ficheros del repo respetan.
+- **El defecto**: un `DateTime(timezone=True)` vuelve **naive** al releerlo de **SQLite**; restar un naive de un aware da `TypeError` ⇒ **500** en el endpoint de la salud de una cámara. En PostgreSQL no se reproduciría (ahí vuelve con zona), o sea: **depende del motor de base de datos**.
+- **Por qué ningún test lo detectaba**: los tests que había asignan la fecha **en memoria**, y en memoria sigue siendo *aware* (la sesión de pruebas no relee el valor). El defecto sólo aparece cuando el valor **viene de la BD**.
+- **El arreglo**: normalizar la fecha antes de restarla (el mismo ajuste que hacen `app/api/v1/incidents.py` y el resto de servicios).
+- **Criterios de aceptación**:
+  - [x] El endpoint no da un 500 con una fecha naive (test que **relee de la BD**).
+  - [x] El test convierte el `TypeError` en un `AssertionError`, para que el fallo sea una **aserción** y no un error de código (lo que exige la puerta de pruebas inversas).
+  - [x] Prueba inversa en `tools/verificar_pruebas_inversas.py`.
 
 ### T-14 · I3 — OCR con GPU
 
