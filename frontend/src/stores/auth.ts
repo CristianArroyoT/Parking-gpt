@@ -33,7 +33,19 @@ export const useAuthStore = defineStore('auth', () => {
       setTokens(data.access_token, data.refresh_token)
       email.value = emailInput
       sessionStorage.setItem(EMAIL_KEY, emailInput)
-      await fetchMe()
+      try {
+        await fetchMe()
+      } catch (err: unknown) {
+        // T-139 (2026-10-24): si el perfil no se pudo cargar, la sesion
+        // no sirve (un token sin usuario no pasa el guard). Se limpian
+        // los tokens y el error sube al login, que lo muestra: antes
+        // decia «Bienvenido» y echaba al usuario al formulario sin
+        // ningun error visible.
+        clearTokens()
+        sessionStorage.removeItem(EMAIL_KEY)
+        email.value = null
+        throw err
+      }
     } catch (err: unknown) {
       const msg = extractError(err, 'Credenciales inválidas')
       error.value = msg
@@ -44,13 +56,13 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function fetchMe(): Promise<void> {
-    try {
-      const { data } = await http.get<User>('/users/me')
-      user.value = data
-    } catch {
-      // /users/me no existe aún: el store queda sin perfil pero autenticado
-      // (los tokens siguen siendo válidos). El guard del router acepta esto.
-    }
+    // T-139 (2026-10-24): este catch se tragaba CUALQUIER error y
+    // dejaba el login a medias (token guardado, perfil vacio) con un
+    // comentario que describia un comportamiento que no existia: el
+    // guard comprueba `user !== null`, asi que sin perfil echaba al
+    // usuario al login. Ahora el error se propaga.
+    const { data } = await http.get<User>('/users/me')
+    user.value = data
   }
 
   async function logout(): Promise<void> {
@@ -104,7 +116,17 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function restore(): Promise<void> {
     if (!email.value) return
-    await fetchMe()
+    try {
+      await fetchMe()
+    } catch {
+      // T-139 (2026-10-24): la sesion no se puede restaurar. Se
+      // limpian los tokens (para que el guard mande a /login) y no se
+      // rompe el arranque.
+      clearTokens()
+      sessionStorage.removeItem(EMAIL_KEY)
+      user.value = null
+      email.value = null
+    }
   }
 
   return {

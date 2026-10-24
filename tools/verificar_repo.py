@@ -155,6 +155,17 @@ def _comprobaciones() -> list[Comprobacion]:
             timeout=600,
         ),
         Comprobacion(
+            "Un login que no puede cargar el perfil falla con mensaje",
+            # T-139 (2026-10-24): `fetchMe()` se tragaba cualquier
+            # error, asi que un login cuyo `/users/me` fallaba decia
+            # «Bienvenido», guardaba el token, dejaba el perfil vacio y
+            # echaba al usuario al formulario sin ningun error visible.
+            # Esta QA intercepta `/users/me` para que devuelva un 500.
+            [py, "frontend/scripts/qa_login_error.py"],
+            patron=r"(OK: el login fallo con mensaje.*)",
+            timeout=600,
+        ),
+        Comprobacion(
             "Un gestor sin sucursales ve un mensaje, no «Cargando...»",
             # T-138 (2026-10-24): en «movimientos» y «alertas» la carga
             # tiene un `return` temprano cuando no hay sucursal, y ese

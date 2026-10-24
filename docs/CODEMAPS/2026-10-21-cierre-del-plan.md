@@ -2687,3 +2687,13 @@ quedaba mirando «Cargando…» para siempre. **El arreglo**: el `return`
 baja el flag y deja un error claro, y el mensaje «no hay movimientos» se
 oculta si hubo error. Queda una QA con navegador de verdad que crea un
 gestor sin membresías y lo comprueba.
+
+### 3-centésimotrentidosésima. Un login sin perfil decía «Bienvenido» y no decía nada (2026-10-24)
+
+`fetchMe()` se tragaba cualquier error (y su comentario describía un
+comportamiento que no existía). Un login cuyo `/users/me` fallaba se
+disfrazaba de login correcto: «Bienvenido», token guardado, perfil vacío
+y vuelta al formulario sin explicación. **El arreglo**: el error se
+propaga, se limpian los tokens y el login lo muestra. Queda una QA con
+navegador de verdad que intercepta `/users/me` y comprueba que el login
+falla **con mensaje** y sin tokens.

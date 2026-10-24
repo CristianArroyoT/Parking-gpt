@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **696 de 700 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **699 de 703 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2566,6 +2566,28 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] QA nueva (`frontend/scripts/qa_gestor_sin_sucursal.py`) con un navegador de verdad: crea un gestor sin membresías, entra con él y comprueba que la pantalla **no** queda en «Cargando…», que explica que no hay sucursal y que **no** afirma que no hay datos.
   - [x] El usuario de prueba se borra al terminar (la QA no deja basura).
   - [x] Prueba inversa (`qa_gestor_sin_sucursal_inversa.py`): sin el arreglo la QA falla por el motivo correcto.
+  - [x] La QA queda registrada en `tools/verificar_repo.py`.
+
+### T-139 · P2 (frontend) — un login que no puede cargar el perfil decía «Bienvenido» y no decía nada
+
+- **Estado**: **completado** — el login falla con un mensaje y no deja tokens
+- **Contexto**: `fetchMe()` (`frontend/src/stores/auth.ts`) se tragaba **cualquier** error con un `catch` vacío, y su comentario describía un comportamiento que **no existía** («el guard del router acepta esto»): el guard comprueba `isAuthenticated`, que es `user !== null`; sin perfil, echaba al usuario al login.
+- **Medido** (2026-10-24, con un navegador de verdad e interceptando `/users/me` para que devuelva un 500):
+  ```
+  # con el defecto:
+  FALLO: el login fallo sin mostrar ningun error
+         (la pagina dice: 'Gestión de parkings / Iniciar sesión / ...')
+  # con el arreglo:
+  OK: el login fallo con mensaje ('fallo de prueba') y sin tokens
+  ```
+  Es decir: un fallo del **servidor** (no unas credenciales malas) se disfrazaba de login correcto: toast de «Bienvenido», token guardado, perfil vacío y vuelta al formulario sin explicación.
+- **El arreglo**:
+  1. `fetchMe()` **propaga** el error (el comentario anterior describía una mentira);
+  2. `login()` limpia los tokens si el perfil no se pudo cargar (si no, queda un token sin usuario) y deja que el error suba al login, que lo muestra;
+  3. `restore()` limpia la sesión si no se puede restaurar, sin romper el arranque.
+- **Criterios de aceptación**:
+  - [x] QA nueva (`frontend/scripts/qa_login_error.py`): con `/users/me` en 500, el login **falla con un mensaje** y **no deja tokens**.
+  - [x] Prueba inversa (`qa_login_error_inversa.py`): sin el arreglo la QA falla por el motivo correcto.
   - [x] La QA queda registrada en `tools/verificar_repo.py`.
 
 ### T-14 · I3 — OCR con GPU
