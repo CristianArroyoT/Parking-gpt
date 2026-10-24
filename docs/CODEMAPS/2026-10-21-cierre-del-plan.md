@@ -2942,3 +2942,19 @@ Ahora consulta al worker en marcha (`celery inspect registered`) y
 compara. **Medido**: con el worker en el código viejo, la puerta falla y
 dice cómo arreglarlo; tras reiniciarlo, pasa. Si el worker no se puede
 consultar (en el CI no hay Docker), lo dice en vez de callar.
+### 3-centésimosesentésimoséptimo. El temporizador ya no sobrevive al desmontaje (2026-10-24)
+
+En tres vistas, el polling se creaba **después** de unos `await` dentro
+de `onMounted`: si el usuario salía mientras cargaba, `onBeforeUnmount`
+veía el handle en `null` y el intervalo se creaba **tarde**, sin
+borrarse nunca (las peticiones de `fetch` no se abortan al cambiar de
+ruta dentro del SPA).
+
+Ahora un flag `desmontado` lo impide. **Medido**: con el defecto, el
+temporizador repetía a los 34 s; con el arreglo, ninguna petición
+tardía.
+
+La QA de navegador detecta el síntoma pero **no** reproduce el
+desmontaje limpio (en el entorno de QA el clic al menú no sale de la
+vista), así que **no se ha registrado como puerta**: una puerta que no
+demuestra nada es peor que no tenerla.

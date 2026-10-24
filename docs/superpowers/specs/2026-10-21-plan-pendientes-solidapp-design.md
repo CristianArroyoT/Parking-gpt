@@ -3073,12 +3073,6 @@ Auditoría del **frontend** y del **pipeline de matrículas** (dos subagentes).
 Todos están **verificados leyendo el código** (los que dependen del
 comportamiento en marcha, marcados como tales). Ordenados por gravedad:
 
-- **[ALTA] Fuga de temporizadores**: en `LiveView`, `MapView` y
-  `CalibrateView`, el `setInterval` se crea **después** de un `await` en
-  `onMounted`, así que si el componente se desmonta mientras espera, el
-  temporizador **nunca se borra** (el `onBeforeUnmount` ve `null`). Cada
-  visita fallida deja un temporizador de 30 s (o 15 s) pidiendo datos a
-  una vista que ya no existe.
 - **[ALTA] El push externo no deja ninguna alarma de «la cámara dejó de
   empujar»**: el único detector de OCR cuelga de `ping_camera`, que
   **no se despacha**. Si el OCR del fabricante muere, no salta nada: la
@@ -3171,6 +3165,23 @@ sucursal).
 
 El plan queda **completo** en lo que era su alcance: 782 de 782 criterios verificados. Lo que sigue son
 decisiones de producto y un despliegue real.
+
+
+### T-162 · P2 (frontend) — el temporizador de refresco sobrevivía al desmontaje de la vista
+
+- **Estado**: **completado** (arreglo aplicado y medido) · la **prueba automática queda declarada como no fiable** (ver abajo)
+- **Contexto**: en tres vistas (`LiveView`, `MapView`, `CalibrateView`) el polling se crea **después** de varios `await` dentro de `onMounted`.
+- **El defecto**: si el usuario sale de la vista **mientras carga**, se ejecuta `onBeforeUnmount` con el handle en `null` (todavía no existe) ⇒ no limpia nada; y como las peticiones de `fetch` **no** se abortan al cambiar de ruta dentro del SPA, la promesa se resuelve **después** del desmontaje ⇒ **el intervalo se crea tarde y nunca se borra**: queda pidiendo datos a una vista que ya no existe, y cada visita fallida añade un temporizador de 30 s (o 15 s en `CalibrateView`).
+- **El arreglo**: un flag `desmontado` que se pone en `onBeforeUnmount` y se comprueba **antes** de crear el intervalo: si nos desmontaron mientras esperábamos, el intervalo no se crea.
+- **Medido** (2026-10-24, con la red lenta de verdad y saliendo de la vista):
+  ```
+  # con el defecto:
+      + 34.4s  /api/v1/parkings/11/spaces              <-- el huerfano, 30 s despues
+      + 34.4s  /api/v1/tickets?parking_id=11&only_active=true
+  # con el arreglo:
+      peticiones mas de 20 s despues de salir: 0
+  ```
+- **Lo que NO se ha hecho, y por qué** (para que no se dé por hecho): la QA de navegador (`frontend/scripts/qa_temporizadores.py`) **detecta el síntoma** (el temporizador se repite a los 30 s) pero **no causa el defecto**: en el entorno de QA el clic al menú **no sale de la vista** (la URL sigue en `/mapa`), así que no reproduce el desmontaje limpio. Por eso **no está registrada como puerta** en el `verificar_repo.py`: una puerta que no demuestra nada es peor que no tenerla. La puerta de verdad sería una prueba de componente (montar la vista, resolver el `await` **después** de desmontarla y comprobar que no queda ningún temporizador), que requiere un entorno de pruebas de componentes que el repo todavía no tiene.
 
 ### T-14 · I3 — OCR con GPU
 

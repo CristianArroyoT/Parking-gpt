@@ -145,6 +145,11 @@ const { connected: liveConnected } = useParkingEvents(parkingId, (ev) => {
   }
 })
 
+//: T-162 (2026-10-24): se pone a ``true`` al desmontar la vista. El
+//: polling se crea despues de unos ``await``, asi que sin este flag un
+//: intervalo podia crearse DESPUES del desmontaje y no borrarse nunca.
+let desmontado = false
+
 onMounted(async () => {
   try {
     await Promise.all([loadCamera(), loadSpaces(), loadGeofences(), loadHealth()])
@@ -158,10 +163,18 @@ onMounted(async () => {
   // cambia el estado, pero el poll mantiene fresco el timestamp del
   // último heartbeat (que el evento no reenvía). Patrón idéntico al
   // usado en MapView.vue (setInterval + cleanup en onBeforeUnmount).
+  // T-162 (2026-10-24): el intervalo se crea DESPUES de los `await`. Si
+  // el gestor sale de la vista mientras carga, `onBeforeUnmount` ve
+  // `healthPoll === null` (todavia no existe) y el intervalo se crea
+  // DESPUES del desmontaje: nunca se borra y sigue pidiendo datos a una
+  // vista que ya no esta. Con este flag, si nos desmontan mientras
+  // esperamos, no se crea.
+  if (desmontado) return
   healthPoll = window.setInterval(loadHealth, HEALTH_POLL_MS)
 })
 
 onBeforeUnmount(() => {
+  desmontado = true
   if (healthPoll !== null) {
     window.clearInterval(healthPoll)
     healthPoll = null

@@ -155,6 +155,11 @@ async function onIncidentSuccess(): Promise<void> {
   await refreshAll()
 }
 
+//: T-162 (2026-10-24): se pone a ``true`` al desmontar la vista. El
+//: polling se crea despues de unos ``await``, asi que sin este flag un
+//: intervalo podia crearse DESPUES del desmontaje y no borrarse nunca.
+let desmontado = false
+
 onMounted(async () => {
   await load()
   if (selectedId.value) await loadContext(selectedId.value)
@@ -162,10 +167,18 @@ onMounted(async () => {
   // Red de seguridad: si el SSE no conecta (firewall corporativo o el
   // navegador no puede mantener el stream), seguimos refrescando cada
   // 30 s. Con SSE activo la latencia real es <1 s.
+  // T-162 (2026-10-24): el intervalo se crea DESPUES de los `await`. Si
+  // el operador sale de la vista mientras carga, `onBeforeUnmount` ve
+  // `pollHandle === null` (todavia no existe) y el intervalo se crea
+  // DESPUES del desmontaje: nunca se borra y sigue pidiendo datos a una
+  // vista que ya no esta. Con este flag, si nos desmontan mientras
+  // esperamos, no se crea.
+  if (desmontado) return
   pollHandle = window.setInterval(refreshAll, 30000)
 })
 
 onBeforeUnmount(() => {
+  desmontado = true
   if (pollHandle !== null) window.clearInterval(pollHandle)
 })
 </script>
