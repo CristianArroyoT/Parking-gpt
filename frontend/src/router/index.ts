@@ -229,3 +229,34 @@ router.beforeEach((to) => {
   }
   return true
 })
+
+// T-140 (2026-10-24): la sesion caducada **expulsa** al login.
+//
+// El interceptor (``api/client.ts``) avisa con el evento
+// ``solidapp:sesion-caducada`` cuando el refresh ya no se puede renovar (T-110).
+// El store limpia el usuario, pero el guard del router **solo corre al
+// navegar**: sin esta redireccion, el operador se quedaba en la pantalla con
+// los datos ya descargados (y el rotulo «Sin sesion»), y cada peticion
+// posterior devolvia 401 sin mensaje.
+//
+// MEDIDO (2026-10-24, con un navegador de verdad):
+//   - el evento SI se dispara y los tokens SI se limpian;
+//   - pero la URL se quedaba en /mapa y el mapa seguia mostrando las plazas.
+//
+// OJO (por que el T-137 se dio por refutado y no lo estaba): el arreglo
+// original vivia en el arbol de trabajo, sin commitear; la QA paso CON el
+// arreglo puesto y, al revertirlo para hacer el commit, **nadie volvio a
+// ejecutar la puerta**. La puerta quedo en rojo sin que nadie lo notara.
+// La URL de destino lleva ``redirect`` para que el login devuelva al
+// operador a la pantalla que estaba usando.
+if (typeof window !== 'undefined') {
+  window.addEventListener('solidapp:sesion-caducada', () => {
+    const actual = router.currentRoute.value
+    if (actual.name === 'login') return
+    void router
+      .replace({ name: 'login', query: { redirect: actual.fullPath } })
+      .catch(() => {
+        /* ya estaba en el login: nada que hacer */
+      })
+  })
+}

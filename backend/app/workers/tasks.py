@@ -435,6 +435,49 @@ def purgar_adjuntos_incidentes(retention_days: int | None = None) -> dict[str, A
     with SessionLocal() as db:
         resultado = purgar_adjuntos_vencidos(db, retention_days=retention_days)
     log.info("purga de adjuntos de incidentes: %s", resultado)
+    # T-141 (2026-10-24): si el worker no ve el volumen de adjuntos, la
+    # purga borra las filas pero los ficheros se quedan en el disco del
+    # backend: la retencion no se cumple y la tarea decia `deleted: N` como
+    # si todo hubiera ido bien. Aqui se grita.
+    faltantes = resultado.get("files_absent_of_live", 0)
+    if faltantes:
+        log.error(
+            "purga de adjuntos de incidentes: %s fichero(s) de adjuntos vivos "
+            "no estan en el volumen de este worker. El montaje de "
+            "'incident_attachments' NO es el del backend: la retencion de "
+            "%s dias NO se esta cumpliendo.",
+            faltantes, resultado.get("retention_days"),
+        )
+    return dict(resultado)
+
+
+@celery_app.task(name="solidapp.purge_orphan_attachments")  # type: ignore[untyped-decorator]
+def purgar_adjuntos_huerfanos(min_age_hours: int = 1) -> dict[str, Any]:
+    """Recoge del volumen los ficheros que ya no tiene ninguna fila (T-141).
+
+    Antes esta funcion existed pero **nadie la llamaba**: no habia tarea
+    de Celery ni entrada en el beat. Es decir, cualquier fichero que se
+    quedara sin fila (un borrado a medias, la purga de retencion con el
+    volumen equivocado) se quedaba en disco **para siempre**.
+
+    Idempotente. Con ``min_age_hours=1`` (por defecto) no toca los
+    ficheros recientes: ``crear_adjunto`` escribe el fichero antes de
+    crear la fila, y hay una ventana en la que un fichero recien subido
+    todavia no tiene ninguna.
+    """
+    from app.services.incident_attachments import purgar_ficheros_huerfanos
+
+    with SessionLocal() as db:
+        resultado = purgar_ficheros_huerfanos(db, min_age_hours=min_age_hours)
+    log.info("barrida de adjuntos huerfanos: %s", resultado)
+    faltantes = resultado.get("files_absent_of_live", 0)
+    if faltantes:
+        log.error(
+            "barrida de adjuntos huerfanos: %s fichero(s) de adjuntos vivos "
+            "no estan en el volumen de este worker: el montaje de "
+            "'incident_attachments' NO es el del backend",
+            faltantes,
+        )
     return dict(resultado)
 
 

@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **699 de 703 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **711 de 715 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -43,6 +43,15 @@
 >         nada. **Ojo**: el repositorio tiene el histórico completo y
 >         datos de ejemplo; es una decisión de producto sobre la
 >         visibilidad, no una decisión técnica.
+>         - **Medido** (2026-10-24): el repositorio está **privado**
+>           (`gh repo view` → `"isPrivate": true`), y el historial
+>           **no tiene secretos** (`python tools/escanear_secretos.py
+>           --historial` → 138.365 líneas escaneadas, 0 hallazgos). Es
+>           decir: hacerlo público **no filtraría credenciales**, y es la
+>           vía que GitHub documenta como gratuita ("the use of standard
+>           GitHub-hosted runners is free: in public repositories"; y
+>           "if your account does not have a valid payment method on
+>           file, usage is blocked").
 >      3. **Runner self-hosted en esta máquina.** Es lo que se ha
 >         intentado medir: el token de registro funciona y no hay
 >         runners dados de alta, pero **no es viable sin tocar el
@@ -2528,11 +2537,11 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] La autoprueba detecta un caso que no detecta nada.
   - [x] Registrada en `tools/autopruebas.py` (meta-puerta), en `tools/verificar_repo.py` y en el workflow del CI.
 
-### T-137 · P2 (refutado por medición) — «la sesión caducada no expulsa de la vista»: ya expulsaba
+### T-137 · P2 (refutado por medición) — «la sesión caducada no expulsa de la vista»: **la refutación estaba equivocada**
 
-- **Estado**: **refutado por medición** — no había defecto; sí queda una puerta que lo vigila
+- **Estado**: **corregido por el T-140** — el defecto **sí existía**; aquí queda escrito por qué se dio por inexistente
 - **Lo que decía la sospecha**: el backend avisa de que la sesión está muerta con el evento `solidapp:sesion-caducada` (T-110) y el store limpia el usuario, pero el guard del router **sólo corre al navegar**: el operador se quedaría en la pantalla con los datos ya descargados y cada petición posterior daría 401 sin mensaje.
-- **Medido** (2026-10-24, con un navegador de verdad): **la app sí expulsa al login**. Se inicia sesión como gestor, se abre el mapa, se mata la sesión desde el navegador (`POST /auth/logout` con el refresh actual ⇒ el backend lo blacklistea) y se pulsa «Refrescar» (una petición de la app, **sin navegar**):
+- **Medido** (2026-10-24, con un navegador de verdad): se inicia sesión como gestor, se abre el mapa, se mata la sesión desde el navegador (`POST /auth/logout` con el refresh actual ⇒ el backend lo blacklistea) y se pulsa «Refrescar» (una petición de la app, **sin navegar**):
   ```
   1) tras el login:      http://localhost:5173/mapa
   2) en el mapa:         http://localhost:5173/mapa
@@ -2541,12 +2550,16 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
      navegaciones: ['/mapa', '/login?redirect=/mapa']
      tokens: {'access': False, 'refresh': False}
   ```
-  Y se comprobó **quitando** cualquier listener propio: el resultado es el mismo (ya hay otro camino que expulsa).
-- **Por qué se documenta igual**: (a) la sospecha era plausible y analizada con código (que es donde se cuelan los errores); (b) la **prueba de regresión** que se ha construido (`frontend/scripts/qa_sesion_caducada.py`, con navegador de verdad) queda como puerta: si algún refactor rompe esa expulsión, el repo se pone rojo; (c) deja escrito que la comprobación del "guard sólo corre al navegar" era **falsa** como diagnóstico.
+- **Por qué la refutación estaba equivocada**: ese resultado se obtuvo **con un cambio en el router que vivía en el árbol de trabajo, sin commitear**. La comprobación de que «el resultado es el mismo quitando cualquier listener propio» quitó el listener del **store** (no el del router), así que la conclusión «ya hay otro camino que expulsa» era falsa. Al revertir el cambio del router para hacer el commit, **nadie volvió a ejecutar la QA**: la puerta quedó en rojo sin que nadie lo notara. Lo soltó el T-140, al ejecutarla en serio.
+- **Lo que sí queda de este trabajo**:
+  1. la **prueba de regresión** (`frontend/scripts/qa_sesion_caducada.py`, con navegador de verdad) queda como puerta, y es justo la que atrapó el fallo;
+  2. su **prueba inversa** (`frontend/scripts/qa_sesion_caducada_inversa.py`);
+  3. una **puerta estática** (`tools/verificar_sesion_caducada.py`) que sí puede correr en el CI (sin navegador), con el caso de mentira del comentario;
+  4. escrito que la comprobación «el guard sólo corre al navegar» era **cierta**: era el diagnóstico correcto, y lo que falló fue la medición.
 - **Criterios de aceptación**:
   - [x] Medido: la sesión caducada expulsa al login y borra los tokens (con y sin listener propio).
   - [x] QA nueva (`frontend/scripts/qa_sesion_caducada.py`) registrada en `verificar_repo.py` como puerta de regresión.
-  - [x] **No** se ha tocado el router: no se añade código para un defecto que no existe.
+  - [x] **No** se añade código para un defecto que no existe: aquí el defecto **sí** existía, y se arregla en el T-140.
 
 ### T-138 · P2 (frontend) — un gestor sin sucursales se quedaba en «Cargando…» para siempre
 
@@ -2589,6 +2602,73 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] QA nueva (`frontend/scripts/qa_login_error.py`): con `/users/me` en 500, el login **falla con un mensaje** y **no deja tokens**.
   - [x] Prueba inversa (`qa_login_error_inversa.py`): sin el arreglo la QA falla por el motivo correcto.
   - [x] La QA queda registrada en `tools/verificar_repo.py`.
+
+### T-140 · P1 (sesión) — la sesión caducada NO expulsaba al login (y el T-137 se había refutado mal)
+
+- **Estado**: **completado** — la sesión caducada expulsa al login y borra los tokens
+- **Contexto**: el T-137 dio este defecto por **refutado** («la app sí expulsa al login») y **revirtió el cambio del router**. La verdad es que el defecto existía: el backend avisa con el evento `solidapp:sesion-caducada` (T-110), el store limpia el usuario, pero **el guard del router sólo corre al navegar**. Sin una redirección explícita, el operador se queda en la pantalla con los datos ya descargados y cada petición posterior da 401 sin mensaje.
+- **Por qué se refutó mal** (la lección): el arreglo estaba en el **router**, y la medición «quitando cualquier listener propio» quitó el listener del **store**: el resultado era el mismo y se concluyó que «ya hay otro camino que expulsa». Al revertir el cambio del router para hacer el commit, **nadie volvió a ejecutar la QA** ⇒ la puerta quedó en rojo sin que nadie lo notara.
+- **Medido** (2026-10-24, con un navegador de verdad y una sonda que captura red, consola y estado):
+  ```
+  1) login OK, URL: http://localhost:5173/mapa
+  2) sesión matada: logout HTTP 200
+  3) tras pulsar Refrescar: 401 en /parkings/{id}/spaces y en /tickets; el refresh responde 422
+  4) tokens: access=False, refresh=False, email=None      (los tokens SÍ se limpian)
+  5) evento 'sesion-caducada' disparado: SÍ
+  6) URL final: http://localhost:5173/mapa                   <-- NO expulsó
+  7) la pantalla seguía mostrando las plazas, con el rótulo «Sin sesión»
+  ```
+- **El arreglo**: en `frontend/src/router/index.ts`, el router registra un listener de `solidapp:sesion-caducada` que **navega al login** (`router.replace({ name: 'login', query: { redirect: ... } })`): el guard expulsa al operador y la pantalla muerta desaparece. Con el arreglo la URL pasa a `http://localhost:5173/login?redirect=/mapa`.
+- **Criterios de aceptación**:
+  - [x] Medido: la sesión caducada expulsa al login (URL `login?redirect=/mapa`) y borra los tokens.
+  - [x] Prueba inversa (`frontend/scripts/qa_sesion_caducada_inversa.py`): sin la redirección, la QA falla por el motivo correcto.
+  - [x] Puerta nueva (`tools/verificar_sesion_caducada.py`) con autoprueba de **5 casos de mentira** (uno de ellos: el listener sólo se menciona en un comentario), registrada en `tools/autopruebas.py`, en `tools/verificar_repo.py` y en el workflow del CI.
+  - [x] La puerta vigila el código **sin comentarios**: un comentario que menciona `router.replace({ name: 'login' })` no cuenta.
+### T-141 · P1 (privacidad) — la retención de las fotos no se cumplía: el worker no veía el volumen
+
+- **Estado**: **completado** — la retención se cumple y el sistema avisa si no puede cumplirla
+- **Contexto**: las fotos de los incidentes **no** van en la base de datos: van en un volumen Docker (`incident_attachments`), y en la BD sólo queda la metadata (T-21). La purga de retención (90 días, LOPDGDD) la ejecuta el **worker** (`solidapp.purge_incident_attachments`, a las 3:17 AM): borra las filas y los ficheros.
+- **El defecto**: el `backend` montaba el volumen **con nombre** (`incident_attachments`), pero el `celery-worker` y el `celery-beat` **no montaban ninguno**. Como el `Dockerfile` declara `VOLUME ["/var/lib/solidapp/incident-attachments"]`, Docker les creaba un volumen **anónimo** distinto a cada uno:
+  ```
+  backend       -> volume  parking_incident_attachments   (el bueno)
+  celery-worker -> volume  7c3e663747fa29f6... (anónimo)
+  celery-beat   -> volume  2c92d21ec76c5021... (anónimo)
+  ```
+- **Medido** (2026-10-24, contra el sistema en marcha): con la purga ejecutada **dentro del contenedor del worker** (que es donde la lanza el beat) y las 4 filas caducadas:
+  ```
+  # en el worker (con su volumen anónimo):
+  RESULTADO DE LA PURGA: {'deleted': 4}          <-- éxito aparente
+  # en el volumen del backend, DESPUÉS de purgar:
+  originales/56/56ec35a3...jpg                   <-- el fichero sigue ahí
+  originales/64/64078f24a...jpg
+  miniaturas/56/56ec35a3..._thumb.jpg
+  miniaturas/64/64078f24a..._thumb.jpg
+  ```
+  Es decir: **la BD decía que las fotos ya no existían y los ficheros se quedaban en el disco para siempre** (y además inaccesibles: ni el backend ni el worker los veían ya). La retención de 90 días **no se cumplía**, sin que nadie se enterara: la tarea informaba de `deleted: 4` y todo parecía bien.
+- **El arreglo** (cuatro cosas):
+  1. el `celery-worker` y el `celery-beat` montan **el mismo volumen con nombre** que el backend, y definen `INCIDENT_ATTACHMENTS_DIR`;
+  2. **fail-closed**: la purga comprueba si hay adjuntos **vivos** cuyo fichero no está en el disco. Si los hay, es que el proceso **no ve el volumen compartido**: lo dice en el log (`error`) y en el resultado (`files_absent_of_live`), en vez de decir «todo bien». Ahora el resultado distingue `files_deleted`, `files_missing` y `files_absent_of_live`;
+  3. **las referencias se cuentan después de saber qué se purga**, no antes. Antes, dos adjuntos con el mismo hash (el mismo fichero, que es lo que pasa con dos fotos iguales) se veían como referencia mutua: **el fichero no se borraba nunca y las filas sí**. Medido en los datos reales: los adjuntos 3 y 4 de la QA compartían `originales/64/64078f24a...jpg`;
+  4. la **barrida de huérfanos** (que ya existía como función y **no la llamaba nadie**) tiene ahora tarea de Celery (`solidapp.purge_orphan_attachments`) y horario (4:47 AM), con un margen de 1 hora: `crear_adjunto` escribe el fichero **antes** de crear la fila, así que hay una ventana en la que un fichero recién subido todavía no tiene fila.
+- **Remedido** (2026-10-24, con el worker ya viendo el volumen compartido):
+  ```
+  RESULTADO DE LA PURGA: {'deleted': 4, 'retention_days': 90, 'cutoff': '...',
+                          'files_deleted': 4, 'files_missing': 2,
+                          'files_absent_of_live': 0}
+  # en el volumen del backend, después:
+  (sólo quedaba el huérfano anterior, que la barrida recogió después:
+   {'deleted': 1, 'kept': 0, 'skipped_recent': 0, 'files_absent_of_live': 0})
+  ```
+  (`files_missing: 2` = los dos ficheros del adjunto 1, que **ya** faltaban antes de empezar: también se cuentan, en vez de ocultarse.)
+- **Criterios de aceptación**:
+  - [x] Medido: con el defecto, la purga dice `deleted: 4` y los ficheros siguen en el disco.
+  - [x] El `backend`, el `celery-worker` y el `celery-beat` montan el mismo volumen y definen `INCIDENT_ATTACHMENTS_DIR`.
+  - [x] La purga avisa (log `error` + `files_absent_of_live`) si no ve el volumen: **fail-closed**, no «falso verde».
+  - [x] Dos adjuntos que comparten fichero: al caducar los dos, el fichero **se borra**.
+  - [x] La barrida de huérfanos tiene tarea de Celery y horario, y no toca los ficheros recientes (margen de 1 h).
+  - [x] Tests nuevos (3): el fichero compartido, el aviso del volumen y el margen de la barrida.
+  - [x] Prueba inversa: los dos casos del T-141 en `tools/verificar_pruebas_inversas.py` (14/14 detectan su defecto).
+  - [x] Puerta nueva `tools/verificar_volumen_adjuntos.py` (autoprueba con 4 casos de mentira), registrada en `tools/autopruebas.py`, `tools/verificar_repo.py` y en el workflow del CI.
 
 ### T-14 · I3 — OCR con GPU
 

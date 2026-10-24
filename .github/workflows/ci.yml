@@ -123,6 +123,27 @@ jobs:
         # contaba las entradas de la cache pero no miraba cuales eran).
         run: python ../tools/verificar_cache_service_worker.py
 
+      - name: La sesion caducada expulsa al login
+        # POR QUE (2026-10-24, T-140): el backend avisa con el evento
+        # `solidapp:sesion-caducada` y el store limpia el usuario, pero el
+        # **guard del router solo corre al navegar**: sin una redireccion
+        # explicita, el operador se queda en la pantalla con los datos ya
+        # descargados y cada peticion posterior devuelve 401 sin mensaje.
+        # Ya paso: el T-137 dio el defecto por refutado y se revirtio el
+        # arreglo que vivia en el arbol de trabajo (sin commitear); la puerta
+        # quedo en rojo sin que nadie la volviera a ejecutar.
+        run: python ../tools/verificar_sesion_caducada.py
+
+      - name: El worker ve el volumen de adjuntos
+        # POR QUE (2026-10-24, T-141): las fotos de los incidentes viven en
+        # un volumen Docker y la purga de retencion (90 dias) la ejecuta el
+        # worker. El worker NO montaba ese volumen, asi que Docker le
+        # creaba uno ANONIMO distinto: la purga borraba las filas y decia
+        # «deleted: N», pero los ficheros se quedaban en el disco del
+        # backend para siempre. La retencion no se cumplia y nadie se
+        # enteraba.
+        run: python ../tools/verificar_volumen_adjuntos.py
+
       - name: Los endpoints acotan la sucursal
         # POR QUE (2026-10-23, T-118): el aislamiento entre sucursales lo
         # aplica cada endpoint a mano, y cuatro se lo saltaron (T-113...T-116):

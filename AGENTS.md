@@ -49,14 +49,29 @@ A compara el documento contra el extractor B, y ambos salen del mismo
 código, los dos pueden mentir a la vez y la puerta da el visto bueno.
 Hace falta una **tercera** fuente: el caso de mentira escrito a mano.
 
+Y el caso inverso, que también costó un bug real (T-137/T-140): **una
+puerta no vigila nada si no se ejecuta después del último cambio**. El
+defecto «la sesión caducada no expulsa al login» se dio por **refutado**
+porque la medición se hizo **con el arreglo puesto en el árbol de
+trabajo y sin commitear**; al revertirlo para hacer el commit, nadie
+volvió a ejecutar la puerta, y se quedó en rojo sin que nadie lo notara.
+Reglas:
+- al **revertir** un cambio, vuelve a ejecutar la puerta que lo vigila;
+- una puerta que mira el código lo mira **sin comentarios**: un
+  comentario que menciona `router.replace({ name: 'login' })` no hace que
+  el router expulse (y una puerta que lo creyera daría el visto bueno a
+  un defecto);
+- una «refutación por medición» se anota **cómo** se midió, o no sirve
+  para cerrar nada.
+
 ## Comandos que funcionan (verificados)
 
 ```bash
-# La salud del repo en un comando: 28 comprobaciones (~4 min)
+# La salud del repo en un comando: 30 comprobaciones (~4 min)
 python tools/verificar_repo.py
 python tools/verificar_repo.py --completo      # + CI local y QA en 5 anchos (~40 min)
 
-# Las 27 autopruebas de las puertas
+# Las 29 autopruebas de las puertas
 python tools/autopruebas.py
 python tools/autopruebas.py --estricto          # lo "no comprobado" tambien falla
 
@@ -77,6 +92,8 @@ python tools/ejecutar_ci_local.py --list
 python tools/verificar_api_doc.py --autoprueba
 python tools/verificar_aislamiento_sucursal.py --autoprueba
 python tools/verificar_cache_service_worker.py --autoprueba
+python tools/verificar_sesion_caducada.py --autoprueba
+python tools/verificar_volumen_adjuntos.py --autoprueba
 python tools/verificar_pruebas_inversas.py --autoprueba
 python tools/verificar_roles_frontend.py --autoprueba
 python tools/verificar_contrato_frontend.py --autoprueba

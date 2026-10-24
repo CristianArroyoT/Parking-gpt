@@ -2670,14 +2670,15 @@ que nadie se enterase. Ahora `tools/verificar_pruebas_inversas.py` las
 ejecuta todas (11 casos), comprueba que el fallo es una **aserción** y no
 un error de código, y va en el CI.
 
-### 3-centésimotreinta. «La sesión caducada no expulsa»: refutado por medición (2026-10-24)
+### 3-centésimotreinta. «La sesión caducada no expulsa»: **la refutación estaba equivocada** (2026-10-24)
 
-La sospecha era plausible (el guard del router sólo corre al navegar) pero
-**no se reproduce**: con un navegador de verdad, la sesión caducada
-**sí** expulsa al login y borra los tokens, y se comprobó también quitando
-cualquier listener propio. No se toca el router (no se añade código para
-un defecto que no existe) y queda una **puerta de regresión**
-(`frontend/scripts/qa_sesion_caducada.py`) en `verificar_repo.py`.
+La sospecha era plausible y el diagnóstico era **correcto** (el guard del
+router sólo corre al navegar), pero **la medición no lo fue**: el arreglo
+vivía en el **router**, en el árbol de trabajo **sin commitear**, así que
+la QA pasó CON él. Al revertirlo para hacer el commit, **nadie volvió a
+ejecutar la puerta**: quedó en rojo sin que nadie lo notara. La puerta de
+regresión (`frontend/scripts/qa_sesion_caducada.py`) es la que lo detectó
+(T-140).
 
 ### 3-centésimotrentiunésima. Un gestor sin sucursales, en «Cargando…» para siempre (2026-10-24)
 
@@ -2697,3 +2698,34 @@ y vuelta al formulario sin explicación. **El arreglo**: el error se
 propaga, se limpian los tokens y el login lo muestra. Queda una QA con
 navegador de verdad que intercepta `/users/me` y comprueba que el login
 falla **con mensaje** y sin tokens.
+### 3-centésimotrentitreesimera. La sesión caducada no expulsaba al login (2026-10-24)
+
+El evento `solidapp:sesion-caducada` (T-110) limpia el usuario, pero el
+**guard del router sólo corre al navegar**: el operador se quedaba en la
+pantalla con los datos ya descargados y cada petición posterior daba 401
+sin mensaje. **Medido** (con un navegador de verdad y una sonda que captura
+red, consola y estado): el evento **sí** se dispara y los tokens **sí** se
+limpian, pero la URL se quedaba en `/mapa` y el mapa seguía mostrando las
+plazas con el rótulo «Sin sesión». **El arreglo**: el router registra un
+listener del evento que **navega al login** (`?redirect=` para devolver al
+operador a su pantalla). Quedan la **prueba inversa**
+(`qa_sesion_caducada_inversa.py`, con navegador de verdad) y una **puerta
+estática** (`tools/verificar_sesion_caducada.py`) que mira el código
+**sin comentarios** —un comentario que menciona el `router.replace` no
+cuenta— y va en el CI.
+### 3-centésimotrenticuartésima. La retención de las fotos no se cumplía (2026-10-24)
+
+Las fotos de los incidentes viven en un volumen Docker y la purga de
+retención (90 días) la ejecuta el **worker**. El worker **no montaba ese
+volumen**, así que Docker le creaba uno **anónimo** distinto del del
+backend. **Medido**: la purga devolvía `{'deleted': 4}` y los cuatro
+ficheros seguían en el disco del backend —la BD decía que ya no
+existían y se quedaban para siempre, sin que nadie se enterase—. **El
+arreglo**: los tres servicios montan el mismo volumen; la purga es
+**fail-closed** (si no ve el volumen, lo dice en vez de decir «todo
+bien»); las referencias se cuentan **después** de saber qué se purga (dos
+adjuntos con el mismo hash se veían como referencia mutua y el fichero no
+se borraba nunca); y la barrida de huérfanos, que ya existía sin que la
+llamara nadie, tiene tarea y horario. Quedan 3 tests, 2 casos en la
+puerta de pruebas inversas (14/14) y la puerta
+`tools/verificar_volumen_adjuntos.py`.

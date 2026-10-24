@@ -795,3 +795,117 @@ def test_el_nombre_del_fichero_no_rompe_el_mensaje_de_error() -> None:
     assert "\n" not in detalle, f"el mensaje lleva un salto de linea: {detalle!r}"
     # Y el nombre sigue siendo legible (saneado, no borrado).
     assert "malo" in detalle, detalle
+
+# ── T-141 (2026-10-24): el volumen, las referencias y el fallo en voz alta ──
+
+
+def test_dos_adjuntos_que_comparten_el_mismo_fichero_se_purgan_juntos(
+    client, db_session, datos, volumen
+):
+    """Dos adjuntos con el mismo hash **comparten fichero** en el volumen.
+
+    Antes, la comprobacion de referencias se hacia ANTES de borrar las
+    filas: cada adjunto veia al otro como «otra referencia», el fichero
+    no se borraba nunca y las filas si. Un huerfano perpetuo, con la BD
+    diciendo que la foto ya no existe.
+    """
+    token_oper = datos["tokens"]["operador"]
+    alert_id = _crear_incidente(client, token_oper, datos["parking_a"].id)
+    contenido = _imagen()
+    subida = _subir(
+        client,
+        token_oper,
+        alert_id,
+        [
+            ("foto1.jpg", contenido, "image/jpeg"),
+            ("foto2.jpg", contenido, "image/jpeg"),
+        ],
+    )
+    assert subida.status_code == 201, subida.text
+    assert len(subida.json()) == 2
+
+    filas = db_session.query(IncidentAttachment).all()
+    assert len(filas) == 2
+    assert filas[0].storage_path == filas[1].storage_path
+    ruta_original = volumen / filas[0].storage_path
+    assert ruta_original.exists()
+
+    # Envejecemos los dos mas alla de la retencion.
+    db_session.query(IncidentAttachment).update(
+        {"created_at": datetime.now(timezone.utc) - timedelta(days=200)}
+    )
+    db_session.commit()
+
+    resultado = adjuntos.purgar_adjuntos_vencidos(db_session, retention_days=90)
+    assert resultado["deleted"] == 2
+    assert db_session.query(IncidentAttachment).count() == 0
+    assert not ruta_original.exists(), (
+        "el fichero compartido se ha quedado huerfano para siempre"
+    )
+
+
+def test_la_purga_avisa_si_no_ve_el_volumen_de_adjuntos(
+    client, db_session, datos, volumen
+):
+    """Si el proceso NO ve el volumen compartido, tiene que decirlo.
+
+    Medido (2026-10-24): el worker tenia un volumen ANONIMO distinto del
+    backend. La purga borraba las filas y decia «deleted: N», pero los
+    ficheros se quedaban en el disco del backend **para siempre**: la
+    retencion no se cumplia y nadie se enteraba.
+    """
+    token_oper = datos["tokens"]["operador"]
+    alert_id = _crear_incidente(client, token_oper, datos["parking_a"].id)
+    subida = _subir(
+        client, token_oper, alert_id, [("foto.jpg", _imagen(), "image/jpeg")]
+    )
+    adjunto_id = subida.json()[0]["id"]
+    fila = db_session.query(IncidentAttachment).filter(
+        IncidentAttachment.id == adjunto_id
+    ).one()
+
+    # El fichero desaparece (volumen equivocado, o fichero perdido).
+    (volumen / fila.storage_path).unlink()
+
+    resultado = adjuntos.purgar_adjuntos_vencidos(db_session, retention_days=90)
+    assert resultado["files_absent_of_live"] >= 1, (
+        "la purga deberia avisar de que no ve el volumen"
+    )
+    assert resultado["deleted"] == 0
+
+
+def test_la_barrida_no_toca_los_ficheros_recientes(
+    client, db_session, datos, volumen
+):
+    """El fichero se escribe ANTES que la fila: hay una ventana.
+
+    ``crear_adjunto`` guarda el fichero y la fila se crea despues, asi que
+    un fichero recien subido todavia no tiene ninguna. La barrida, si
+    corre en ese instante, se lo come. Por eso tiene un margen.
+    """
+    token_oper = datos["tokens"]["operador"]
+    alert_id = _crear_incidente(client, token_oper, datos["parking_a"].id)
+    subida = _subir(
+        client, token_oper, alert_id, [("foto.jpg", _imagen(), "image/jpeg")]
+    )
+    adjunto_id = subida.json()[0]["id"]
+    fila = db_session.query(IncidentAttachment).filter(
+        IncidentAttachment.id == adjunto_id
+    ).one()
+    ruta_original = volumen / fila.storage_path
+
+    # La fila desaparece «a mano» (como si la BD se hubiera desincronizado).
+    db_session.query(IncidentAttachment).filter(
+        IncidentAttachment.id == adjunto_id
+    ).delete(synchronize_session=False)
+    db_session.commit()
+
+    resultado = adjuntos.purgar_ficheros_huerfanos(db_session, min_age_hours=1)
+    assert resultado["deleted"] == 0
+    assert resultado["skipped_recent"] >= 1
+    assert ruta_original.exists()
+
+    # Sin margen, si se borra (que es lo que hace el default).
+    resultado = adjuntos.purgar_ficheros_huerfanos(db_session)
+    assert resultado["deleted"] >= 1
+    assert not ruta_original.exists()

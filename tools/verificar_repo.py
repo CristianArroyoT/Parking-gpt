@@ -85,6 +85,16 @@ def _comprobaciones() -> list[Comprobacion]:
             patron=r"(OK: el service worker no cachea la API.*)",
         ),
         Comprobacion(
+            "La sesion caducada expulsa al login",
+            [py, "tools/verificar_sesion_caducada.py"],
+            patron=r"(OK: la sesion caducada expulsa al login.*)",
+        ),
+        Comprobacion(
+            "El worker ve el volumen de adjuntos",
+            [py, "tools/verificar_volumen_adjuntos.py"],
+            patron=r"(OK: el backend, el worker y el beat comparten el volumen.*)",
+        ),
+        Comprobacion(
             "Las pruebas inversas siguen detectando su defecto",
             [py, "tools/verificar_pruebas_inversas.py"],
             patron=r"(Las \d+ pruebas inversas siguen detectando su defecto.*)",

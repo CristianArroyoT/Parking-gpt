@@ -76,6 +76,16 @@ celery_app.conf.beat_schedule = {
         "task": "solidapp.purge_ghost_vehicles",
         "schedule": crontab(minute=23, hour=4),  # 4:23 AM, hora valle.
     },
+    # T-141 (2026-10-24): barrida diaria de los ficheros HUERFANOS del
+    # volumen (los que ya no tienen fila). Antes la funcion existia pero
+    # no la llamaba nadie: no habia tarea ni entrada en el beat, asi que
+    # cualquier fichero que se quedara sin fila se quedaba en disco para
+    # siempre. A las 4:47 AM, con 1 h de margen para no competir con una
+    # subida en curso (el fichero se escribe antes que la fila).
+    "purge-orphan-attachments-daily": {
+        "task": "solidapp.purge_orphan_attachments",
+        "schedule": crontab(minute=47, hour=4),  # 4:47 AM, hora valle.
+    },
     # Sprint Fase 3C: rotación de audit_logs (sprint 2026-07-01).
     # Borra ``audit_logs`` con ``created_at < now - audit_log_retention_days``
     # (default 365). Necesita el índice ``ix_audit_logs_created_at``

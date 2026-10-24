@@ -525,32 +525,93 @@ def purgar_adjuntos_vencidos(
         criterio = IncidentAttachment.created_at < corte
 
     adjuntos = db.query(IncidentAttachment).filter(criterio).all()
+    ids_a_borrar = {adjunto.id for adjunto in adjuntos}
+
+    # T-141 (2026-10-24): las referencias se cuentan **despues** de saber
+    # que adjuntos se purgan, no antes. Antes se miraba si OTRO adjunto
+    # usaba el mismo fichero, y con dos adjuntos que comparten el mismo
+    # ``storage_path`` (medido: los adjuntos 3 y 4 de la QA, con el mismo
+    # hash) cada uno veia al otro como "otra referencia": el fichero no se
+    # borraba nunca y las filas si. Un huerfano perpetuo, con la BD
+    # diciendo que la foto ya no existe.
+    #
+    # Ahora se calcula el conjunto de rutas **vivas** (las que referencia un
+    # adjunto que NO se purga) y se borra todo lo demas.
+    vivos = db.query(IncidentAttachment).all()
+    vivas: set[str] = set()
+    for adjunto in vivos:
+        if adjunto.id in ids_a_borrar:
+            continue
+        if adjunto.storage_path:
+            vivas.add(adjunto.storage_path)
+        if adjunto.thumbnail_path:
+            vivas.add(adjunto.thumbnail_path)
+
     rutas: list[Path] = []
+    vistas: set[str] = set()
     for adjunto in adjuntos:
         for relativa in (adjunto.storage_path, adjunto.thumbnail_path):
-            if not relativa:
+            if not relativa or relativa in vistas:
                 continue
-            if _otras_referencias(db, relativa, excluir_id=adjunto.id) == 0:
-                rutas.append(base / relativa)
+            vistas.add(relativa)
+            if relativa in vivas:
+                continue
+            rutas.append(base / relativa)
+
+    # T-141: el proceso puede estar mirando un volumen que **no** es el
+    # compartido (measured: el worker tenia un volumen ANONIMO distinto del
+    # backend). En ese caso la purga borraba las filas, decia `deleted: N`
+    # y los ficheros se quedaban en el disco del backend para siempre: la
+    # retencion no se cumplia y nadie se enteraba. Se comprueba ANTES de
+    # borrar: si hay adjuntos vivos cuyo fichero no esta, se avisa.
+    faltantes = 0
+    for adjunto in vivos:
+        if adjunto.id in ids_a_borrar:
+            continue
+        for relativa in (adjunto.storage_path, adjunto.thumbnail_path):
+            if relativa and not (base / relativa).exists():
+                faltantes += 1
+
     for adjunto in adjuntos:
         db.delete(adjunto)
     db.commit()
+
+    # Y se distingue lo que se ha borrado de lo que ya no estaba: `deleted`
+    # son filas; los ficheros van por separado.
+    borrados = 0
+    inexistentes = 0
     for ruta in rutas:
-        _unlink(ruta)
+        if ruta.exists():
+            _unlink(ruta)
+            borrados += 1
+        else:
+            inexistentes += 1
+
+    if faltantes:
+        log.error(
+            "purgar_adjuntos_vencidos: %s fichero(s) de adjuntos VIVOS no "
+            "estan en %s: este proceso NO ve el volumen de adjuntos (la "
+            "retencion no se cumplira)",
+            faltantes, base,
+        )
 
     log.info(
-        "purgar_adjuntos_vencidos: dias=%s corte=%s borrados=%s",
-        dias, corte.isoformat(), len(adjuntos),
+        "purgar_adjuntos_vencidos: dias=%s corte=%s borrados=%s ficheros=%s "
+        "inexistentes=%s faltantes=%s",
+        dias, corte.isoformat(), len(adjuntos), borrados, inexistentes, faltantes,
     )
     return {
         "deleted": len(adjuntos),
         "retention_days": dias,
         "cutoff": corte.isoformat(),
+        "files_deleted": borrados,
+        "files_missing": inexistentes,
+        "files_absent_of_live": faltantes,
     }
 
 
 def purgar_ficheros_huerfanos(
-    db: Session, base_dir: Path | None = None
+    db: Session, base_dir: Path | None = None, min_age_hours: int = 0
 ) -> dict[str, int]:
     """Borra del volumen los ficheros que ya no tiene ninguna fila.
 
@@ -558,20 +619,39 @@ def purgar_ficheros_huerfanos(
     en la BD (por ejemplo al eliminar al usuario) y el proceso semurió
     antes de limpiar el disco, el fichero se queda huérfano. Aquí se
     recoge.
+
+    OJO (T-141, 2026-10-24): ``min_age_hours`` es el margen de seguridad.
+    ``crear_adjunto`` **escribe el fichero antes de crear la fila**, así
+    que hay una ventana en la que un fichero recién subido todavía no
+    tiene fila: borrarlo ahí sería perder la foto que el operador acaba
+    de subir. La tarea programada usa 1 hora; el valor 0 (por defecto)
+    borra todo, que es lo que necesitan los tests.
+
+    Y también (T-141): si hay adjuntos **vivos** cuyo fichero no está en
+    el disco, es que este proceso **no ve el volumen compartido**. Se
+    avisa en el log y en el resultado, en vez de decir «todo bien».
     """
     base = base_dir or directorio_base()
     if not base.exists():
-        return {"deleted": 0, "kept": 0}
+        return {"deleted": 0, "kept": 0, "skipped_recent": 0, "files_absent_of_live": 0}
 
+    adjuntos = db.query(IncidentAttachment).all()
     vivas: set[str] = set()
-    for adjunto in db.query(IncidentAttachment).all():
+    faltantes = 0
+    for adjunto in adjuntos:
         if adjunto.storage_path:
             vivas.add(adjunto.storage_path)
+            if not (base / adjunto.storage_path).exists():
+                faltantes += 1
         if adjunto.thumbnail_path:
             vivas.add(adjunto.thumbnail_path)
+            if not (base / adjunto.thumbnail_path).exists():
+                faltantes += 1
 
+    ahora = datetime.now(timezone.utc)
     borrados = 0
     conservados = 0
+    recientes = 0
     for carpeta in ("originales", "miniaturas"):
         raiz = base / carpeta
         if not raiz.exists():
@@ -582,15 +662,33 @@ def purgar_ficheros_huerfanos(
             relativa = ruta.relative_to(base).as_posix()
             if relativa in vivas:
                 conservados += 1
-            else:
-                _unlink(ruta)
-                borrados += 1
+                continue
+            if min_age_hours > 0:
+                mtime = datetime.fromtimestamp(ruta.stat().st_mtime, tz=timezone.utc)
+                if (ahora - mtime).total_seconds() < min_age_hours * 3600:
+                    recientes += 1
+                    continue
+            _unlink(ruta)
+            borrados += 1
+
+    if faltantes:
+        log.error(
+            "purgar_ficheros_huerfanos: %s fichero(s) de adjuntos VIVOS no "
+            "estan en %s: este proceso NO ve el volumen de adjuntos",
+            faltantes, base,
+        )
 
     log.info(
-        "purgar_ficheros_huerfanos: borrados=%s conservados=%s",
-        borrados, conservados,
+        "purgar_ficheros_huerfanos: borrados=%s conservados=%s recientes=%s "
+        "faltantes=%s",
+        borrados, conservados, recientes, faltantes,
     )
-    return {"deleted": borrados, "kept": conservados}
+    return {
+        "deleted": borrados,
+        "kept": conservados,
+        "skipped_recent": recientes,
+        "files_absent_of_live": faltantes,
+    }
 
 
 # ── Derecho al olvido ───────────────────────────────────────────────────

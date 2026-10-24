@@ -75,6 +75,14 @@ AUTOPRUEBAS: list[tuple[str, list[str]]] = [
         [sys.executable, "tools/verificar_cache_service_worker.py", "--autoprueba"],
     ),
     (
+        "La puerta de la sesion caducada sigue viendo",
+        [sys.executable, "tools/verificar_sesion_caducada.py", "--autoprueba"],
+    ),
+    (
+        "La puerta del volumen de adjuntos sigue viendo",
+        [sys.executable, "tools/verificar_volumen_adjuntos.py", "--autoprueba"],
+    ),
+    (
         "Las pruebas inversas siguen detectando su defecto",
         [sys.executable, "tools/verificar_pruebas_inversas.py", "--autoprueba"],
     ),

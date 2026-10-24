@@ -294,6 +294,47 @@ CASOS: list[Caso] = [
             "test_la_metadata_de_un_adjunto_caducado_no_se_sirve"
         ),
     ),
+    Caso(
+        nombre="T-141 · la purga vuelve a dejar huerfano el fichero compartido",
+        fichero="app/services/incident_attachments.py",
+        cambios=[
+            (
+                "    ids_a_borrar = {adjunto.id for adjunto in adjuntos}\n",
+                "    ids_a_borrar = set()  # T-141 (defecto): las referencias se\n"
+                "    # contaban ANTES de borrar las filas, asi que dos adjuntos\n"
+                "    # con el mismo hash se veian como referencia mutua y el\n"
+                "    # fichero no se borraba nunca.\n",
+            ),
+        ],
+        test=(
+            "tests/test_incident_attachments.py::"
+            "test_dos_adjuntos_que_comparten_el_mismo_fichero_se_purgan_juntos"
+        ),
+    ),
+    Caso(
+        nombre="T-141 · la purga vuelve a callar si no ve el volumen",
+        fichero="app/services/incident_attachments.py",
+        cambios=[
+            (
+                """    faltantes = 0
+    for adjunto in vivos:
+        if adjunto.id in ids_a_borrar:
+            continue
+        for relativa in (adjunto.storage_path, adjunto.thumbnail_path):
+            if relativa and not (base / relativa).exists():
+                faltantes += 1
+""",
+                """    faltantes = 0  # T-141 (defecto): sin avisar de que el proceso no ve
+    # el volumen compartido, la purga decia «deleted: N» y los ficheros se
+    # quedaban en el disco del backend para siempre.
+""",
+            ),
+        ],
+        test=(
+            "tests/test_incident_attachments.py::"
+            "test_la_purga_avisa_si_no_ve_el_volumen_de_adjuntos"
+        ),
+    ),
 ]
 
 

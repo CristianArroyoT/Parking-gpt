@@ -257,6 +257,13 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       OCR_SERVICE_URL: http://ocr:8800
       OCR_SERVICE_TIMEOUT: "4"
+      # T-141 (2026-10-24): la purga de adjuntos corre en el worker, y el
+      # worker tiene que ver **el mismo volumen** que el backend. Sin esto
+      # (o sin el montaje de mas abajo) Docker le creaba un volumen
+      # ANONIMO: la purga borraba las filas y decia `deleted: N` pero los
+      # ficheros se quedaban en el disco del backend, para siempre, y sin
+      # que nadie se enterase (la retencion no se cumplia).
+      INCIDENT_ATTACHMENTS_DIR: /var/lib/solidapp/incident-attachments
       LOG_FORMAT: ${LOG_FORMAT:-json}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOKI_URL: ${LOKI_URL:-http://loki:3100}
@@ -266,6 +273,12 @@ services:
     volumes:
       - ./backend:/app
       - app_logs:/var/log/solidapp
+      # T-141 (2026-10-24): el MISMO volumen con nombre que el backend
+      # monta. Sin este montaje, el `VOLUME` del Dockerfile hace que Docker
+      # cree un volumen ANONIMO distinto en cada servicio: el worker
+      # borraba filas que no podia ver y los ficheros se quedaban
+      # huérfanos en el disco del backend (retencion incumplida).
+      - incident_attachments:/var/lib/solidapp/incident-attachments
     command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info"]
     healthcheck:
       # El ping es un comando de control: lo responde un worker cuando
@@ -301,6 +314,13 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       OCR_SERVICE_URL: http://ocr:8800
       OCR_SERVICE_TIMEOUT: "4"
+      # T-141 (2026-10-24): la purga de adjuntos corre en el worker, y el
+      # worker tiene que ver **el mismo volumen** que el backend. Sin esto
+      # (o sin el montaje de mas abajo) Docker le creaba un volumen
+      # ANONIMO: la purga borraba las filas y decia `deleted: N` pero los
+      # ficheros se quedaban en el disco del backend, para siempre, y sin
+      # que nadie se enterase (la retencion no se cumplia).
+      INCIDENT_ATTACHMENTS_DIR: /var/lib/solidapp/incident-attachments
       LOG_FORMAT: ${LOG_FORMAT:-json}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOKI_URL: ${LOKI_URL:-http://loki:3100}
@@ -310,6 +330,12 @@ services:
     volumes:
       - ./backend:/app
       - app_logs:/var/log/solidapp
+      # T-141 (2026-10-24): el MISMO volumen con nombre que el backend
+      # monta. Sin este montaje, el `VOLUME` del Dockerfile hace que Docker
+      # cree un volumen ANONIMO distinto en cada servicio: el worker
+      # borraba filas que no podia ver y los ficheros se quedaban
+      # huérfanos en el disco del backend (retencion incumplida).
+      - incident_attachments:/var/lib/solidapp/incident-attachments
     command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=info"]
     healthcheck:
       # celerybeat-schedule vive en /app porque WORKDIR es /app.
