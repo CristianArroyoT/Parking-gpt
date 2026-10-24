@@ -45,6 +45,38 @@ RELLAMADA = re.compile(
 RE_PLACEHOLDER = re.compile(r"\$\{[^}]*\}")
 
 
+def _base_url() -> str:
+    """El ``baseURL`` de axios, leido del **propio cliente**.
+
+    T-158 (2026-10-24): no se hardcodea, para que si el prefijo cambia la
+    puerta lo siga (y no se quede mirando donde no es).
+    """
+    try:
+        texto = (API_FRONTEND / "client.ts").read_text(encoding="utf-8")
+    except OSError:
+        return "/api/v1"
+    coincide = re.search(r"""baseURL\s*[:=]\s*['"]([^'"]+)['"]""", texto)
+    return coincide.group(1) if coincide else "/api/v1"
+
+
+def _url_efectiva(base: str, ruta: str) -> str:
+    """La URL que axios construye **de verdad** (T-158).
+
+    axios solo respeta el ``baseURL`` si la ruta es **absoluta**
+    (``http://…`` o ``//…``); si no, lo antepone **siempre**. O sea: una
+    ruta que ya trae el prefijo (``/api/v1/...``) acaba con el prefijo
+    **duplicado**, que es un 404.
+
+    Antes esta puerta comparaba la ruta *logica* con las del backend, y
+    no la URL *efectiva*: por eso no vio que el boton de exportar el CSV
+    estaba roto (y el prefijo lo ponia axios, no la puerta: las dos
+    comulgaban con la misma suposicion equivocada).
+    """
+    if re.match(r"^([a-z][a-z\d+\-.]*:)?//", ruta, re.IGNORECASE):
+        return ruta
+    return f"{base.rstrip('/')}/{ruta.lstrip('/')}"
+
+
 def _forma(ruta: str) -> str:
     """La ruta con los parámetros normalizados a ``{}``.
 
@@ -103,6 +135,17 @@ def _problemas(
     llamadas: list[tuple[str, str, str]], backend: set[tuple[str, str]]
 ) -> tuple[list[tuple[str, str, str]], list[tuple[str, str, str, str]]]:
     """(rutas inexistentes, rutas con el método equivocado)."""
+    # T-158 (2026-10-24): las rutas del backend **ya** llevan el prefijo
+    # (`/api/v1/...`, que es como cuelgan los routers); las del frontend
+    # no, porque lo pone el `baseURL` de axios.
+    #
+    # Y el frontend se compara con la URL **efectiva** que axios
+    # construye: axios **siempre** antepone el baseURL a una ruta
+    # relativa, asi que una ruta que ya trae el prefijo acaba con el
+    # prefijo **duplicado** (un 404). Antes esta puerta comparaba la ruta
+    # *logica* y, con la regla contraria a la de axios, daba el visto
+    # bueno a un boton que estaba roto.
+    base = _base_url()
     por_metodo: dict[str, set[str]] = {}
     for metodo, ruta in backend:
         por_metodo.setdefault(metodo, set()).add(ruta)
@@ -111,8 +154,7 @@ def _problemas(
     sin_ruta: list[tuple[str, str, str]] = []
     sin_metodo: list[tuple[str, str, str, str]] = []
     for metodo, ruta, fichero in llamadas:
-        # El cliente habla en rutas relativas: el prefijo lo pone axios.
-        completa = ruta if ruta.startswith("/api/v1") else "/api/v1" + ruta
+        completa = _url_efectiva(base, ruta)
         if completa in por_metodo.get(metodo, set()):
             continue
         if completa in cualquiera:
@@ -149,11 +191,24 @@ def _autoprueba() -> int:
     else:
         print("  OK: una ruta que el backend no tiene se detecta")
 
+    # 1-bis. T-158: una ruta con el prefijo **puesto** (como la que
+    # devolvia ``downloadMarginReportCsv``) se antepone otra vez por axios
+    # y sale con el prefijo DUPLICADO: tiene que detectarse.
+    duplicada = ("GET", "/api/v1/admin/reports/margins.csv", "prueba.ts")
+    sin_ruta, _ = _problemas([duplicada], backend)
+    if not sin_ruta:
+        fallos += 1
+        print("  FALLO: una ruta con el prefijo duplicado NO se ha detectado")
+    else:
+        print("  OK: una ruta con el prefijo duplicado se detecta")
+
     # 2. Una ruta que existe pero con otro metodo, tambien.
     if backend:
         metodo_real, ruta_real = sorted(backend)[0]
         otro = "POST" if metodo_real != "POST" else "GET"
-        mal = (otro, ruta_real, "prueba.ts")
+        # OJO (T-158): el frontend escribe las rutas **sin** el prefijo
+        # (lo pone el baseURL de axios), y las del backend lo llevan.
+        mal = (otro, ruta_real.removeprefix("/api/v1"), "prueba.ts")
         _sin_ruta, sin_metodo = _problemas([mal], backend)
         if not sin_metodo:
             fallos += 1

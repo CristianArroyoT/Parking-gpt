@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **774 de 774 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **778 de 778 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -3042,6 +3042,102 @@ producto.
   - [x] Medido en vivo: con el worker en el código viejo, la puerta falla con el mensaje y cómo arreglarlo.
   - [x] Si el worker no se puede consultar, la puerta lo dice (no afirma nada).
   - [x] Autoprueba con dos casos: el desfase se ve, y con el worker al día no hay tareas que falten.
+
+
+### T-158 · P0 (funcional) — el botón «Exportar CSV» estaba roto: pedía `/api/v1/api/v1/...`
+
+- **Estado**: **completado** — el CSV se descarga y la puerta que lo vigila ya ve la URL que axios construye
+- **Contexto**: la pantalla de Reportería (admin) tiene un botón «Exportar CSV» del informe de márgenes.
+- **El defecto**: `downloadMarginReportCsv` (`frontend/src/api/client.ts`) devolvía la ruta **ya prefijada** (`/api/v1/admin/reports/margins.csv?...`) y luego se pasaba a `http.get()`, que tiene `baseURL: '/api/v1'`. axios **siempre** antepone el `baseURL` a una ruta relativa (sólo lo respeta si la ruta es absoluta), así que la petición salía a `/api/v1/api/v1/admin/reports/margins.csv` ⇒ **404**. El botón estaba roto al 100 %.
+- **Medido** (2026-10-24, contra la API en marcha):
+  ```
+  # la ruta que axios construye (la que usaba el boton):
+  http://127.0.0.1:8000/api/v1/api/v1/admin/reports/margins.csv?...  -> HTTP 404
+  # la ruta real del backend:
+  http://127.0.0.1:8000/api/v1/admin/reports/margins.csv?...        -> HTTP 200  (parking_id,parking_name,from,to,...)
+  ```
+- **La puerta que debía vigilarlo estaba ciega** (y por el mismo motivo que la puerta del compose con `Settings`): comparaba la ruta *lógica* con las del backend, no la URL *efectiva* que axios construye; y su regex exigía un **literal** justo después de `http.get(`, así que la llamada a función ni se extracía. Peor: el prefijo lo ponía axios y la puerta aplicaba una regla **contraria** a la de axios ⇒ las dos comulgaban con la misma suposición equivocada (justo el caso que el AGENTS.md marca: *dos comprobaciones que comparten la fuente de verdad no se vigilan entre sí*).
+- **El arreglo**:
+  1. el código devuelve la ruta **sin** prefijo (lo pone el `baseURL`);
+  2. la puerta **lee el `baseURL` del propio cliente** (no lo hardcodea) y construye la URL **como axios**; las rutas del backend ya llevan el prefijo, así que se comparan tal cual;
+  3. la puerta tiene un **caso de mentira escrito a mano**: una llamada con el prefijo puesto tiene que detectarse (es el botón roto).
+- **Criterios de aceptación**:
+  - [x] Medido: la URL con prefijo duplicado da 404 y la real da 200 con el CSV.
+  - [x] El botón usa la ruta sin prefijo (lo pone el `baseURL`).
+  - [x] La puerta construye la URL como axios y detecta el prefijo duplicado (caso de mentira).
+  - [x] Lint y `vue-tsc` en verde.
+
+### Pendientes de la auditoría (2026-10-24) — dos subagentes, veinte hallazgos
+
+Auditoría del **frontend** y del **pipeline de matrículas** (dos subagentes).
+Todos están **verificados leyendo el código** (los que dependen del
+comportamiento en marcha, marcados como tales). Ordenados por gravedad:
+
+- **[ALTA] La matrícula que da de alta el cliente NO se normaliza.**
+  `users.py:258` hace `strip().upper()` (T-122 normalizó **sólo** la
+  ingesta, que canoniza a `1234ABC`). Como `vehicles.plate` es UNIQUE,
+  «1234 ABC» (lo que escribe un humano) y «1234ABC» (lo que ve el OCR)
+  coexistence ⇒ **dos vehículos para el mismo coche**: la ingesta cuelga
+  el ticket del segundo y el cliente **no ve ni su estancia ni su ticket
+  ni el importe** (para siempre: tiene dueño, así que la purga de
+  fantasmas no lo toca). *Medir*: dar de alta `1234 ABC` y empujar
+  `1234ABC` por `plates-detected` ⇒ dos filas en `vehicles` y
+  `GET /cliente/plazas` vacío.
+- **[ALTA] Fuga de temporizadores**: en `LiveView`, `MapView` y
+  `CalibrateView`, el `setInterval` se crea **después** de un `await` en
+  `onMounted`, así que si el componente se desmonta mientras espera, el
+  temporizador **nunca se borra** (el `onBeforeUnmount` ve `null`). Cada
+  visita fallida deja un temporizador de 30 s (o 15 s) pidiendo datos a
+  una vista que ya no existe.
+- **[ALTA] El push externo no deja ninguna alarma de «la cámara dejó de
+  empujar»**: el único detector de OCR cuelga de `ping_camera`, que
+  **no se despacha**. Si el OCR del fabricante muere, no salta nada: la
+  cámara sigue «healthy» (si el RTSP va) y no se está cobrando.
+- **[MEDIA] El login pasa el `redirect` de la query a `router.push()` sin
+  validar ni capturar** (`LoginView.vue:18`): sin `await` ni `.catch()`, y
+  con un `as string` que no convierte un `string[]`.
+- **[MEDIA] Los errores de formulario no se anuncian** en 4 vistas
+  (login, reset de contraseña, alta manual): falta `role="alert"`, que
+  sí está en otras 8.
+- **[MEDIA] El modal de cambio de contraseña no gestiona el foco**
+  (`AppLayout.vue`): con `aria-modal="true"` pero sin llevar el foco al
+  diálogo, el `Tab` recorre la página por detrás y el `Escape` no cierra
+  (el foco nunca entra en el overlay).
+- **[MEDIA] `<label>` sin `for` y sin envolver el campo** en los
+  formularios de administración (sucursales, tarifas, usuarios, planes,
+  cámaras): los campos se anuncian «sin nombre».
+- **[MEDIA] La ingesta asigna tickets a plazas desactivadas**
+  (`is_active=False`): sólo comprueba `is_broken`.
+- **[MEDIA] `Parking.is_active` no lo lee nadie**: desactivar una
+  sucursal no la desactiva (el admin tiene el botón y no hace nada).
+- **[MEDIA] El servicio OCR no limita la concurrencia** y hace el
+  `ocr()` **síncrono dentro de un endpoint async** ⇒ con una ráfaga de
+  cámaras se caducan los 4 s de timeout y **las lecturas se pierden sin
+  reintento**. Y `[]` significa indistintamente «no había texto»,
+  «el motor no cargó» y «formato inesperado» ⇒ falsos avisos
+  `OCR_FAILED` y frames acumulados en `/tmp/ocr-failed`.
+- **[MEDIA-BAJA] El push persiste basura en `plates_detected`** (el
+  worker filtra con `parece_matricula`; el push no).
+- **[BAJA] La alarma de OCR depende del ritmo del ping**: TTL 600 s
+  contra umbral 5 ⇒ si el ping va cada más de 150 s, **nunca salta**.
+- **[BAJA] El directorio de respaldo de los frames** (`/tmp/solidapp-alerts-test`)
+  no lo limpia ninguna tarea.
+- **[BAJA] El token de recuperación se queda en la URL** tras cambiar la
+  contraseña (barra de direcciones, historial, referrer).
+- **[BAJA] `rtsp_url` (que puede llevar credenciales) se pinta en el
+  DOM** de la tabla de cámaras.
+- **[BAJA] El logout no limpia el store `ui`** y su toast nunca se ve
+  (la recarga se lo come); además `location.assign('/login')` hardcodea
+  la raíz.
+- **[BAJA] El docstring de la ingesta describe un modelo que ya no
+  existe** (habla de un flag `direction` que no está).
+
+Lo **no** encontrado (revisado y limpio): XSS (cero `v-html`/`innerHTML`/
+`javascript:`), fugas de `EventSource`/listeners, estado de otro usuario
+tras cerrar sesión, bucles de redirección en los guards, reintentos
+infinitos, y el aislamiento por sucursal en el push de matrículas (que
+**sí** está bien: `parking_context` + cruce de la cámara con la
+sucursal).
 
 ### T-14 · I3 — OCR con GPU
 

@@ -265,7 +265,12 @@ export function downloadMarginReportCsv(params: {
   const qs = new URLSearchParams(
     Object.entries(params).map(([k, v]) => [k, String(v)]),
   ).toString()
-  return `${baseURL}/admin/reports/margins.csv?${qs}`
+  // T-158 (2026-10-24): la ruta va **sin** el prefijo, porque lo
+  // pone el ``baseURL`` de axios. Con el prefijo aqui, axios lo
+  // antepone otra vez y la peticion sale a
+  // ``/api/v1/api/v1/admin/reports/margins.csv`` (404): el boton
+  // «Exportar CSV» estaba roto.
+  return `/admin/reports/margins.csv?${qs}`
 }
 
 // ── Dashboard KPIs (Sprint UI Costes + Dashboard KPIs, 2026-07-06) ────
