@@ -81,12 +81,18 @@ def test_un_comodin_literal_si_se_encuentra(
 ) -> None:
     """Si una matrícula lleva un ``%`` de verdad, se encuentra con ``%``."""
     headers = _sembrar(client, db_session)
-    respuesta = client.post(
-        "/api/v1/vehicles",
-        json={"plate": "50%50"},
-        headers=headers,
-    )
-    assert respuesta.status_code == 201, respuesta.text
+    # T-160 (2026-10-24): la fila se siembra **en la base de datos**, no por
+    # la API: desde el T-159 el alta normaliza la matricula (mayusculas y
+    # solo alfanumericos, como la ingesta desde el T-122), asi que «50%50»
+    # se guardaria como «5050». Y una matricula con «%» no existe: el «%»
+    # solo aparece en datos heredados o importados.
+    #
+    # Lo que este test comprueba es la BUSQUEDA: que el comodín se
+    # escapa. Eso se sigue comprobando igual.
+    from app.models.vehicle import Vehicle
+
+    db_session.add(Vehicle(plate="50%50", brand="Renault"))
+    db_session.commit()
 
     respuesta = client.get("/api/v1/vehicles?plate=%25", headers=headers)
     assert respuesta.status_code == 200, respuesta.text

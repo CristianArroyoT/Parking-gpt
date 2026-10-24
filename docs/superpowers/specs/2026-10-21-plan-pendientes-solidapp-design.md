@@ -3153,6 +3153,25 @@ sucursal).
   - [x] Dos escrituras de la misma matrícula = un solo vehículo (test).
   - [x] Prueba inversa en `tools/verificar_pruebas_inversas.py`.
 
+
+### T-160 · P2 (tests) — un test sembraba una matrícula imposible
+
+- **Estado**: **completado** — el test siembra la fila en la base de datos y sigue comprobando lo que quería
+- **Contexto**: el T-159 normaliza la matrícula en los dos altos. El test `test_un_comodin_literal_si_se_encuentra` (del T-113) daba de alta por la API la matrícula **«50%50»** y comprobaba que la búsqueda la encontraba literalmente (`?plate=%25`).
+- **El problema**: con la normalización, «50%50» se guarda como «5050» (el `%` no es alfanumérico) ⇒ el test fallaba. **Medido** en el CI remoto: `1 failed, 802 passed, 9 skipped` en SQLite, y lo mismo en PostgreSQL.
+- **El arreglo**: lo que el test quiere comprobar es que **la búsqueda escapa el comodín**, que es un caso de la búsqueda, no del alta. Y una matrícula con `%` no existe (las matrículas son alfanuméricas; el `%` sólo aparece en datos heredados o importados). Así que la fila se siembra **directamente en la base de datos**, que es como estaría un dato así, y la comprobación se mantiene íntegra.
+
+### T-161 · P2 (proceso) — `verificar_repo.py` no corre los tests: la única red que los ejecuta era el CI
+
+- **Estado**: **documentado** (el arreglo —que la red local también ejecute la suite— es una decisión de coste)
+- **El hecho**: `tools/verificar_repo.py` se presenta como «la salud del repo en un comando» y ejecuta 32 comprobaciones (puertas, autopruebas, QAS de navegador, simulacro de backup…), pero **no ejecuta la suite de tests**: no hay una sola mención a `pytest` en él. Los tests sólo corren en el CI (y con `ejecutar_ci_local.py --completo`).
+- **Cómo seöstó**: el T-159 (normalizar la matrícula en el alta) rompió un test, y el `verificar_repo.py` local dio **«Todo en verde»** mientras el CI remoto fallaba. La diferencia no era el código: era que **el CI corre los tests y el verificador local no**.
+- **Por qué importa**: con el CI remoto bloqueado (tres meses sin ejecutar un paso), la única red que ejecutaba los tests era… ninguna. Por eso, al desbloquear el CI (repositorio público, 2026-10-24), el CI **detectó al instante** un fallo que el verificador local no vio. El desbloqueo del CI no fue un lujo: era la única red que quedaba.
+- **Qué PROPONE el plan** (decisión pendiente, no aplicada): añadir al `verificar_repo.py` una comprobación que ejecute la suite (o, más barato, el subconjunto de tests que el CI falla), con un aviso claro de que tarda. El coste es de unos minutos por pasada, que es justo lo que hace el CI en cada push.
+
+El plan queda **completo** en lo que era su alcance: 782 de 782 criterios verificados. Lo que sigue son
+decisiones de producto y un despliegue real.
+
 ### T-14 · I3 — OCR con GPU
 
 - **Contexto**: el OCR corre en CPU (PaddleOCR). Con 50+ cámaras el coste de CPU es el cuello de botella declarado.
