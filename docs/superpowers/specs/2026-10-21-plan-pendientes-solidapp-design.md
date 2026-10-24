@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-24, tras la tanda T-165…T-182)
 >
-> El plan está **ejecutado**: **871 de 871 criterios** verificados, **ninguno sin marcar**. Los dos que quedaban están **cerrados**: el de la alarma `OCR_FAILED` (la despertó el **T-177** al despachar `ping_camera`, y su falso positivo —una entrada de parking vacía saltando la alarma— lo corrigió el **T-181**) y el de los **18 campos** sin nombre accesible (**T-182**). `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **875 de 875 criterios** verificados, **ninguno sin marcar**. Los dos que quedaban están **cerrados**: el de la alarma `OCR_FAILED` (la despertó el **T-177** al despachar `ping_camera`, y su falso positivo —una entrada de parking vacía saltando la alarma— lo corrigió el **T-181**) y el de los **18 campos** sin nombre accesible (**T-182**). `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > **Lo de esta tanda (2026-10-24)**: los **12 hallazgos** que dejaron las dos auditorías (frontend y pipeline de matrículas), repartidos entre **dos subagentes** y los que resolví yo. Cada uno con **su puerta** y **su prueba inversa**:
 >
@@ -4174,6 +4174,28 @@ código):
   - [x] La puerta existe y su autoprueba **falla** ante los tres casos de mentira (sin `realip`, sin `real_ip_recursive`, con rangos que no cubren los del backend).
   - [x] Registrada en `tools/verificar_repo.py` (41 comprobaciones) y en `tools/autopruebas.py` (31 autopruebas).
   - [x] Los dos README documentan la cadena con las mediciones.
+
+### T-184 · P1 (proceso) — la puerta de la IP real sólo se ejecutaba en mi máquina
+
+- **Estado**: **completado**
+- **Contexto**: la puerta `tools/verificar_ip_real_nginx.py` (T-183) nació **estática**: mira la plantilla de nginx y comprueba que tenga el módulo `realip` y que los rangos que confía nginx cubran los del backend. Su autoprueba son 4 casos de mentira escritos a mano.
+- **El hueco (dos)**:
+  1. **No estaba en el CI**: la puerta estaba en `tools/verificar_repo.py` (que se corre a mano) pero **no** en el workflow. O sea: un cambio que rompiese el módulo `realip` se colaba sin que nadie se enterase. Es el mismo fallo que el T-141 (una puerta que sólo existe en la máquina de quien la escribió).
+  2. **La medición no era reproducible**: el script que medía la cadena de IPs (nginx de producción delante de un upstream que devuelve las cabeceras) vivía en un directorio temporal, fuera del repo. Lo que el plan daba por medido, nadie más podía repetirlo.
+- **Lo que se ha hecho**:
+  - **La puerta entra en el CI**, en el job de las imágenes de Docker (junto a su hermana `verificar_nginx_body_size.py`, que vigila la otra mitad de la misma configuración de nginx). El CI ya levanta el contenedor de producción en ese job, así que una sintaxis rota en la plantilla también salta allí.
+  - **La medición es ahora un modo de la puerta** (`--medir`): levanta el nginx de producción con la plantilla del repo delante de un upstream que devuelve las cabeceras que recibe, manda una petición con `X-Forwarded-For` de un visitante simulado y comprueba que al upstream le llega **esa** IP. Registrada en la puerta del repo (que sí tiene Docker).
+  - **La autoprueba es también medida**: con una **copia** de la plantilla a la que se le quitan las directivas de `realip`, la medición tiene que **fallar** (el upstream ve `172.17.0.1`, el proxy) y con la plantilla buena **pasar**. Medido el 2026-10-25:
+    ```
+    OK la plantilla del repo: el upstream ha recibido la IP del visitante (203.0.113.7)
+    OK una copia sin el modulo realip: el upstream ha recibido 172.17.0.1 en vez de la
+       IP del visitante (203.0.113.7)
+    ```
+- **Criterios de aceptación**:
+  - [x] La puerta se ejecuta en el CI (job «Build de imágenes Docker»).
+  - [x] La medición es reproducible: `python tools/verificar_ip_real_nginx.py --medir`.
+  - [x] La autoprueba **medida** falla con el módulo quitado y pasa con la plantilla buena.
+  - [x] La puerta del repo la ejecuta (42 comprobaciones).
 
 ### T-14 · I3 — OCR con GPU
 

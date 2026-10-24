@@ -515,6 +515,26 @@ jobs:
         # sólo aparecía en producción.
         run: python tools/verificar_nginx_body_size.py
 
+      - name: El nginx de produccion deja ver la IP real del visitante
+        # POR QUÉ (2026-10-25, T-183): en una sucursal el trafico es
+        # `navegador -> terminador de TLS -> nginx -> backend`, y el bucket
+        # del rate-limit de login es POR IP: la IP que ve el backend decide
+        # a quién bloquea. nginx ve al TERMINADOR, no al visitante, y
+        # `proxy_set_header X-Forwarded-For $remote_addr` reenvía esa.
+        # Medido con el nginx de producción: dos clientes distintos
+        # detrás del terminador dejaban UNA sola clave
+        # (`rl:login:ip:172.17.0.1 = 2`), o sea que toda la sucursal
+        # compartía el límite de 10 intentos por IP cada 5 minutos y el
+        # login número 11 recibía un 429 para todo el mundo.
+        #
+        # El modulo `realip` de nginx lo arregla (con el terminador en la
+        # lista de confianza, `$remote_addr` pasa a ser la IP del
+        # visitante). Esta puerta vigila que siga puesto y que los rangos
+        # que confianza nginx cubran los que confia el backend
+        # (`TRUSTED_PROXIES`): si se separan, el backend ignora el XFF y
+        # vuelve a ver la IP del proxy.
+        run: python tools/verificar_ip_real_nginx.py
+
       - name: Build de la imagen del backend
         run: |
           set -o pipefail

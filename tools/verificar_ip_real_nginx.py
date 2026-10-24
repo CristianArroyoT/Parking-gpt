@@ -172,6 +172,101 @@ def comparar(plantilla: dict[str, object], proxies_backend: list[str]) -> list[s
     return problemas
 
 
+# ── El modo «--medir»: la comprobación de verdad ─────────────────────────
+#
+# El modo estático dice «la plantilla tiene el módulo realip». Este dice
+# «con esa plantilla, el upstream recibe la IP del visitante». Lo segundo
+# es lo que importa; lo primero es sólo una forma barata de mirar el
+# fichero.
+
+#: La IP del visitante simulado (rango de documentación, RFC 5737).
+IP_VISITANTE = "203.0.113.7"
+
+
+def medir(plantilla: Path) -> tuple[bool, str]:
+    """Levanta el nginx con la plantilla y comprueba qué IP ve el upstream.
+
+    Devuelve ``(ok, detalle)``. ``ok`` es True cuando el upstream recibe
+    la IP del visitante (o sea: la del ``X-Forwarded-For`` de la petición,
+    no la del proxy).
+    """
+    import json
+    import socket
+    import subprocess
+    import threading
+    import time
+    import urllib.request
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    recibidas: list[dict[str, str]] = []
+
+    class _Upstream(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            recibidas.append({k.lower(): v for k, v in self.headers.items()})
+            cuerpo = json.dumps(recibidas[-1]).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(cuerpo)))
+            self.end_headers()
+            self.wfile.write(cuerpo)
+
+        def log_message(self, *_args) -> None:
+            pass
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        puerto_upstream = int(s.getsockname()[1])
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        puerto_nginx = int(s.getsockname()[1])
+
+    servidor = HTTPServer(("0.0.0.0", puerto_upstream), _Upstream)
+    threading.Thread(target=servidor.serve_forever, daemon=True).start()
+
+    nombre = "verificar-ip-real-nginx"
+    subprocess.run(["docker", "rm", "-f", nombre], capture_output=True, text=True)
+    subprocess.run(
+        [
+            "docker", "run", "-d", "--rm",
+            "--name", nombre,
+            "-p", f"127.0.0.1:{puerto_nginx}:80",
+            "-e", f"API_UPSTREAM=http://host.docker.internal:{puerto_upstream}",
+            "-v", f"{plantilla}:/etc/nginx/templates/default.conf.template:ro",
+            "nginx:1.27-alpine",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    try:
+        for _ in range(40):
+            try:
+                urllib.request.urlopen(
+                    f"http://127.0.0.1:{puerto_nginx}/healthz", timeout=2
+                ).read()
+                break
+            except Exception:
+                time.sleep(0.5)
+        peticion = urllib.request.Request(
+            f"http://127.0.0.1:{puerto_nginx}/api/v1/health",
+            headers={"X-Forwarded-For": IP_VISITANTE},
+        )
+        with urllib.request.urlopen(peticion, timeout=15) as respuesta:
+            cuerpo = respuesta.read().decode("utf-8", "replace")
+        cabeceras = json.loads(cuerpo)
+        xff = cabeceras.get("x-forwarded-for", "")
+        if xff == IP_VISITANTE:
+            return True, f"el upstream ha recibido la IP del visitante ({xff})"
+        return False, (
+            f"el upstream ha recibido {xff or '(nada)'} en vez de la IP del "
+            f"visitante ({IP_VISITANTE}): la peticion sale de un proxy y "
+            "nginx no esta usando el modulo realip"
+        )
+    finally:
+        subprocess.run(["docker", "rm", "-f", nombre], capture_output=True, text=True)
+        servidor.shutdown()
+
+
 def autoprueba() -> int:
     """Comprueba que la puerta puede fallar (casos de mentira a mano)."""
     print("Autoprueba de la puerta de la IP real:")
@@ -253,6 +348,55 @@ server {
         print(f"\nAutoprueba FALLIDA: {fallos} caso(s)")
         return 1
     print("\nAutoprueba correcta: la puerta sabe fallar.")
+    # Y ademas la de verdad: con una copia de la plantilla a la que se le
+    # quita el modulo realip, la medicion tiene que FALLAR (el upstream
+    # ve la IP del proxy en vez de la del visitante).
+    return autoprueba_medida()
+
+
+def autoprueba_medida() -> int:
+    """Mide con la plantilla buena y con una copia a la que se le quita
+    el módulo realip: la medición tiene que fallar en el segundo caso."""
+    import tempfile
+
+    print("Autoprueba (medida) de la puerta de la IP real:")
+    fallos = 0
+
+    texto = PLANTILLA_NGINX.read_text(encoding="utf-8")
+    sin_realip = "\n".join(
+        linea
+        for linea in texto.splitlines()
+        if not linea.strip().startswith(
+            ("set_real_ip_from", "real_ip_header", "real_ip_recursive")
+        )
+    )
+
+    with tempfile.TemporaryDirectory(prefix="t183_medida_") as temporal:
+        base = Path(temporal)
+        casos = [
+            ("la plantilla del repo", texto, True),
+            ("una copia sin el modulo realip", sin_realip, False),
+        ]
+        for nombre, contenido, debe_pasar in casos:
+            ruta = base / "default.conf.template"
+            ruta.write_text(contenido, encoding="utf-8")
+            try:
+                ok, detalle = medir(ruta)
+            except Exception as exc:  # noqa: BLE001
+                fallos += 1
+                print(f"  FALLO {nombre}: la medicion no se pudo hacer: {exc}")
+                continue
+            if ok != debe_pasar:
+                fallos += 1
+                print(f"  FALLO {nombre}: la medicion {'pasa' if ok else 'falla'}")
+                print(f"          {detalle}")
+            else:
+                print(f"  OK {nombre}: {detalle}")
+
+    if fallos:
+        print(f"\nAutoprueba (medida) FALLIDA: {fallos} caso(s)")
+        return 1
+    print("\nAutoprueba (medida) correcta.")
     return 0
 
 
@@ -263,10 +407,25 @@ def main() -> int:
         action="store_true",
         help="Comprueba que la puerta puede fallar (casos de mentira a mano).",
     )
+    parser.add_argument(
+        "--medir",
+        action="store_true",
+        help=(
+            "Mide de verdad: levanta el nginx de produccion con la plantilla "
+            "y comprueba que el upstream recibe la IP del visitante."
+        ),
+    )
     args = parser.parse_args()
 
     if args.autoprueba:
         return autoprueba()
+    if args.medir:
+        ok, detalle = medir(PLANTILLA_NGINX)
+        if not ok:
+            print(f"FALLO: {detalle}")
+            return 1
+        print(f"OK: {detalle}")
+        return 0
 
     plantilla = leer_plantilla(PLANTILLA_NGINX)
     proxies = leer_trusted_proxies(COMPOSE_PROD)

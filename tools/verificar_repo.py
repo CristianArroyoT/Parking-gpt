@@ -280,6 +280,18 @@ def _comprobaciones() -> list[Comprobacion]:
             timeout=600,
         ),
         Comprobacion(
+            "El nginx de produccion VE la IP real del visitante (medido)",
+            # T-183 (2026-10-25): el modo estatico de la puerta comprueba que
+            # la plantilla tenga el modulo realip; este lo MIDE de verdad:
+            # levanta el nginx de produccion delante de un upstream que
+            # devuelve las cabeceras que recibe y comprueba que le llega la
+            # IP del visitante y no la del proxy. (Necesita Docker, como las
+            # otras comprobaciones que lo levantan.)
+            [py, "tools/verificar_ip_real_nginx.py", "--medir"],
+            patron=r"(OK: el upstream ha recibido la IP del visitante.*)",
+            timeout=300,
+        ),
+        Comprobacion(
             "El nginx de produccion deja ver la IP real del visitante",
             # T-183 (2026-10-25): detras de un terminador de TLS, nginx ve
             # la IP del TERMINADOR y la reenvia al backend: todos los
