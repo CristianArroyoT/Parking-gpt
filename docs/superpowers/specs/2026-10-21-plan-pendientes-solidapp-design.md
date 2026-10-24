@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **757 de 757 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **760 de 760 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2813,9 +2813,6 @@ producto.
 - **[MEDIA] El worker no recarga el código** (bind mount sin `--reload`) y
   la puerta de tareas lee el **fuente**, no el worker en marcha: una tarea
   nueva puede «pasar la puerta» y no existir en el worker real.
-- **[MEDIA] Informes**: el de alertas **no hereda** el tope de filas
-  (`MAX_FILAS_INFORME`), y `/margins` **no normaliza la ventana a UTC**
-  (los mismos datos dan números distintos en SQLite y en PostgreSQL).
 - **[MEDIA] El backup no incluye los adjuntos** salvo que se configure
   `ATTACHMENTS_DIR` (el script lo avisa, pero el compose no lo pone).
 
@@ -2937,6 +2934,35 @@ producto.
   - [x] El endpoint no da un 500 con una fecha naive (test que **relee de la BD**).
   - [x] El test convierte el `TypeError` en un `AssertionError`, para que el fallo sea una **aserción** y no un error de código (lo que exige la puerta de pruebas inversas).
   - [x] Prueba inversa en `tools/verificar_pruebas_inversas.py`.
+
+
+### T-153 · P2 (informes) — el informe de alertas no heredaba el tope de filas
+
+- **Estado**: **completado** — hereda el tope (T-100) como los otros informes
+- **Contexto**: el T-100 puso un tope de **20.000 filas** por informe, porque un PDF dibuja cada fila y, si el proceso se queda sin memoria, **se cae la API entera** (no sólo el informe).
+- **El defecto**: `build_alertas_report` era el **único** de los cinco informes que **no** heredaba el tope: `.all()` traía **todas** las alertas de la ventana a memoria. Los otros cuatro sí lo hacen (`ingresos`, `ocupacion`, `tickets` con `.limit(MAX_FILAS_INFORME + 1)` + `_acotar_filas(...)`; `margins` delega en `compute_margin`).
+- **Por qué importa**: la tabla de alertas es la que **crece sola** (el T-104 redujo su crecimiento, pero no lo impidió: sin ese cambio eran 5.928 filas de cada 8.763). Un informe de un periodo con muchas alertas cargaba cientos de miles de filas en memoria y, con el PDF, las dibujaba todas.
+- **El arreglo**: heredar el tope ⇒ si la ventana lo supera, se lanza `InformeDemasiadoGrandeError` (no se recorta en silencio: un informe truncado sin avisar es peor que un error).
+- **Criterios de aceptación**:
+  - [x] El informe de alertas rechaza una ventana que supera el tope (test).
+  - [x] Si la ventana cabe, el informe sale con sus filas (test).
+  - [x] Prueba inversa en `tools/verificar_pruebas_inversas.py`.
+
+### Refutado por medición (2026-10-24) — «`/margins` no normaliza la ventana a UTC»
+
+- **Estado**: **refutado** — el hallazgo **no era un defecto**; no se ha tocado nada.
+- **La sospecha** (de la auditoría): `/margins` normalizaba la ventana para *comparar* pero no para *devolver*, así que los mismos datos darían números distintos en SQLite y en PostgreSQL.
+- **Medido** (2026-10-24, contra el stack de QA, con la **misma** ventana en las dos formas):
+  ```
+  from             con zona='2026-06-01T00:00:00Z'  sin zona='2026-06-01T00:00:00Z'
+  to               con zona='2026-07-01T00:00:00Z'  sin zona='2026-07-01T00:00:00Z'
+  total_revenue    con zona=1.96  sin zona=1.96
+  total_costs      con zona=0.0  sin zona=0.0
+  margin           con zona=1.96  sin zona=1.96
+  closed_tickets   con zona=2  sin zona=2
+  ```
+  Los **números son idénticos** y el JSON sale **normalizado a UTC** (con la `Z`): `compute_margin` normaliza la ventana antes de usarla, y el `MarginReportRead` se valida con esos valores ya normalizados.
+- **Por qué se documenta igual**: para que nadie lo «arregle» después. El comentario de `_parse_window` («los valores devueltos NO se normalizan aquí para no alterar el JSON de /margins») puede leerse como un defecto, pero la normalización **sí** ocurre, en `compute_margin`.
 
 ### T-14 · I3 — OCR con GPU
 

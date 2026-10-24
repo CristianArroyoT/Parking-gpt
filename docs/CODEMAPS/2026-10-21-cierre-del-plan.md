@@ -2881,3 +2881,16 @@ Y ningún test lo detectaba: asignaban la fecha **en memoria**, donde
 sigue siendo *aware*. El test nuevo la asigna naive y **relee de la BD**,
 y convierte el `TypeError` en un `AssertionError` (la puerta de pruebas
 inversas exige que el fallo sea una aserción, no un error de código).
+### 3-centésimosesentésimoquinto. El informe de alertas ya acota las filas (2026-10-24)
+
+`build_alertas_report` era el único de los cinco informes que **no**
+heredaba el tope de 20.000 filas del T-100: `.all()` traía todas las
+alertas de la ventana a memoria (y el PDF las dibuja todas). Con la
+tabla de alertas creciendo sola, un informe podía tumbar la API entera.
+Ahora hereda el tope y **rechaza** la ventana que lo supera.
+
+De paso, queda **refutado por medición** un hallazgo de la auditoría: «`/margins`
+no normaliza la ventana a UTC». Medido con la misma ventana con zona y sin
+zona: los **números son idénticos** y el JSON sale normalizado (con la `Z`).
+La normalización ocurre en `compute_margin`. Se documenta para que nadie
+lo «arregle» después.

@@ -524,6 +524,26 @@ CASOS: list[Caso] = [
             "tests/test_camera_health_api.py::test_health_con_fecha_naive_no_da_500"
         ),
     ),
+    Caso(
+        nombre="T-153 · el informe de alertas vuelve a traer todas las filas",
+        fichero="app/services/reports.py",
+        cambios=[
+            (
+                """        .limit(MAX_FILAS_INFORME + 1)
+        .all()
+    )
+    _acotar_filas(alertas)
+""",
+                """        .all()
+    )
+""",
+            ),
+        ],
+        test=(
+            "tests/test_informe_alertas_tope.py::"
+            "test_el_informe_de_alertas_rechaza_una_ventana_demasiado_grande"
+        ),
+    ),
 ]
 
 

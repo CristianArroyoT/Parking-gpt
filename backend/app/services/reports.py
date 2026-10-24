@@ -347,7 +347,13 @@ def build_tickets_report(
 def build_alertas_report(
     db: Session, parking_id: int, from_: datetime, to: datetime,
 ) -> ReportTable:
-    """Alertas: las creadas dentro de la ventana."""
+    """Alertas: las creadas dentro de la ventana.
+
+    T-153 (2026-10-24): hereda el tope de filas (T-100) como los otros
+    informes. Era el unico que no lo hacia: ``.all()`` traia **todas**
+    las alertas de la ventana a memoria (y el PDF las dibuja todas), con
+    lo que, si el proceso se queda sin memoria, **se cae la API entera**.
+    """
     alertas = (
         db.query(Alert)
         .filter(
@@ -356,8 +362,10 @@ def build_alertas_report(
             Alert.created_at <= to,
         )
         .order_by(Alert.created_at.desc())
+        .limit(MAX_FILAS_INFORME + 1)
         .all()
     )
+    _acotar_filas(alertas)
 
     rows: list[list[str]] = []
     for a in alertas:
