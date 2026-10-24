@@ -6,8 +6,11 @@ Sprint Fase 3B-parte-2 (2026-07-01). Cubre los 3 puntos de inserción de
   1. ``ping_camera`` con ``frame=None`` → ``action=camera_offline_frame``.
   2. ``probe_heartbeats`` con ``probe_camera`` fallando →
      ``action=camera_offline_heartbeat``.
-  3. ``ping_camera`` con hits=[] y umbral cruzado en
-     ``record_ocr_failure`` → ``action=ocr_failure_consecutive``.
+  3. ``ping_camera`` con el **servicio OCR que no responde** y umbral
+     cruzado en ``record_ocr_failure`` → ``action=ocr_failure_consecutive``.
+     OJO (T-181, 2026-10-24): antes este audit salía con «hits=[]», pero
+     eso (el OCR respondió y no leyó nada) es el caso **normal** de una
+     entrada de parking vacía y **no** cuenta como fallo de OCR.
 
 Los tests usan ``monkeypatch_tasks_session`` (de ``_audit_helpers``) para
 que ``tasks.SessionLocal`` devuelva la sesión de prueba. Sin esto, los
@@ -20,10 +23,12 @@ Casos cubiertos:
   3. ``probe_heartbeats`` con probe_camera=False crea audit
      camera_offline_heartbeat (cámaras con url prefix demo.invalid se
      skipean y NO crean audit).
-  4. ``ping_camera`` con frame OK + OCR vacío + umbral cruzado crea
-     audit ocr_failure_consecutive con resource="alerts/{id}".
-  5. ``ping_camera`` con frame OK + OCR vacío pero por debajo del umbral
-     NO crea audit ocr_failure_consecutive.
+  4. ``ping_camera`` con frame OK + el OCR que **no responde** + umbral
+     cruzado crea audit ocr_failure_consecutive con resource="alerts/{id}".
+  5. ``ping_camera`` con frame OK + el OCR que no responde pero por debajo
+     del umbral NO crea audit ocr_failure_consecutive.
+  6. ``ping_camera`` con frame OK + OCR que **respondió y no leyó nada**
+     NO crea audit ocr_failure_consecutive (T-181: no había vehículos).
 """
 from __future__ import annotations
 
@@ -35,6 +40,7 @@ from sqlalchemy.orm import Session
 
 from app.models.audit import Alert
 from app.models.enums import AlertSeverity, AlertType
+from app.services.ocr.client import OcrResultado
 from app.models.parking import Camera, Parking
 from tests._audit_helpers import (
     _seed_parking,
@@ -188,8 +194,14 @@ def test_ping_camera_ocr_failure_creates_audit_log(
     monkeypatch: pytest.MonkeyPatch,
     db_session: Session,
 ) -> None:
-    """``ping_camera`` con hits=[] + record_ocr_failure cruzando umbral
-    → audit ``ocr_failure_consecutive`` con ``resource='alerts/{id}'``."""
+    """``ping_camera`` con el OCR que **no responde** + umbral cruzado en
+    ``record_ocr_failure`` → audit ``ocr_failure_consecutive`` con
+    ``resource='alerts/{id}'``.
+
+    T-181 (2026-10-24): el audit se crea en la ruta del **servicio** que no
+    contesta (eso **sí** es un fallo de la lectura). Antes salía con
+    «hits=[]», que es el caso normal de una entrada de parking vacía.
+    """
     monkeypatch_tasks_session(monkeypatch, db_session)
 
     parking = _seed_parking(db_session, code="P-W4")
@@ -201,8 +213,9 @@ def test_ping_camera_ocr_failure_creates_audit_log(
         return b"\xff\xd8\xff\xe0"  # JPEG mínimo.
 
     class _FakeOcr:
-        async def recognize(self, frame):
-            return []  # 0 hits.
+        async def reconocer(self, frame):
+            # El servicio NO da una respuesta utilizable (T-181).
+            return OcrResultado(hits=[], respondio=False, motivo="no_disponible")
 
     # record_ocr_failure fake: simula creación de Alert.
     fake_alert = Alert(
@@ -231,7 +244,7 @@ def test_ping_camera_ocr_failure_creates_audit_log(
 
     result = tasks_mod.ping_camera(cam.id)
 
-    assert result["status"] == "ok"
+    assert result["status"] == "ocr_no_disponible", result
     assert result["plates_found"] == 0
     assert_audit_log(
         db_session,
@@ -245,8 +258,8 @@ def test_ping_camera_no_ocr_audit_below_threshold(
     monkeypatch: pytest.MonkeyPatch,
     db_session: Session,
 ) -> None:
-    """``ping_camera`` con hits=[] pero record_ocr_failure devuelve None
-    (umbral NO cruzado) → NO crea audit ``ocr_failure_consecutive``."""
+    """``ping_camera`` con el OCR que no responde pero por debajo del
+    umbral → NO crea audit ``ocr_failure_consecutive``."""
     monkeypatch_tasks_session(monkeypatch, db_session)
 
     parking = _seed_parking(db_session, code="P-W5")
@@ -258,8 +271,8 @@ def test_ping_camera_no_ocr_audit_below_threshold(
         return b"\xff\xd8\xff\xe0"
 
     class _FakeOcr:
-        async def recognize(self, frame):
-            return []
+        async def reconocer(self, frame):
+            return OcrResultado(hits=[], respondio=False, motivo="no_disponible")
 
     monkeypatch.setattr(tasks_mod, "grab_frame", _fake_grab)
     monkeypatch.setattr(tasks_mod, "asyncio", _SafeAsyncio())
@@ -277,6 +290,49 @@ def test_ping_camera_no_ocr_audit_below_threshold(
     assert result["plates_found"] == 0
     assert_no_audit_log(db_session, action="ocr_failure_consecutive")
 
+
+def test_ping_camera_sin_lecturas_no_crea_audit_ocr(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session: Session,
+) -> None:
+    """T-181: el OCR respondió y no leyó nada ⇒ **no** hay audit de OCR.
+
+    El frame no tenía vehículos (una entrada de parking vacía, que es el
+    caso normal). Contarlo como fallo de OCR producía una falsa alarma
+    por cámara cada hora (medido: la alarma id=401).
+    """
+    monkeypatch_tasks_session(monkeypatch, db_session)
+
+    parking = _seed_parking(db_session, code="P-W6")
+    cam = _seed_camera(db_session, parking, code="CAM-W6")
+
+    from app.workers import tasks as tasks_mod
+
+    async def _fake_grab(_cam):
+        return b"\xff\xd8\xff\xe0"
+
+    class _FakeOcr:
+        async def reconocer(self, frame):
+            # El servicio respondió, pero no leyó nada.
+            return OcrResultado(hits=[], respondio=True, motivo="sin_lecturas")
+
+    monkeypatch.setattr(tasks_mod, "grab_frame", _fake_grab)
+    monkeypatch.setattr(tasks_mod, "asyncio", _SafeAsyncio())
+    monkeypatch.setattr(tasks_mod, "get_ocr_client", lambda: _FakeOcr())
+    monkeypatch.setattr(
+        tasks_mod, "record_ocr_failure",
+        lambda *_a, **_kw: pytest.fail(
+            "el OCR que respondió y no leyó nada se ha contado como fallo"
+        ),
+    )
+    monkeypatch.setattr(tasks_mod, "reset_ocr_failure", lambda *_a, **_kw: None)
+    monkeypatch.setattr(tasks_mod, "reset_camera_offline", lambda *_a, **_kw: None)
+
+    result = tasks_mod.ping_camera(cam.id)
+
+    assert result["status"] == "ok", result
+    assert result["plates_found"] == 0
+    assert_no_audit_log(db_session, action="ocr_failure_consecutive")
 
 # ── Sprint Fase 3C — correlación end-to-end ────────────────────────────
 #

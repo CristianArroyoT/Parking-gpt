@@ -252,6 +252,41 @@ def ping_camera(camera_id: int, token: str | None = None) -> dict[str, Any]:
             new_alert = record_ocr_failure(
                 cam, frame, motivo=motivo or "no_disponible"
             )
+            # Sprint Fase 3B-parte-2 (2026-07-01): si ``record_ocr_failure``
+            # acaba de crear la alerta (umbral cruzado + lock libre),
+            # dejamos constancia en ``audit_logs``. ``user_id=None`` e
+            # ``ip="worker"`` los fija ``record_audit_worker``.
+            #
+            # OJO (T-181, 2026-10-24): el audit se escribe **aquí**, en la
+            # ruta del servicio que no contesta. Antes estaba en la de
+            # «el OCR respondió y no leyó nada», que ya no cuenta como
+            # fallo (una entrada de parking vacía es el caso normal).
+            if new_alert is not None:
+                try:
+                    record_audit_worker(
+                        db,
+                        action="ocr_failure_consecutive",
+                        parking_id=cam.parking_id,
+                        resource=f"alerts/{new_alert.id}",
+                        payload={
+                            "camera_id": cam.id,
+                            "camera_code": cam.code,
+                            "motivo": motivo or "no_disponible",
+                            "consecutive_fails": (
+                                new_alert.context or {}
+                            ).get("consecutive_fails"),
+                        },
+                        result="failure",
+                        correlation_id=cid,
+                    )
+                    db.commit()
+                except Exception as exc:
+                    log.warning(
+                        "ping_camera: audit ocr_failure_consecutive no "
+                        "persistido camera=%s: %s",
+                        cam.id, exc,
+                    )
+                    db.rollback()
             log.error(
                 "ping_camera: id=%s code=%s el servicio OCR no dio una "
                 "respuesta utilizable (motivo=%s); cuenta como fallo de "
