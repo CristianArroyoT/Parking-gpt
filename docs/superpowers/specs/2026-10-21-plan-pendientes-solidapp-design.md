@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **778 de 778 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **782 de 782 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -3073,16 +3073,6 @@ Auditoría del **frontend** y del **pipeline de matrículas** (dos subagentes).
 Todos están **verificados leyendo el código** (los que dependen del
 comportamiento en marcha, marcados como tales). Ordenados por gravedad:
 
-- **[ALTA] La matrícula que da de alta el cliente NO se normaliza.**
-  `users.py:258` hace `strip().upper()` (T-122 normalizó **sólo** la
-  ingesta, que canoniza a `1234ABC`). Como `vehicles.plate` es UNIQUE,
-  «1234 ABC» (lo que escribe un humano) y «1234ABC» (lo que ve el OCR)
-  coexistence ⇒ **dos vehículos para el mismo coche**: la ingesta cuelga
-  el ticket del segundo y el cliente **no ve ni su estancia ni su ticket
-  ni el importe** (para siempre: tiene dueño, así que la purga de
-  fantasmas no lo toca). *Medir*: dar de alta `1234 ABC` y empujar
-  `1234ABC` por `plates-detected` ⇒ dos filas en `vehicles` y
-  `GET /cliente/plazas` vacío.
 - **[ALTA] Fuga de temporizadores**: en `LiveView`, `MapView` y
   `CalibrateView`, el `setInterval` se crea **después** de un `await` en
   `onMounted`, así que si el componente se desmonta mientras espera, el
@@ -3138,6 +3128,30 @@ tras cerrar sesión, bucles de redirección en los guards, reintentos
 infinitos, y el aislamiento por sucursal en el push de matrículas (que
 **sí** está bien: `parking_context` + cruce de la cámara con la
 sucursal).
+
+
+### T-159 · P1 (ingesta) — la matrícula que daba de alta el cliente no se normalizaba
+
+- **Estado**: **completado** — los dos altos usan el mismo helper canónico que la ingesta
+- **Contexto**: el T-122 normalizó la matrícula **en la ingesta** (canónica: mayúsculas y sólo alfanuméricos, «1234ABC»). Pero el **alta del cliente** (`POST /users/me/vehicles`) hacía `strip().upper()`, y el alta del staff (`POST /vehicles`) no normalizaba nada.
+- **El defecto**: «1234 ABC» (lo que escribe una persona: el input del frontend es de texto libre) y «1234ABC» (lo que canoniza el OCR) eran **dos vehículos distintos** para el mismo coche. Como `vehicles.plate` es UNIQUE, coexistían las dos filas: la ingesta creaba un vehículo nuevo y colgaba ahí el ticket. El cliente se quedaba con su vehículo **sin ningún ticket para siempre** (la purga de fantasmas no lo toca: tiene dueño) y `/cliente/plazas` y `/cliente/tickets` filtran por los ids de vehículo del cliente ⇒ **el cliente veía «Fuera» mientras estaba dentro, y no veía ni el ticket ni el importe**.
+- **Medido** (2026-10-24, contra el stack de QA):
+  ```
+  # ANTES (el backend con el codigo viejo):
+  alta: HTTP 201 -> matricula guardada: '1234 ABC'
+  # en la base de datos, los dos vehiculos del mismo coche:
+      id 1  | plate '1234ABC'      <- el del OCR (con el ticket)
+      id 28 | plate '1234 ABC'      <- el que dio de alta el cliente (sin ticket)
+
+  # DESPUES (con el arreglo):
+  alta: HTTP 409 -> {"detail":"Matrícula duplicada"}
+  ```
+  Es decir: ahora **un solo vehículo por coche** (el que ya tenía el ticket), y el cliente ve su estancia, su ticket y su importe.
+- **Criterios de aceptación**:
+  - [x] El alta del cliente normaliza con el helper canónico (`normalizar_matricula`).
+  - [x] El alta del staff también.
+  - [x] Dos escrituras de la misma matrícula = un solo vehículo (test).
+  - [x] Prueba inversa en `tools/verificar_pruebas_inversas.py`.
 
 ### T-14 · I3 — OCR con GPU
 

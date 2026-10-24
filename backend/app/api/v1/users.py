@@ -17,6 +17,7 @@ from app.core.security import hash_password, verify_password
 from app.models.enums import UserRole, VehicleRole
 from app.models.ticket import Ticket
 from app.models.user import ParkingMembership, User
+from app.services.plates import normalizar_matricula
 from app.models.vehicle import Vehicle, VehicleUser
 from app.schemas.ticket import TicketRead
 from app.schemas.user import (
@@ -255,7 +256,14 @@ def create_my_vehicle(
             request, db, scope="vehicles_create", actor_id=actor_id,
         )
     vehicle = Vehicle(
-        plate=payload.plate.strip().upper(),
+        # T-159 (2026-10-24): la matricula se normaliza **igual que en
+        # la ingesta** (``normalizar_matricula``: mayusculas y solo
+        # alfanumericos). Antes era ``strip().upper()``, de modo que
+        # «1234 ABC» (lo que escribe una persona) y «1234ABC» (lo que ve
+        # el OCR) eran **dos vehiculos distintos** para el mismo coche:
+        # el ticket se colgaba del segundo y el cliente no veía ni su
+        # estancia ni su ticket ni el importe (para siempre).
+        plate=normalizar_matricula(payload.plate),
         brand=payload.brand,
         model=payload.model,
         color=payload.color,

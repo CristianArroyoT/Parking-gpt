@@ -560,6 +560,20 @@ CASOS: list[Caso] = [
             "test_la_purga_trae_los_vehiculos_en_lotes"
         ),
     ),
+    Caso(
+        nombre="T-159 · el alta del cliente vuelve a no normalizar la matricula",
+        fichero="app/api/v1/users.py",
+        cambios=[
+            (
+                "        plate=normalizar_matricula(payload.plate),\n",
+                "        plate=payload.plate.strip().upper(),\n",
+            ),
+        ],
+        test=(
+            "tests/test_normalizacion_matricula.py::"
+            "test_el_alta_del_cliente_normaliza_la_matricula"
+        ),
+    ),
 ]
 
 

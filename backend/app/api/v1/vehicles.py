@@ -13,6 +13,7 @@ from app.core.db import get_db
 from app.core.deps import ROLES_STAFF, require_role
 from app.models.enums import UserRole, VehicleRole
 from app.models.user import User
+from app.services.plates import normalizar_matricula
 from app.models.vehicle import Vehicle, VehicleUser
 from app.schemas.vehicle import (
     VehicleCreate,
@@ -134,7 +135,12 @@ def create_vehicle(
         _enforce_endpoint_rate_limit(
             request, db, scope="vehicles_create", actor_id=actor_id,
         )
-    vehicle = Vehicle(**payload.model_dump())
+    # T-159 (2026-10-24): mismo helper canonico que la ingesta y que el
+    # alta del cliente: si no, «1234 ABC» y «1234ABC» son dos
+    # vehiculos distintos para el mismo coche.
+    datos = payload.model_dump()
+    datos["plate"] = normalizar_matricula(datos["plate"])
+    vehicle = Vehicle(**datos)
     db.add(vehicle)
     try:
         db.commit()
