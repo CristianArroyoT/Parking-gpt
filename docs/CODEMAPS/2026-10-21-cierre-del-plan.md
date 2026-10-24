@@ -3134,3 +3134,32 @@ frontend, pero **ninguna vista la usaba**).
   inversa, que vuelve a poner el defecto (el PATCH no se envía; el error del
   backend se sustituye por uno genérico) y exige que la QA falle por el
   motivo correcto.
+### 3-centésimosesentésimocuarenta y siete. Una entrada vacía ya no es una alarma de OCR (2026-10-24)
+
+Al despertar `ping_camera` (el T-177) apareció lo que la puerta no miraba:
+**qué cuenta como «fallo de OCR»**.
+
+Medido contra el servicio OCR real: responde `[]` (HTTP 200) a un frame
+**sin vehículos** (una entrada de parking vacía, que es el caso normal).
+El código contaba eso como fallo de la cámara, así que una cámara
+**sana** generaba la alarma `OCR_FAILED` tras 5 pings (medido: alarma
+id=401, «5 frames consecutivos sin matrícula») y la repetía **cada hora**.
+
+Ahora el reparto es:
+
+| Qué pasó | ¿Cuenta como fallo? |
+|---|---|
+| El frame no se pudo coger | No (la alarma es `CAMERA_OFFLINE`) |
+| El OCR **no dio una respuesta utilizable** | **Sí** (y el mensaje blames al **servicio**) |
+| El OCR **respondió** y no leyó nada | **No**: no había vehículos |
+| El OCR respondió con matrículas | No |
+
+Medido después: los mismos 5 pings con el frame vacío no mueven el
+contador ni crean alarma. Y el caso «el OCR no responde» **sí** cuenta,
+que es lo que permite detectar que el motor OCR está muerto (el motivo de
+la decisión D7).
+
+Queda anotado: si el servicio OCR está caído, sale **una alarma por
+cámara** (con su lock de 1 h). Es ruido por servicio, no por cámara; lo
+ideal sería una alerta de servicio única, y eso es un cambio de modelo
+(la alerta vive dentro de una sucursal).

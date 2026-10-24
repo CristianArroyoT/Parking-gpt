@@ -67,6 +67,16 @@ class Settings(BaseSettings):
     ocr_engine: Literal["paddleocr", "tesseract"] = Field(default="paddleocr", alias="OCR_ENGINE")
     ocr_lang: str = Field(default="es", alias="OCR_LANG")
     ocr_confidence_threshold: float = Field(default=0.85, alias="OCR_CONFIDENCE_THRESHOLD")
+    # Cuántos fallos **de la lectura** seguidos antes de alertar (T-181).
+    #
+    # OJO (T-181, 2026-10-24): desde el T-181 esto **no** cuenta «frames sin
+    # matrícula» (eso es el caso normal de una entrada de parking vacía y
+    # contarlo producía una falsa alarma por cámara cada hora, medido con
+    # la alarma id=401). Cuenta los fallos en los que el **servicio OCR no
+    # dio una respuesta utilizable** (caído, timeout, 4xx/5xx): el
+    # pipeline de lectura está roto, y el mensaje de la alerta blames al
+    # servicio. El nombre del ajuste se queda (renombrarlo tocaría la
+    # variable de entorno y el compose), pero lo que cuenta es eso.
     ocr_frames_before_fail: int = Field(default=5, alias="OCR_FRAMES_BEFORE_FAIL")
     # T-167 (2026-10-24): cada cuántos segundos se espera que llegue un
     # fallo de OCR (o una lectura) por cámara. El TTL del contador de

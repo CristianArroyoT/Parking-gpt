@@ -131,6 +131,24 @@ CASOS: list[Caso] = [
         ),
     ),
     Caso(
+        nombre="T-181 · una entrada vacía vuelve a contar como fallo de OCR",
+        fichero="app/workers/tasks.py",
+        cambios=[
+            (
+                "            # Antes esto contaba como fallo de OCR y, con el ping ya\n"
+                "            # despachado, producía una **falsa alarma por cámara cada\n"
+                "            # hora** (medido: alarma id=401, «5 frames consecutivos sin\n"
+                "            # matrícula», con una cámara perfectamente sana).\n"
+                "            reset_ocr_failure(cam.id)\n",
+                "            record_ocr_failure(cam, frame)\n",
+            ),
+        ],
+        test=(
+            "tests/test_ping_camera_despacho.py::"
+            "test_el_ocr_que_responde_y_no_lee_nada_no_cuenta_como_fallo"
+        ),
+    ),
+    Caso(
         nombre="T-120 · un cliente vuelve a poder cerrar su propio ticket",
         fichero="app/api/v1/tickets.py",
         cambios=[

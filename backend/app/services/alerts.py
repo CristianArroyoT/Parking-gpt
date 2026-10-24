@@ -227,8 +227,24 @@ def _save_frame(camera_code: str, frame_bytes: bytes) -> str | None:
             return None
 
 
-def record_ocr_failure(camera: Camera, frame_bytes: bytes | None = None) -> Alert | None:
-    """Incrementa el contador de fallos y, si llega al umbral, crea una alerta."""
+def record_ocr_failure(
+    camera: Camera,
+    frame_bytes: bytes | None = None,
+    motivo: str = "sin_lecturas",
+) -> Alert | None:
+    """Incrementa el contador de fallos de lectura y, si llega al umbral, crea una alerta.
+
+    T-181 (2026-10-24): el **motivo** decide el mensaje, porque no es lo
+    mismo un frame sin vehículos que un servicio que no contesta:
+
+    - ``sin_lecturas``: el OCR respondió y no leyó ninguna matrícula. Es
+      el caso **normal** (una entrada sin coches) y **no** debe llegar
+      hasta aquí: el ping lo resetea sin contar.
+    - ``no_disponible`` (o cualquier motivo de respuesta no utilizable):
+      el servicio OCR no dio una respuesta utilizable. Esto **sí** es un
+      fallo de la lectura, y el mensaje lo dice para no culpar a una
+      cámara sana de un problema del servicio.
+    """
     settings = get_settings()
     threshold = settings.ocr_frames_before_fail
     if threshold <= 0:
@@ -297,16 +313,24 @@ def record_ocr_failure(camera: Camera, frame_bytes: bytes | None = None) -> Aler
 
     try:
         with SessionLocal() as db:
-            message = (
-                f"OCR sin lecturas en {camera.code} — "
-                f"{count} frames consecutivos sin matrícula"
-            )
+            if motivo == "sin_lecturas":
+                message = (
+                    f"OCR sin lecturas en {camera.code} — "
+                    f"{count} frames consecutivos sin matrícula"
+                )
+            else:
+                # T-181: el problema fue el SERVICIO, no la cámara.
+                message = (
+                    f"El servicio OCR no respondió a {count} pings seguidos "
+                    f"de la cámara {camera.code} (motivo: {motivo})"
+                )
             context: dict[str, Any] = {
                 "camera_id": camera.id,
                 "camera_code": camera.code,
                 "consecutive_fails": count,
                 "threshold": threshold,
                 "frame_path": frame_path,
+                "motivo": motivo,
             }
             alert = Alert(
                 parking_id=camera.parking_id,

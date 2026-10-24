@@ -420,6 +420,13 @@ por las buenas. Ver T-124 y T-125 en el plan.
   informe nuevo, que herede esos topes: el patrón es
   `MAX_FILAS_INFORME` en `app/services/reports.py` y `MAX_DIAS_VENTANA` en
   `app/api/v1/reports.py`.
+- **Una entrada de parking vacía NO es un «fallo de OCR» (T-181,
+  2026-10-24)**: el OCR responde `[]` (HTTP 200) a un frame sin vehículos
+  (medido contra el servicio real), y eso es el caso normal. Si se cuenta
+  como fallo, con el ping cada 10 min **cada cámara sana da una falsa
+  alarma por hora** (medido: alarma id=401). Lo que **sí** es un fallo de
+  la lectura es que el OCR **no dé una respuesta utilizable**; el mensaje
+  de la alarma lo dice (blames al servicio, no a la cámara).
 - **`ping_camera` se despacha cada 10 minutos por cámara (T-177,
   decisión del usuario)**: el beat encola un `solidapp.ping_camera` por
   **cámara activa** (`PING_CAMERA_INTERVAL_SECONDS`, 600 s por defecto) y

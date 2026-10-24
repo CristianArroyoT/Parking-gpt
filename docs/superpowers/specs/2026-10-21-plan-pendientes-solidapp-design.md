@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-24, tras la tanda T-165…T-176)
 >
-> El plan está **ejecutado**: **859 de 861 criterios** verificados. Los **2 que no están marcados** están documentados **con su motivo** (no son criterios olvidados): (1) la alarma `OCR_FAILED` sigue **dormida** porque `ping_camera` no se despacha (es una **decisión de producto**), y (2) del T-171 quedan **18 campos** más sin nombre accesible, medidos y **pendientes de decidir**. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **864 de 865 criterios** verificados. Los **2 que no están marcados** están documentados **con su motivo** (no son criterios olvidados): (1) la alarma `OCR_FAILED` sigue **dormida** porque `ping_camera` no se despacha (es una **decisión de producto**), y (2) del T-171 quedan **18 campos** más sin nombre accesible, medidos y **pendientes de decidir**. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > **Lo de esta tanda (2026-10-24)**: los **12 hallazgos** que dejaron las dos auditorías (frontend y pipeline de matrículas), repartidos entre **dos subagentes** y los que resolví yo. Cada uno con **su puerta** y **su prueba inversa**:
 >
@@ -3331,7 +3331,7 @@ decisiones de producto y un despliegue real.
   - [x] Una serie de fallos más espaciada que `TTL/umbral` **sí** dispara la alerta (antes 0 alertas, después 1).
   - [x] El TTL es coherente con el umbral: `ttl_contador_fallos(5, 60) = 600` y `ttl_contador_fallos(20, 60) = 2400`.
   - [x] Tests automáticos (4 en `backend/tests/test_alerta_ocr_ventana.py`, con un Redis **falso de reloj simulado** para el caso del TTL y con el Redis **real** para la renovación) + **prueba inversa** en `tools/verificar_pruebas_inversas.py`.
-  - [ ] La ruta sigue **dormida**: `ping_camera` no se despacha (T-164). Fuera del alcance de este arreglo: es una decisión de producto (quién y cuándo se activa).
+  - [x] La ruta **ya no está dormida**: desde el T-177 (decisión D7 del usuario) `ping_camera` se despacha cada 10 minutos por cámara, así que la alarma `OCR_FAILED` está viva. OJO: al despertarla apareció un falso positivo (una entrada de parking vacía contando como fallo de OCR), corregido en el **T-181**.
 
 
 ### T-168 · P1 (higiene) — el directorio de respaldo de los frames no lo limpiaba ninguna tarea
@@ -3982,6 +3982,39 @@ función**: `deps._rol_mas_restrictivo` (y el test
   - [x] El repliegue no cambia lo que la QA comprueba: sigue exigiendo la
         redirección al login y el borrado de los tokens.
   - [x] Escáner de texto a 0.
+
+### T-181 · P0 (falso positivo) — una entrada de parking vacía disparaba la alarma de OCR
+
+- **Estado**: **completado** — medido antes y después, contra el servicio OCR real, el Redis real y la base real
+- **Contexto**: el T-177 (decisión D7) despertó `ping_camera`, que llevaba **dormida** desde su creación. Al despertar una ruta que llevaba años dormida, aparece lo que la puerta no miraba: **qué cuenta como «fallo de OCR»**.
+- **El defecto (medido el 2026-10-24)**: el servicio OCR responde `[]` (**HTTP 200**) a un frame **sin vehículos** — medido contra el servicio real con un frame negro de 640×480. El código contaba eso como «fallo de OCR de la cámara». Con el ping cada 10 minutos, una cámara **sana** mirando una entrada **vacía** (el caso normal) accumulate fallos y saltaba la alarma:
+  ```
+  ping 1: ok plates_found=0 contador=1
+  ping 2: ok plates_found=0 contador=2
+  ping 3: ok plates_found=0 contador=3
+  ping 4: ok plates_found=0 contador=4
+  ping 5: ok plates_found=0 contador=None
+  alerts: OCR_FAILED alert id=401 camera=CAM-01 count=5 threshold=5
+  -> OCR sin lecturas en CAM-01 — 5 frames consecutivos sin matrícula
+  ```
+  O sea: **una falsa alarma por cámara cada hora**, culpando a cámaras que funcionan. (El `id=401` era de la medición; se borró después.)
+- **El arreglo**: el reparto de responsabilidades se invierte, porque las dos cosas no son lo mismo:
+
+  | Qué pasó | Qué significa | ¿Cuenta como fallo? |
+  |---|---|---|
+  | El frame no se pudo coger | La cámara está caída → la alarma `CAMERA_OFFLINE` | No |
+  | El OCR **no dio una respuesta utilizable** (caído, timeout, 4xx/5xx) | El pipeline de lectura está roto | **Sí** (y el mensaje dice que fue el **servicio**, no la cámara) |
+  | El OCR **respondió** y no leyó nada | El frame no tenía vehículos | **No** (se resetea el contador) |
+  | El OCR respondió con ≥1 matrícula | Todo bien | No (se resetea) |
+
+  `record_ocr_failure` acepta ahora el `motivo` y el mensaje de la alarma depende de él: «El servicio OCR no respondió a N pings seguidos de la cámara X (motivo: …)».
+- **Medido (después)**: los mismos 5 pings con el frame vacío ⇒ `contador=None` en los cinco y **ninguna** alarma nueva.
+- **Lo que NO se arregla aquí** (queda anotado): si el **servicio OCR está caído**, ahora **sí** cuentan los fallos (uno por cámara), así que saldría una alarma por cámara (con su lock de 1 h por cámara). Es ruido **por servicio**, no por cámara, y el mensaje lo dice. Lo ideal sería **una** alerta de servicio, no una por cámara: es un cambio de modelo (la alerta vive dentro de una sucursal) y queda como mejora futura. El número real por sucursal es pequeño (las cámaras de una sucursal), y el push del fabricante sigue funcionando mientras tanto.
+- **Criterios de aceptación**:
+  - [x] Medido antes: una cámara sana con la entrada vacía genera la alarma `OCR_FAILED` (id=401) tras 5 pings.
+  - [x] Medido después: los mismos 5 pings no mueven el contador ni crean alarma.
+  - [x] El OCR que **no responde** sí cuenta como fallo (si no, nadie detectaría que el motor OCR está muerto: era el motivo de la decisión D7), y el mensaje de la alarma blames al **servicio**.
+  - [x] Tests: `backend/tests/test_ping_camera_despacho.py` (13 tests) con los dos casos invertidos y uno nuevo que comprueba el mensaje; **prueba inversa** en `tools/verificar_pruebas_inversas.py` (33 casos).
 
 ### T-14 · I3 — OCR con GPU
 

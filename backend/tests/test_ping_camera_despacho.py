@@ -359,13 +359,17 @@ def test_el_ping_suelta_el_lock_al_terminar(entorno_ping) -> None:
 
 
 # ── 3. El OCR: «no respondió» ≠ «respondió y no leyó nada» ─────────────
-def test_el_ocr_que_no_responde_no_cuenta_como_fallo_de_ocr(
+def test_el_ocr_que_no_responde_cuenta_como_fallo_de_la_lectura(
     monkeypatch, db_session,
 ) -> None:
-    """Un servicio OCR caído **no** puede culpar a las cámaras.
+    """Un servicio OCR que no contesta **sí** es un fallo de la lectura.
 
-    Sin esto, con el OCR caído se crearía una alarma ``OCR_FAILED``
-    por cámara (51 en el repo de desarrollo): ruido falso.
+    T-181 (2026-10-24): antes esto no contaba, y el motivo era no culpar
+    a las cámaras de un problema del servicio. Pero entonces **nadie
+    detectaba** que el motor OCR estaba muerto, que es justo lo que el
+    usuario decidió al activar el ping (D7). Ahora cuenta, y el mensaje
+    de la alarma dice que el problema fue el **servicio** (eso lo
+    comprueba ``test_la_alarma_dice_que_fue_el_servicio``).
     """
     from app.workers import tasks as tasks_mod
 
@@ -393,7 +397,7 @@ def test_el_ocr_que_no_responde_no_cuenta_como_fallo_de_ocr(
     monkeypatch.setattr(tasks_mod, "get_ocr_client", lambda: _OcrMuerto())
     monkeypatch.setattr(
         tasks_mod, "record_ocr_failure",
-        lambda *a, **kw: fallos.append(a) or None,
+        lambda *a, **kw: fallos.append((a, kw)) or None,
     )
     monkeypatch.setattr(tasks_mod, "reset_ocr_failure", lambda *_a, **_kw: None)
     monkeypatch.setattr(tasks_mod, "reset_camera_offline", lambda *_a, **_kw: None)
@@ -401,16 +405,24 @@ def test_el_ocr_que_no_responde_no_cuenta_como_fallo_de_ocr(
     resultado = tasks_mod.ping_camera(cam.id)
 
     assert resultado["status"] == "ocr_no_disponible", resultado
-    assert not fallos, (
-        "el OCR que no respondió se ha contado como fallo de OCR de la "
-        "cámara: un servicio caído generaría una alarma por cámara"
+    assert len(fallos) == 1, (
+        "el OCR que no respondió no se ha contado como fallo de la lectura: "
+        "nadie detectaría que el motor OCR está muerto"
     )
+    # El motivo se pasa a la alarma: el mensaje dice que fue el servicio.
+    assert fallos and fallos[0][1].get("motivo") == "no_disponible", fallos
 
 
-def test_el_ocr_que_responde_y_no_lee_nada_sí_cuenta_como_fallo(
+def test_el_ocr_que_responde_y_no_lee_nada_no_cuenta_como_fallo(
     monkeypatch, db_session,
 ) -> None:
-    """El caso contrario: el OCR respondió y no leyó nada → fallo de OCR."""
+    """El OCR respondió y no leyó nada ⇒ **no** es un fallo de OCR.
+
+    T-181 (2026-10-24), medido: el OCR responde ``[]`` (HTTP 200) a un
+    frame **sin vehículos**, que es el caso normal de una entrada de
+    parking vacía. Contarlo como fallo producía una falsa alarma por
+    cámara cada hora (medido: alarma id=401 con una cámara sana).
+    """
     from app.workers import tasks as tasks_mod
 
     monkeypatch_tasks_session(monkeypatch, db_session)
@@ -445,7 +457,74 @@ def test_el_ocr_que_responde_y_no_lee_nada_sí_cuenta_como_fallo(
     resultado = tasks_mod.ping_camera(cam.id)
 
     assert resultado["status"] == "ok", resultado
-    assert len(fallos) == 1, "el OCR que respondió y no leyó nada no se ha contado"
+    assert not fallos, (
+        "el OCR que respondió y no leyó nada se ha contado como fallo: "
+        "una entrada de parking vacía daría una falsa alarma por cámara"
+    )
+
+
+def test_la_alarma_dice_que_fue_el_servicio(monkeypatch, motor_de_test) -> None:
+    """La alarma ``OCR_FAILED`` no culpa a la cámara: dice «el servicio».
+
+    OJO: ``alerts.py`` abre su **propia** sesión (``SessionLocal``), así
+    que hay que apuntarla a la de test (el patrón del repo).
+    """
+    from sqlalchemy.orm import sessionmaker
+
+    from app.services import alerts as alerts_mod
+
+    engine = motor_de_test
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    monkeypatch.setattr(alerts_mod, "SessionLocal", SessionLocal)
+
+    fake = _FakeRedis()
+    monkeypatch.setattr(alerts_mod, "_redis_client", lambda: fake)
+
+    import app.services.email as email_mod
+
+    monkeypatch.setattr(
+        email_mod, "encolar_correo_alerta", lambda **kw: True,
+    )
+
+    class _Ajustes:
+        ocr_frames_before_fail = 5
+        ocr_ping_interval_seconds = 600
+        heartbeat_failures_before_alert = 3
+        heartbeat_interval_seconds = 60
+        redis_url = "redis://stub"
+
+    monkeypatch.setattr("app.services.alerts.get_settings", lambda: _Ajustes())
+
+    db = SessionLocal()
+    try:
+        parking = Parking(code="P-T177E", name="P-T177E", address="x", city="y")
+        db.add(parking)
+        db.flush()
+        cam = Camera(
+            id=CAM_ID + 1,
+            parking_id=parking.id,
+            code="CAM-T177E",
+            name="c",
+            rtsp_url="rtsp://cam-t177.invalid/t177e",
+        )
+        db.add(cam)
+        db.commit()
+        db.refresh(cam)
+
+        # La alarma sale al llegar al umbral (``ocr_frames_before_fail``).
+        alerta = None
+        for _ in range(5):
+            alerta = alerts_mod.record_ocr_failure(
+                cam, None, motivo="no_disponible"
+            )
+
+        assert alerta is not None, "no se ha creado la alarma"
+        assert "servicio OCR" in (alerta.message or ""), alerta.message
+        assert (alerta.context or {}).get("motivo") == "no_disponible", (
+            alerta.context
+        )
+    finally:
+        db.close()
 
 
 def test_el_cliente_ocr_distingue_no_respondio_de_no_leyo() -> None:

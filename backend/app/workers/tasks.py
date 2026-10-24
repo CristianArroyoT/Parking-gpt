@@ -18,10 +18,21 @@ Estado en MVP (Fase 2 cerrada):
   (el de respaldo, T-168). Idempotente y seguro aunque estén vacíos.
 
 `ping_camera` NUNCA lanza excepción: si el servicio OCR no responde,
-la tarea registra `plates_found=0` en el log y **no** cuenta un fallo
-de OCR (T-177: un servicio caído no dice nada de las cámaras; si no,
-51 cámaras caídas daría 51 alarmas por un solo servicio roto). La app
-prefiere un "no hay lectura" a un 500 cuando OCR está caído.
+la tarea registra `plates_found=0` en el log y cuenta un **fallo de la
+lectura** (T-181), pero **no** culpa a la cámara: el mensaje de la alarma
+dice que fue el servicio. La app prefiere un "no hay lectura" a un 500
+cuando OCR está caído.
+
+T-181 (2026-10-24): el reparto de responsabilidades quedó **medido**, no
+supuesto. El OCR responde `[]` (HTTP 200) a un frame **sin vehículos** (lo
+que ve una entrada de parking vacía, que es el caso normal), así que
+contar eso como fallo de OCR producía una **falsa alarma por cámara cada
+hora**. Ahora:
+
+- el OCR **respondió** y no leyó nada ⇒ no es un fallo (no había
+  vehículos): se resetea el contador;
+- el OCR **no dio una respuesta utilizable** ⇒ sí es un fallo de la
+  lectura: se cuenta, y la alarma lo dice.
 """
 
 from __future__ import annotations
@@ -229,17 +240,24 @@ def ping_camera(camera_id: int, token: str | None = None) -> dict[str, Any]:
             hits, respondio, motivo = [], False, "error"
 
         if not respondio:
-            # T-177 (2026-10-24): el servicio OCR **no respondió**. Esto
-            # no dice NADA de la cámara: si lo contáramos como fallo de
-            # OCR, un servicio caído daría una alarma OCR_FAILED por
-            # cámara (51 en este repo): ruido falso que culpa a las
-            # cámaras de un problema que es del servicio.
-            reset_ocr_failure(cam.id)
+            # T-181 (2026-10-24): el servicio OCR **no dio una respuesta
+            # utilizable** (caído, timeout, 4xx/5xx). Esto **sí** es un
+            # fallo de la lectura, así que cuenta; pero la alarma dice
+            # que el problema fue el SERVICIO, para no culpar a una
+            # cámara sana (el mensaje lo lleva ``record_ocr_failure``).
+            #
+            # OJO (el caso contrario, medido): si el OCR **respondió** y
+            # no leyó nada, eso NO cuenta (abajo): una entrada de
+            # parking vacía es el caso normal.
+            new_alert = record_ocr_failure(
+                cam, frame, motivo=motivo or "no_disponible"
+            )
             log.error(
                 "ping_camera: id=%s code=%s el servicio OCR no dio una "
-                "respuesta utilizable (motivo=%s); no se cuenta como "
-                "fallo de OCR de la cámara",
+                "respuesta utilizable (motivo=%s); cuenta como fallo de "
+                "la lectura%s",
                 cam.id, cam.code, motivo or "desconocido",
+                " y se ha creado la alarma" if new_alert else "",
                 extra={"correlation_id": cid, "camera_id": cam.id},
             )
             return {
@@ -250,43 +268,19 @@ def ping_camera(camera_id: int, token: str | None = None) -> dict[str, Any]:
             }
 
         if not hits:
-            # Sin lecturas: notificar al detector de N consecutivos.
-            # Internamente, después de N (settings.ocr_frames_before_fail)
-            # creará una alerta + email + guardará el frame en /tmp/ocr-failed.
-            new_alert = record_ocr_failure(cam, frame)
-            # Sprint Fase 3B-parte-2 (2026-07-01): si ``record_ocr_failure``
-            # acaba de crear la alerta (umbral cruzado + lock libre),
-            # dejamos constancia en ``audit_logs``. ``user_id=None`` e
-            # ``ip="worker"`` los fija ``record_audit_worker``. El payload
-            # lleva camera_id + camera_code para correlación con el Alert
-            # subyacente (``alerts/{id}`` en resource).
-            if new_alert is not None:
-                try:
-                    record_audit_worker(
-                        db,
-                        action="ocr_failure_consecutive",
-                        parking_id=cam.parking_id,
-                        resource=f"alerts/{new_alert.id}",
-                        payload={
-                            "camera_id": cam.id,
-                            "camera_code": cam.code,
-                            "consecutive_fails": (
-                                new_alert.context or {}
-                            ).get("consecutive_fails"),
-                        },
-                        result="failure",
-                        correlation_id=cid,
-                    )
-                    db.commit()
-                except Exception as exc:
-                    log.warning(
-                        "ping_camera: audit ocr_failure_consecutive no "
-                        "persistido camera=%s: %s",
-                        cam.id, exc,
-                    )
-                    db.rollback()
+            # T-181 (2026-10-24): el OCR **respondió** y no leyó ninguna
+            # matrícula. Eso NO es un fallo: el frame no tenía vehículos
+            # (medido: el OCR responde ``[]`` con HTTP 200 a un frame
+            # sin vehículos, que es el caso normal de una entrada).
+            #
+            # Antes esto contaba como fallo de OCR y, con el ping ya
+            # despachado, producía una **falsa alarma por cámara cada
+            # hora** (medido: alarma id=401, «5 frames consecutivos sin
+            # matrícula», con una cámara perfectamente sana).
+            reset_ocr_failure(cam.id)
             log.info(
-                "ping_camera: id=%s code=%s source=rtsp plates_found=0",
+                "ping_camera: id=%s code=%s source=rtsp plates_found=0 "
+                "(el frame no tenía vehículos: no cuenta como fallo)",
                 cam.id,
                 cam.code,
                 extra={"correlation_id": cid, "camera_id": cam.id},
