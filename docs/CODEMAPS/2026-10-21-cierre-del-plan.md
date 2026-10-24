@@ -2669,3 +2669,12 @@ temporal: nadie las ejecutaba y los tests podían dejar de detectar sin
 que nadie se enterase. Ahora `tools/verificar_pruebas_inversas.py` las
 ejecuta todas (11 casos), comprueba que el fallo es una **aserción** y no
 un error de código, y va en el CI.
+
+### 3-centésimotreinta. «La sesión caducada no expulsa»: refutado por medición (2026-10-24)
+
+La sospecha era plausible (el guard del router sólo corre al navegar) pero
+**no se reproduce**: con un navegador de verdad, la sesión caducada
+**sí** expulsa al login y borra los tokens, y se comprobó también quitando
+cualquier listener propio. No se toca el router (no se añade código para
+un defecto que no existe) y queda una **puerta de regresión**
+(`frontend/scripts/qa_sesion_caducada.py`) en `verificar_repo.py`.

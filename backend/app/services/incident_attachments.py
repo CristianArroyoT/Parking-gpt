@@ -123,7 +123,7 @@ def validar_imagen(contenido: bytes, *, nombre: str = "") -> str:
     if not contenido:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"El fichero '{nombre}' está vacío",
+            detail=f"El fichero '{nombre_seguro(nombre)}' está vacío",
         )
 
     limite = get_settings().incident_attachment_max_bytes
@@ -131,7 +131,7 @@ def validar_imagen(contenido: bytes, *, nombre: str = "") -> str:
         raise HTTPException(
             status_code=HTTP_413_TOO_LARGE,
             detail=(
-                f"El fichero '{nombre}' supera el tamaño máximo "
+                f"El fichero '{nombre_seguro(nombre)}' supera el tamaño máximo "
                 f"({limite} bytes)"
             ),
         )
@@ -141,7 +141,7 @@ def validar_imagen(contenido: bytes, *, nombre: str = "") -> str:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail=(
-                f"El fichero '{nombre}' no es una imagen válida "
+                f"El fichero '{nombre_seguro(nombre)}' no es una imagen válida "
                 "(sólo JPEG, PNG o WebP)"
             ),
         )
@@ -168,13 +168,16 @@ def validar_imagen(contenido: bytes, *, nombre: str = "") -> str:
     ) as exc:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=f"El fichero '{nombre}' no es una imagen válida o está corrupto",
+            detail=(
+                f"El fichero '{nombre_seguro(nombre)}' no es una imagen válida "
+                f"o está corrupto"
+            ),
         ) from exc
 
     if ancho * alto > MAX_PIXELES:
         raise HTTPException(
             status_code=HTTP_413_TOO_LARGE,
-            detail=f"La imagen '{nombre}' tiene demasiados píxeles",
+            detail=f"La imagen '{nombre_seguro(nombre)}' tiene demasiados píxeles",
         )
 
     return mime
@@ -389,14 +392,14 @@ def crear_adjunto(
         # la subida, que es la decision segura para la privacidad.
         log.warning(
             "incident_attachments: no se pudo sanear la imagen %s: %s",
-            nombre_original,
+            nombre_seguro(nombre_original),
             exc,
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                f"El fichero '{nombre_original}' está corrupto o no se puede "
-                f"decodificar como imagen"
+                f"El fichero '{nombre_seguro(nombre_original)}' está corrupto "
+                f"o no se puede decodificar como imagen"
             ),
         ) from exc
 
@@ -424,8 +427,8 @@ def crear_adjunto(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    f"El fichero '{nombre_original}' está corrupto o no se "
-                    "puede decodificar como imagen"
+                    f"El fichero '{nombre_seguro(nombre_original)}' está corrupto "
+                    f"o no se puede decodificar como imagen"
                 ),
             ) from exc
         _escribir(destino_thumb, miniatura)

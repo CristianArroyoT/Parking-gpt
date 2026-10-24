@@ -254,6 +254,28 @@ CASOS: list[Caso] = [
         ),
     ),
     Caso(
+        nombre="T-136 · el nombre del fichero vuelve a ir crudo al mensaje de error",
+        fichero="app/services/incident_attachments.py",
+        cambios=[
+            (
+                """            detail=(
+                f"El fichero '{nombre_seguro(nombre)}' no es una imagen válida "
+                "(sólo JPEG, PNG o WebP)"
+            ),
+""",
+                """            detail=(
+                f"El fichero '{nombre}' no es una imagen válida "
+                "(sólo JPEG, PNG o WebP)"
+            ),
+""",
+            ),
+        ],
+        test=(
+            "tests/test_incident_attachments.py::"
+            "test_el_nombre_del_fichero_no_rompe_el_mensaje_de_error"
+        ),
+    ),
+    Caso(
         nombre="T-134 · la metadata de un adjunto caducado vuelve a servirse",
         fichero="app/api/v1/incidents.py",
         cambios=[

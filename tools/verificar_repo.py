@@ -155,6 +155,18 @@ def _comprobaciones() -> list[Comprobacion]:
             timeout=600,
         ),
         Comprobacion(
+            "La sesion caducada expulsa al login",
+            # T-137 (2026-10-24): el backend avisa con el evento
+            # `solidapp:sesion-caducada` y el store limpia el usuario;
+            # esta QA comprueba (con un navegador de verdad) que la app
+            # **expulsa al login** y borra los tokens. No hacia falta
+            # ningun arreglo (el defecto quedo refutado por medicion),
+            # pero la puerta lo vigila para que no se rompa.
+            [py, "frontend/scripts/qa_sesion_caducada.py"],
+            patron=r"(OK: la sesion caducada expulsa al login.*)",
+            timeout=600,
+        ),
+        Comprobacion(
             "El servidor de produccion admite los cuerpos que el backend acepta",
             [py, "tools/verificar_nginx_body_size.py"],
             patron=r"(OK: nginx admite.*)",

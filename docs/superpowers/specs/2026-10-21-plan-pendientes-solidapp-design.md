@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **689 de 693 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **692 de 696 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2527,6 +2527,26 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Un fallo por error de código **no** cuenta como detección (la puerta lo marca como inválido).
   - [x] La autoprueba detecta un caso que no detecta nada.
   - [x] Registrada en `tools/autopruebas.py` (meta-puerta), en `tools/verificar_repo.py` y en el workflow del CI.
+
+### T-137 · P2 (refutado por medición) — «la sesión caducada no expulsa de la vista»: ya expulsaba
+
+- **Estado**: **refutado por medición** — no había defecto; sí queda una puerta que lo vigila
+- **Lo que decía la sospecha**: el backend avisa de que la sesión está muerta con el evento `solidapp:sesion-caducada` (T-110) y el store limpia el usuario, pero el guard del router **sólo corre al navegar**: el operador se quedaría en la pantalla con los datos ya descargados y cada petición posterior daría 401 sin mensaje.
+- **Medido** (2026-10-24, con un navegador de verdad): **la app sí expulsa al login**. Se inicia sesión como gestor, se abre el mapa, se mata la sesión desde el navegador (`POST /auth/logout` con el refresh actual ⇒ el backend lo blacklistea) y se pulsa «Refrescar» (una petición de la app, **sin navegar**):
+  ```
+  1) tras el login:      http://localhost:5173/mapa
+  2) en el mapa:         http://localhost:5173/mapa
+  3) sesion matada: True | URL: http://localhost:5173/mapa
+  4) tras pulsar Refrescar: http://localhost:5173/login?redirect=/mapa
+     navegaciones: ['/mapa', '/login?redirect=/mapa']
+     tokens: {'access': False, 'refresh': False}
+  ```
+  Y se comprobó **quitando** cualquier listener propio: el resultado es el mismo (ya hay otro camino que expulsa).
+- **Por qué se documenta igual**: (a) la sospecha era plausible y analizada con código (que es donde se cuelan los errores); (b) la **prueba de regresión** que se ha construido (`frontend/scripts/qa_sesion_caducada.py`, con navegador de verdad) queda como puerta: si algún refactor rompe esa expulsión, el repo se pone rojo; (c) deja escrito que la comprobación del "guard sólo corre al navegar" era **falsa** como diagnóstico.
+- **Criterios de aceptación**:
+  - [x] Medido: la sesión caducada expulsa al login y borra los tokens (con y sin listener propio).
+  - [x] QA nueva (`frontend/scripts/qa_sesion_caducada.py`) registrada en `verificar_repo.py` como puerta de regresión.
+  - [x] **No** se ha tocado el router: no se añade código para un defecto que no existe.
 
 ### T-14 · I3 — OCR con GPU
 

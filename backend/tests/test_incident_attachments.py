@@ -769,3 +769,29 @@ def test_la_metadata_de_un_adjunto_caducado_no_se_sirve(
     )
     assert listado.status_code == 200, listado.text
     assert listado.json() == [], f"el adjunto caducado sigue en el listado: {listado.text}"
+# ── T-136 (2026-10-23): el nombre del fichero va saneado ────────────────
+def test_el_nombre_del_fichero_no_rompe_el_mensaje_de_error() -> None:
+    """Un nombre con salto de linea no puede inyectar lineas en el log.
+
+    El nombre **guardado** ya venia saneado (``nombre_seguro``), pero los
+    **mensajes de error** y el **log** usaban el nombre crudo.
+
+    OJO: el nombre se prueba aqui contra la **funcion de servicio**, no
+    por HTTP: el cliente de pruebas (httpx) sanea el filename al
+    construir el multipart, asi que por HTTP el nombre llega limpio
+    siempre y el test no probaria nada. Un cliente que construye el
+    multipart a mano (un atacante) si lo manda crudo: medido en vivo
+    contra la API, el detalle devuelto llevaba el salto de linea.
+    """
+    from fastapi import HTTPException
+
+    from app.services.incident_attachments import validar_imagen
+
+    nombre = "malo\nINFO: usuario admin entro.png"
+    with pytest.raises(HTTPException) as error:
+        validar_imagen(b"esto no es una imagen", nombre=nombre)
+
+    detalle = error.value.detail
+    assert "\n" not in detalle, f"el mensaje lleva un salto de linea: {detalle!r}"
+    # Y el nombre sigue siendo legible (saneado, no borrado).
+    assert "malo" in detalle, detalle
