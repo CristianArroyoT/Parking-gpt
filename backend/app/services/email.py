@@ -164,6 +164,27 @@ def _is_dry_run() -> bool:
     return s.environment != "production"
 
 
+def smtp_configurado() -> bool:
+    """¿Hay un SMTP de verdad al que enviar?
+
+    T-142 (2026-10-24): en producción, un ``SMTP_HOST`` vacío o
+    ``localhost`` significa que **nadie ha configurado el correo**. Es
+    mejor gritarlo en el log que fingir que el correo salió: el
+    llamante (por ejemplo, el reset de contraseña) toma la decisión
+    según lo que devuelva esta función.
+
+    Fuera de producción se considera que sí hay transporte: en
+    desarrollo el ``localhost:1025`` es el capturador de pruebas.
+    """
+    s = get_settings()
+    host = s.smtp_host.strip()
+    if not host:
+        return False
+    return not (
+        s.environment == "production" and host in ("localhost", "127.0.0.1", "::1")
+    )
+
+
 def send_alert_email(
     alert: Alert,
     manager_email: str | None,
@@ -250,14 +271,37 @@ def send_alert_email(
     )
 
     if _is_dry_run():
-        log.info(
-            "send_alert_email[dry-run]: alert=%s to=%s kind=%s subject=%r",
-            alert.id,
-            manager_email,
-            template_kind,
-            subject,
-        )
+        # OJO (T-142): en 'staging' el dry-run tambien se simula, pero ahi
+        # el correo tiene que salir de verdad: se avisa con un warning
+        # (que alguien tiene que mirar) en vez de un info que nadie lee.
+        if get_settings().environment == "development":
+            log.info(
+                "send_alert_email[dry-run]: alert=%s to=%s kind=%s subject=%r",
+                alert.id,
+                manager_email,
+                template_kind,
+                subject,
+            )
+        else:
+            log.warning(
+                "send_alert_email[dry-run]: alert=%s to=%s kind=%s subject=%r "
+                "(ENTORNO=%s: en staging el correo tiene que salir de verdad)",
+                alert.id,
+                manager_email,
+                template_kind,
+                subject,
+                get_settings().environment,
+            )
         return True
+
+    if not smtp_configurado():
+        log.error(
+            "send_alert_email: no hay SMTP configurado (SMTP_HOST=%r): el "
+            "correo NO se ha enviado (alert=%s)",
+            settings.smtp_host,
+            alert.id,
+        )
+        return False
 
     try:
         with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=5) as smtp:

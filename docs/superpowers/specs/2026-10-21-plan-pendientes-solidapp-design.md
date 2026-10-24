@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **711 de 715 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **719 de 723 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -2669,6 +2669,42 @@ Las dos herramientas quitan la query string antes de comparar (`/alerts?type=x` 
   - [x] Tests nuevos (3): el fichero compartido, el aviso del volumen y el margen de la barrida.
   - [x] Prueba inversa: los dos casos del T-141 en `tools/verificar_pruebas_inversas.py` (14/14 detectan su defecto).
   - [x] Puerta nueva `tools/verificar_volumen_adjuntos.py` (autoprueba con 4 casos de mentira), registrada en `tools/autopruebas.py`, `tools/verificar_repo.py` y en el workflow del CI.
+
+### T-142 · P1 (producción) — en una sucursal los correos NO salían nunca (y nadie se enteraba)
+
+- **Estado**: **completado** — el worker arranca en producción, el SMTP es obligatorio y el correo no puede fingir que ha salido
+- **Contexto**: los correos del producto (restablecer contraseña, alertas de cámara caída) los envía el **worker**, en una tarea de Celery. Y `email._is_dry_run()` dice: *si el entorno no es `production`, el correo se simula* (se loguea y se devuelve `True` **sin enviar nada**).
+- **El defecto**: el `docker-compose.prod.yml` (el override que se copia a una sucursal, ADR-0001) le daba `ENVIRONMENT: production` **sólo al `backend`**. El `celery-worker` y el `celery-beat` se quedaban en `development`… pero como `environment` es un **mapa**, y el compose de producción no lo redefinía, los tres servicios **heredaban** el `development` del compose de desarrollo.
+- **Medido** (2026-10-24, sobre el compose combinado — el que se despliega de verdad):
+  ```
+  backend        ENVIRONMENT='production'  SMTP_HOST=None
+  celery-worker  ENVIRONMENT=None          SMTP_HOST=None   <-- se queda en 'development'
+  celery-beat    ENVIRONMENT=None          SMTP_HOST=None   <-- idem
+  ```
+  Y en `development` el correo es un **dry-run que devuelve `True`**. Es decir, en cualquier sucursal:
+  - el **restablecer contraseña** respondía 200 «si la cuenta existe, te hemos enviado un correo» y el correo **no salía nunca** (y el token **no se borraba**, porque el dry-run devuelve éxito: el enlace, si alguna vez llegara, seguiría vivo hasta caducar);
+  - las **alertas de cámara caída** no llegaban al gestor;
+  - y **ningún log** decía nada: era un `info` de dry-run, y el sistema parecía funcionar.
+- **El arreglo** (tres cosas):
+  1. el compose de producción da `ENVIRONMENT: production` al worker y al beat, y **`SMTP_HOST` es obligatorio en los tres** (`${SMTP_HOST:?...}`, sin valor por defecto): si falta, `docker compose` **falla al arrancar** (fallo temprano y explícito) en vez de desplegar con los correos mudos. El worker (y el beat) necesitan también `FRONTEND_BASE_URL`: el enlace del correo de reset lo construye el worker, y en producción `Settings` **exige** esa variable (si no, no arrancaría);
+  2. **fail-closed en el código**: en producción, un `SMTP_HOST` vacío o `localhost` significa que nadie ha configurado el correo ⇒ el envío **falla** con un `log.error` explícito («no hay SMTP configurado… el correo NO se ha enviado») en vez de fingir. Además, fuera de `development` el dry-run avisa con `warning` (que alguien tiene que mirar), no con `info`;
+  3. la **puerta del compose de producción** comprueba ahora al worker y al beat (no sólo al backend), **fusionando** los dos compose (el override pisa lo heredado: sin la fusión, un servicio que el override no menciona parecería no tener `ENVIRONMENT` cuando en realidad hereda el `development`).
+- **Medido** (2026-10-24, dentro del contenedor, con `ENVIRONMENT=production` y `SMTP_HOST=localhost`):
+  ```
+  smtp_configurado(): False
+  ERROR app.services.password_reset_email send_password_reset_email:
+        no hay SMTP configurado (SMTP_HOST='localhost'): el correo NO se ha enviado
+  RESULTADO (False = no finge que salio): False
+  ```
+- **Criterios de aceptación**:
+  - [x] Medido: el compose combinado deja al worker y al beat sin `ENVIRONMENT` (y sin `SMTP_HOST`).
+  - [x] El worker y el beat arrancan en `production` en el compose de producción.
+  - [x] `SMTP_HOST` es **obligatorio** en los tres servicios: sin él, el despliegue falla al arrancar.
+  - [x] El worker y el beat tienen `FRONTEND_BASE_URL` (en producción `Settings` la exige).
+  - [x] Fail-closed: sin SMTP configurado en producción, el envío **falla con `log.error`** en vez de fingir (medido dentro del contenedor).
+  - [x] Fuera de `development`, el dry-run avisa con `warning` y no con `info`.
+  - [x] Tests nuevos (4) y **2 casos** más en la puerta de pruebas inversas.
+  - [x] La puerta del compose de producción comprueba al worker y al beat (5 casos de mentira nuevos).
 
 ### T-14 · I3 — OCR con GPU
 

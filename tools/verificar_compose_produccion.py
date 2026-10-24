@@ -45,7 +45,7 @@ COMPOSE_DEV = RAIZ / "docker-compose.yml"
 COMPOSE_PROD = RAIZ / "docker-compose.prod.yml"
 
 #: Valores que son obligatorios en el compose de producción.
-OBLIGATORIOS = ("JWT_SECRET", "FRONTEND_BASE_URL", "CORS_ORIGINS")
+OBLIGATORIOS = ("JWT_SECRET", "FRONTEND_BASE_URL", "CORS_ORIGINS", "SMTP_HOST")
 
 #: El secreto por defecto, que está en este repositorio público.
 SECRETO_POR_DEFECTO = "change-me-in-production"
@@ -59,6 +59,7 @@ VALOR_DE_PRUEBA = {
     "JWT_SECRET": "secreto-de-prueba-para-validar-la-configuracion",
     "FRONTEND_BASE_URL": "https://ejemplo.es",
     "CORS_ORIGINS": "https://ejemplo.es",
+    "SMTP_HOST": "smtp.ejemplo.es",
 }
 
 #: ``${VAR:-valor}`` y ``${VAR:?mensaje}``.
@@ -118,6 +119,29 @@ def _servicios(ruta: Path) -> dict[str, dict[str, str]]:
         if sangria <= 4:
             en_environment = False
     return servicios
+
+
+def _fusionar(
+    servicios_dev: dict[str, dict[str, str]],
+    servicios_prod: dict[str, dict[str, str]],
+) -> dict[str, dict[str, str]]:
+    """El ``environment`` **efectivo** del despliegue: dev + produccion.
+
+    El compose de produccion es un OVERRIDE del de desarrollo: lo que no
+    redefine se hereda. Y ``environment`` es un mapa, asi que lo que
+    redefines pisa lo heredado. Sin esta fusion, un servicio que el
+    compose de produccion no menciona parece no tener ``ENVIRONMENT``
+    cuando en realidad hereda el ``development`` del compose de
+    desarrollo (T-142).
+    """
+    efectivo: dict[str, dict[str, str]] = {
+        nombre: dict(variables) for nombre, variables in servicios_dev.items()
+    }
+    for nombre, variables in servicios_prod.items():
+        combinado = dict(efectivo.get(nombre, {}))
+        combinado.update(variables)
+        efectivo[nombre] = combinado
+    return efectivo
 
 
 def comprobar(
@@ -228,6 +252,49 @@ def comprobar(
                     f"la configuracion del backend ({problema}). El arranque "
                     "del backend fallaria (T-75)."
                 )
+
+    # T-142 (2026-10-24): el worker y el beat tienen que arrancar en
+    # 'production' y con el SMTP configurado.
+    #
+    # Medido (compose combinado, el que se copia a una sucursal): antes el
+    # override de produccion solo le daba ENVIRONMENT al backend, asi que
+    # el worker se quedaba en 'development' — y ahi los correos son
+    # SIMULADOS (dry-run): el reset de contrasena respondia 200 «te hemos
+    # enviado un correo» y el correo no salia NUNCA, sin que nadie se
+    # enterara. Lo mismo con las alertas de camara caida.
+    efectivo = _fusionar(servicios_dev, servicios_prod)
+    for servicio in ("celery-worker", "celery-beat"):
+        variables = efectivo.get(servicio)
+        if not variables:
+            continue
+        if variables.get("ENVIRONMENT") != "production":
+            problemas.append(
+                f"{servicio} del compose de produccion no arranca en "
+                f"'production' (dice {variables.get('ENVIRONMENT')!r}): en "
+                "'development' los correos son SIMULADOS y no salen nunca "
+                "(T-142)"
+            )
+        smtp = variables.get("SMTP_HOST")
+        if smtp is None:
+            problemas.append(
+                f"{servicio} del compose de produccion no define SMTP_HOST: "
+                "los correos del worker no se pueden enviar (T-142)"
+            )
+        elif not RE_OBLIGATORIO.match(f"SMTP_HOST: {smtp}"):
+            problemas.append(
+                f"{servicio} del compose de produccion da a SMTP_HOST un "
+                "valor por defecto: deberia ser obligatorio, para que el "
+                "arranque falle si falta (T-142)"
+            )
+
+    # El enlace del correo de reset de contrasena lo construye el worker.
+    worker = efectivo.get("celery-worker") or {}
+    if worker and "FRONTEND_BASE_URL" not in worker:
+        problemas.append(
+            "celery-worker del compose de produccion no define "
+            "FRONTEND_BASE_URL: el enlace del correo de reset de contrasena "
+            "saldria con la URL de desarrollo (T-142)"
+        )
     return problemas
 
 
@@ -295,6 +362,19 @@ def autoprueba() -> int:
             "JWT_SECRET": "${JWT_SECRET:?falta JWT_SECRET}",
             "FRONTEND_BASE_URL": "${FRONTEND_BASE_URL:?falta FRONTEND_BASE_URL}",
             "CORS_ORIGINS": "${CORS_ORIGINS:?falta CORS_ORIGINS}",
+            "SMTP_HOST": "${SMTP_HOST:?falta SMTP_HOST}",
+        },
+        "celery-worker": {
+            "ENVIRONMENT": "production",
+            "JWT_SECRET": "${JWT_SECRET:?falta JWT_SECRET}",
+            "SMTP_HOST": "${SMTP_HOST:?falta SMTP_HOST}",
+            "FRONTEND_BASE_URL": "${FRONTEND_BASE_URL:?falta FRONTEND_BASE_URL}",
+        },
+        "celery-beat": {
+            "ENVIRONMENT": "production",
+            "JWT_SECRET": "${JWT_SECRET:?falta JWT_SECRET}",
+            "SMTP_HOST": "${SMTP_HOST:?falta SMTP_HOST}",
+            "FRONTEND_BASE_URL": "${FRONTEND_BASE_URL:?falta FRONTEND_BASE_URL}",
         },
         "frontend": {},
     }
@@ -345,6 +425,73 @@ def autoprueba() -> int:
                 **prod_ok,
                 "backend": {
                     k: v for k, v in prod_ok["backend"].items() if k != "FRONTEND_BASE_URL"
+                },
+            },
+            texto_ok,
+            True,
+        ),
+        (
+            "el worker no arranca en production",
+            {},
+            {
+                **prod_ok,
+                "celery-worker": {
+                    **prod_ok["celery-worker"],
+                    "ENVIRONMENT": "development",
+                },
+            },
+            texto_ok,
+            True,
+        ),
+        (
+            "el beat no arranca en production",
+            {},
+            {
+                **prod_ok,
+                "celery-beat": {
+                    **prod_ok["celery-beat"],
+                    "ENVIRONMENT": "development",
+                },
+            },
+            texto_ok,
+            True,
+        ),
+        (
+            "el worker no tiene SMTP_HOST",
+            {},
+            {
+                **prod_ok,
+                "celery-worker": {
+                    k: v
+                    for k, v in prod_ok["celery-worker"].items()
+                    if k != "SMTP_HOST"
+                },
+            },
+            texto_ok,
+            True,
+        ),
+        (
+            "el SMTP del worker tiene valor por defecto",
+            {},
+            {
+                **prod_ok,
+                "celery-worker": {
+                    **prod_ok["celery-worker"],
+                    "SMTP_HOST": "${SMTP_HOST:-localhost}",
+                },
+            },
+            texto_ok,
+            True,
+        ),
+        (
+            "el worker no tiene FRONTEND_BASE_URL",
+            {},
+            {
+                **prod_ok,
+                "celery-worker": {
+                    k: v
+                    for k, v in prod_ok["celery-worker"].items()
+                    if k != "FRONTEND_BASE_URL"
                 },
             },
             texto_ok,

@@ -38,6 +38,9 @@ MENCIONES_README = (
     "JWT_SECRET",
     "FRONTEND_BASE_URL",
     "CORS_ORIGINS",
+    # T-142 (2026-10-24): el SMTP es obligatorio en el compose de produccion.
+    # Sin el, el despliegue arranca y los correos no salen nunca.
+    "SMTP_HOST",
 )
 #: Lo que el .env.example tiene que declarar.
 MENCIONES_ENV = ("FRONTEND_BASE_URL", "TRUSTED_PROXIES")
@@ -93,7 +96,7 @@ def autoprueba() -> int:
     readme_ok = (
         "Para una sucursal:\n"
         "  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d\n"
-        "Con JWT_SECRET, FRONTEND_BASE_URL y CORS_ORIGINS (obligatorios).\n"
+        "Con JWT_SECRET, FRONTEND_BASE_URL, CORS_ORIGINS y SMTP_HOST (obligatorios).\n"
         "El stack por defecto es el de desarrollo.\n"
     )
     env_ok = (
@@ -108,6 +111,7 @@ def autoprueba() -> int:
         ("sin JWT_SECRET", readme_ok.replace("JWT_SECRET", ""), env_ok, True),
         ("sin FRONTEND_BASE_URL", readme_ok.replace("FRONTEND_BASE_URL", ""), env_ok, True),
         ("sin CORS_ORIGINS", readme_ok.replace("CORS_ORIGINS", ""), env_ok, True),
+        ("sin SMTP_HOST", readme_ok.replace("SMTP_HOST", ""), env_ok, True),
         ("sin el aviso de desarrollo", readme_ok.replace("desarrollo", ""), env_ok, True),
         ("sin FRONTEND_BASE_URL en el .env.example", readme_ok, env_ok.replace("FRONTEND_BASE_URL", ""), True),
         ("sin TRUSTED_PROXIES en el .env.example", readme_ok, env_ok.replace("TRUSTED_PROXIES", ""), True),
@@ -167,7 +171,7 @@ def main() -> int:
         return 1
     print(
         "OK: el README dice como desplegar en produccion (compose de "
-        "produccion + las tres variables obligatorias) y el .env.example "
+        "produccion + las cuatro variables obligatorias) y el .env.example "
         "declara FRONTEND_BASE_URL y TRUSTED_PROXIES."
     )
     return 0

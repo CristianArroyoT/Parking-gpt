@@ -2729,3 +2729,19 @@ se borraba nunca); y la barrida de huérfanos, que ya existía sin que la
 llamara nadie, tiene tarea y horario. Quedan 3 tests, 2 casos en la
 puerta de pruebas inversas (14/14) y la puerta
 `tools/verificar_volumen_adjuntos.py`.
+### 3-centésimotrenticinquésima. En una sucursal los correos no salían nunca (2026-10-24)
+
+Los correos (restablecer contraseña, alertas de cámara caída) los envía el
+**worker**, y en `development` el envío es un **dry-run que devuelve
+`True` sin mandar nada**. Pero el compose de producción le daba
+`ENVIRONMENT: production` **sólo al backend**: el worker y el beat
+heredaban el `development` del compose de desarrollo. **Medido** sobre el
+compose combinado (el de la sucursal): `celery-worker ENVIRONMENT=None`.
+O sea: el reset de contraseña respondía 200 «te hemos enviado un correo»
+y el correo **no salía nunca**, sin un solo log que lo dijera. **El
+arreglo**: el worker y el beat arrancan en `production`, `SMTP_HOST` es
+**obligatorio** en los tres (el despliegue falla al arrancar si falta) y
+el código es **fail-closed**: en producción sin SMTP configurado, el
+envío falla con un `log.error` en vez de fingir. La puerta del compose de
+producción comprueba ahora al worker y al beat, **fusionando** los dos
+compose (el override pisa lo heredado).

@@ -48,6 +48,14 @@ services:
       # Orígenes del navegador: los que ven la app (el frontend y, si
       # aplica, los dominios de la sucursal).
       CORS_ORIGINS: "${CORS_ORIGINS:?falta CORS_ORIGINS: los origenes del frontend, separados por comas}"
+      # T-142 (2026-10-24): el SMTP tambien es obligatorio. El backend lo
+      # usa cuando el broker esta caido y el correo hay que enviarlo en
+      # linea (ver ``app/api/v1/password_reset.py``). Sin valor por
+      # defecto a proposito: si falta, `docker compose` falla al arrancar
+      # (fallo temprano y explicito) en vez de un correo que no sale.
+      SMTP_HOST: "${SMTP_HOST:?falta SMTP_HOST: el servidor SMTP de la sucursal}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_FROM: "${SMTP_FROM:-solidAPP <no-reply@solidapp.es>}"
       # IP de los proxies de confianza (los que ponen el X-Forwarded-For).
       # Si el proxy de produccion esta fuera de los rangos por defecto,
       # hay que anadirlo aqui: si no, el backend ve la IP del proxy y el
@@ -58,11 +66,35 @@ services:
   # por defecto, el despliegue sigue siendo inseguro por el backdoor.
   celery-worker:
     environment:
+      # T-142 (2026-10-24): el worker tiene que arrancar en 'production'.
+      # Antes este compose solo le daba ENVIRONMENT al backend: el worker
+      # se quedaba en 'development', y ahi los correos son SIMULADOS
+      # (dry-run). Medido: el reset de contrasena respondia 200 «te hemos
+      # enviado un correo» y el correo NO salia nunca, sin que nadie se
+      # enterara. Y las alertas de camara caida, tampoco.
+      ENVIRONMENT: production
       JWT_SECRET: "${JWT_SECRET:?falta JWT_SECRET: mismo valor que el backend}"
+      # SMTP obligatorio (sin default): fallo al arrancar, no correo mudo.
+      SMTP_HOST: "${SMTP_HOST:?falta SMTP_HOST: el servidor SMTP de la sucursal}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_FROM: "${SMTP_FROM:-solidAPP <no-reply@solidapp.es>}"
+      # El enlace del correo de reset de contrasena lo construye el
+      # worker: sin esto saldria con la URL de desarrollo.
+      FRONTEND_BASE_URL: "${FRONTEND_BASE_URL:?falta FRONTEND_BASE_URL: mismo valor que el backend}"
 
   celery-beat:
     environment:
+      # T-142 (2026-10-24): mismo motivo que el worker (mismo codigo, mismo
+      # settings): sin esto, el beat seguiria en 'development'.
+      ENVIRONMENT: production
       JWT_SECRET: "${JWT_SECRET:?falta JWT_SECRET: mismo valor que el backend}"
+      # OJO: en 'production' la configuracion EXIGE FRONTEND_BASE_URL (si
+      # no, los correos llevan un enlace a localhost). El beat no envia
+      # correos, pero comparte los settings: sin esto, no arrancaria.
+      FRONTEND_BASE_URL: "${FRONTEND_BASE_URL:?falta FRONTEND_BASE_URL: mismo valor que el backend}"
+      SMTP_HOST: "${SMTP_HOST:?falta SMTP_HOST: el servidor SMTP de la sucursal}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_FROM: "${SMTP_FROM:-solidAPP <no-reply@solidapp.es>}"
 
   frontend:
     # La imagen de PRODUCCION (nginx con el bundle construido), no el

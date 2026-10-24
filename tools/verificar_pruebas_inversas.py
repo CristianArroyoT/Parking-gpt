@@ -335,6 +335,52 @@ CASOS: list[Caso] = [
             "test_la_purga_avisa_si_no_ve_el_volumen_de_adjuntos"
         ),
     ),
+    Caso(
+        nombre="T-142 · la alerta vuelve a fingir que el correo salio",
+        fichero="app/services/email.py",
+        cambios=[
+            (
+                """    if not smtp_configurado():
+        log.error(
+            "send_alert_email: no hay SMTP configurado (SMTP_HOST=%r): el "
+            "correo NO se ha enviado (alert=%s)",
+            settings.smtp_host,
+            alert.id,
+        )
+        return False
+""",
+                "",
+            ),
+        ],
+        test=(
+            "tests/test_correo_fail_closed.py::"
+            "test_en_produccion_sin_smtp_el_alerta_no_dice_que_se_ha_enviado"
+        ),
+    ),
+    Caso(
+        nombre="T-142 · el reset de contrasena vuelve a fingir que el correo salio",
+        fichero="app/services/password_reset_email.py",
+        cambios=[
+            (
+                """    from app.services.email import smtp_configurado
+
+    if not smtp_configurado():
+        log.error(
+            "send_password_reset_email: no hay SMTP configurado "
+            "(SMTP_HOST=%r): el correo NO se ha enviado (to=%s)",
+            settings.smtp_host,
+            to_email,
+        )
+        return False
+""",
+                "",
+            ),
+        ],
+        test=(
+            "tests/test_correo_fail_closed.py::"
+            "test_en_produccion_sin_smtp_el_reset_no_dice_que_se_ha_enviado"
+        ),
+    ),
 ]
 
 

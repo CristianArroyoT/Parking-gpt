@@ -156,12 +156,39 @@ def send_password_reset_email(
     )
 
     if not es_entorno_real():
-        log.info(
-            "send_password_reset_email[dry-run]: to=%s subject=%r",
-            to_email,
-            subject,
-        )
+        # OJO (T-142): fuera de 'development' el dry-run es un aviso, no
+        # un 'info' que nadie lee.
+        if get_settings().environment == "development":
+            log.info(
+                "send_password_reset_email[dry-run]: to=%s subject=%r",
+                to_email,
+                subject,
+            )
+        else:
+            log.warning(
+                "send_password_reset_email[dry-run]: to=%s subject=%r "
+                "(ENTORNO=%s: en staging el correo tiene que salir de verdad)",
+                to_email,
+                subject,
+                get_settings().environment,
+            )
         return True
+
+    # T-142 (2026-10-24): fail-closed. En produccion, un SMTP sin
+    # configurar (host vacio o 'localhost') devolvia un exito falso en
+    # algunos caminos; aqui se dice en voz alta. Devolver False hace que
+    # el llamante borre el token (un token que nadie recibio no vale) y
+    # que el usuario pueda pedir otro.
+    from app.services.email import smtp_configurado
+
+    if not smtp_configurado():
+        log.error(
+            "send_password_reset_email: no hay SMTP configurado "
+            "(SMTP_HOST=%r): el correo NO se ha enviado (to=%s)",
+            settings.smtp_host,
+            to_email,
+        )
+        return False
 
     try:
         with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=5) as smtp:

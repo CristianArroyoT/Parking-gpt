@@ -78,11 +78,12 @@ repositorio público, y no tiene TLS. Para una sucursal hay que usar el
 override de producción:
 
 ```bash
-# Las tres variables son OBLIGATORIAS: si falta alguna, `docker compose`
+# Las cuatro variables son OBLIGATORIAS: si falta alguna, `docker compose`
 # falla al arrancar, con un mensaje que dice cuál falta.
 export JWT_SECRET="$(openssl rand -base64 48)"   # el secreto de firma
 export FRONTEND_BASE_URL="https://parking.ejemplo.es"  # URL publica (correos)
 export CORS_ORIGINS="https://parking.ejemplo.es"       # origenes del navegador
+export SMTP_HOST="smtp.ejemplo.es"                     # servidor de correo
 
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
@@ -92,6 +93,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 | `JWT_SECRET` | Con el valor por defecto se pueden **firmar tokens de administrador** (el repositorio es público) |
 | `FRONTEND_BASE_URL` | La URL que va en los correos (el de recuperar contraseña). Sin ella la API **no arranca** en `staging`/`production` |
 | `CORS_ORIGINS` | Los orígenes desde los que el navegador carga la app |
+| `SMTP_HOST` | Sin ella **los correos no salen**: el de recuperar contraseña y las alertas de cámara caída. El compose de producción no le da `ENVIRONMENT: production` al worker por accidente: si lo hiciera, los correos serían simulados (`dry-run`) y el sistema parecería funcionar sin avisar a nadie |
 
 Además, y **sin esto la PWA no funciona**: la imagen sirve **HTTP plano**
 y los navegadores no registran *service workers* sin cifrar. Hay que poner
