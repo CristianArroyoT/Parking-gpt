@@ -165,6 +165,22 @@ def _comprobaciones() -> list[Comprobacion]:
             timeout=600,
         ),
         Comprobacion(
+            "El destino del login se valida",
+            # T-165 (2026-10-24): el `redirect` de la query se pasaba a
+            # `router.push()` sin validar ni capturar. Medido: un destino
+            # no válido metía al usuario en una ruta inexistente, y con
+            # `?redirect=/a&redirect=/b` (la query llega como array) el
+            # `push` fallaba y su rechazo se quedaba sin gestionar: el
+            # login había funcionado, pero el usuario se quedaba en el
+            # formulario, sin ver el mensaje de bienvenida.
+            # OJO: NO era una redirección abierta (vue-router 4 trata
+            # `//ejemplo.com` como ruta interna del propio host); eso
+            # queda anotado en el plan para que nadie lo «arregle».
+            [py, "frontend/scripts/qa_login_redirect.py"],
+            patron=r"(OK: el destino del login se valida.*)",
+            timeout=600,
+        ),
+        Comprobacion(
             "Un login que no puede cargar el perfil falla con mensaje",
             # T-139 (2026-10-24): `fetchMe()` se tragaba cualquier
             # error, asi que un login cuyo `/users/me` fallaba decia

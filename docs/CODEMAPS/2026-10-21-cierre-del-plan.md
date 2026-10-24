@@ -2982,3 +2982,24 @@ mira por cámara cuándo fue el último push y avisa si hace más de 30 min
 que no llega. El tipo de alerta es nuevo (`CAMERA_PUSH_SILENT`): es
 distinto de «cámara caída» (el RTSP no responde); la columna es un
 `String(32)`, así que no hizo falta migración.
+### 3-centésimosesentésimotrigésimo. El destino del login se valida (2026-10-24)
+
+El `redirect` de la query se pasaba a `router.push()` sin validar. La
+auditoría lo apuntaba como posible redirección abierta: **medido, no lo
+era** (vue-router 4 trata `//ejemplo.com` como ruta interna del propio
+host). Lo que sí fallaba era que un destino no válido metía al usuario
+en una ruta inexistente, y que con `?redirect=a&redirect=b` (un array) el
+`push` fallaba y su rechazo se quedaba sin gestionar: el login había
+funcionado pero el usuario se quedaba en el formulario, sin ver el
+mensaje de bienvenida.
+
+Ahora el destino se valida (sólo rutas internas de verdad) y el `push` se
+espera dentro del `try`. Medido: los tres destinos maliciosos caen al
+destino por defecto, y el destino interno válido se respeta.
+
+La QA (`frontend/scripts/qa_login_redirect.py`) queda registrada en
+`verificar_repo.py`, y su prueba inversa
+(`frontend/scripts/qa_login_redirect_inversa.py`) vuelve a poner el
+defecto y exige que la QA **falle por el motivo correcto**: sin el
+arreglo, la URL lleva el valor malicioso y el usuario se queda
+atrapado en el login.

@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-21, cierre de la sesión)
 >
-> El plan está **ejecutado**: **790 de 790 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **793 de 793 criterios** verificados. `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > | Comprobación | Resultado |
 > |---|---|
@@ -3077,9 +3077,6 @@ comportamiento en marcha, marcados como tales). Ordenados por gravedad:
   empujar»**: el único detector de OCR cuelga de `ping_camera`, que
   **no se despacha**. Si el OCR del fabricante muere, no salta nada: la
   cámara sigue «healthy» (si el RTSP va) y no se está cobrando.
-- **[MEDIA] El login pasa el `redirect` de la query a `router.push()` sin
-  validar ni capturar** (`LoginView.vue:18`): sin `await` ni `.catch()`, y
-  con un `as string` que no convierte un `string[]`.
 - **[MEDIA] Los errores de formulario no se anuncian** en 4 vistas
   (login, reset de contraseña, alta manual): falta `role="alert"`, que
   sí está en otras 8.
@@ -3206,6 +3203,22 @@ decisiones de producto y un despliegue real.
   - [x] Una cámara que empujó hace mucho, sí (test).
   - [x] Las cámaras de demo no avisan (test).
   - [x] Prueba inversa en `tools/verificar_pruebas_inversas.py`.
+
+
+### T-165 · P2 (robustez del login) — el destino tras el login no se validaba
+
+- **Estado**: **completado** — el destino se valida y el `push` se espera
+- **Contexto**: el login toma el destino de la query (`?redirect=...`) y hace `router.push(redirect)`. El valor lo pone quien construya el enlace.
+- **Lo que se comprobó (y lo que NO era)**: la auditoría lo apuntaba como posible **redirección abierta**. **Medido** con un navegador de verdad: `?redirect=//ejemplo.com` deja al usuario en `http://127.0.0.1:5173//ejemplo.com` y `?redirect=https://ejemplo.com` en `http://127.0.0.1:5173/https://ejemplo.com` ⇒ vue-router 4 los trata como **rutas internas del propio host**, así que **no hay redirección abierta**. El hallazgo, en esa parte, era **falso** (queda anotado para que nadie lo «arregle»).
+- **Lo que sí era un defecto real** (y sí se arregla):
+  1. un destino no válido dejaba al usuario en una **ruta que no existe** (pantalla de «no encontrada») en vez de en la página principal;
+  2. con `?redirect=/a&redirect=/b` la query llega como **array**: el cast `as string` no lo convertía, el `push` **fallaba** y su rechazo se quedaba **sin gestionar** ⇒ el login había funcionado (tokens puestos) pero el usuario **se quedaba en el formulario**, sin ver el mensaje de bienvenida, y el siguiente intento chocaba con el rate-limit (10 intentos por IP cada 5 min).
+- **El arreglo**: una función `destinoSeguro()` que sólo acepta un **string** que sea una ruta interna (`/…` y ni `//` ni `/\`), y el `push` **awaited** dentro del `try` (así un fallo lo captura el catch de siempre).
+- **Criterios de aceptación**:
+  - [x] Los tres destinos maliciosos caen al destino por defecto (medido: `//ejemplo.com`, `https://ejemplo.com` y el array ⇒ todos a `/mapa`, que es la ruta por defecto del gestor).
+  - [x] El destino interno válido **se respeta** (medido: `?redirect=/gestor/alertas` ⇒ acaba en `/gestor/alertas`).
+  - [x] QA de navegador (`frontend/scripts/qa_login_redirect.py`) registrada en `verificar_repo.py`.
+  - [x] **Prueba inversa** (`frontend/scripts/qa_login_redirect_inversa.py`): vuelve a poner el defecto (quita la validación y el `await`), reinicia el frontend y comprueba que la QA **falla por el motivo correcto** (si pasara, no demostraría nada). Medido el 2026-10-24: sin el arreglo, `?redirect=//example.com` deja la URL en `http://127.0.0.1:5173//example.com` (con el valor malicioso dentro) y `?redirect=/mapa&redirect=/otro` deja al usuario **atrapado en `/login`**.
 
 ### T-14 · I3 — OCR con GPU
 

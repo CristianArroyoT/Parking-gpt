@@ -12,12 +12,38 @@ const route = useRoute()
 const email = ref('')
 const password = ref('')
 
+/**
+ * El destino tras el login, **validado** (T-165).
+ *
+ * OJO: el valor viene de la query, o sea de quien construya el enlace.
+ * Medido el 2026-10-24 con un navegador de verdad:
+ * ``?redirect=//ejemplo.com`` deja al usuario en
+ * ``http://127.0.0.1:5173//ejemplo.com`` (una ruta interna que no
+ * existe). **No** es una redirección abierta (vue-router 4 trata esos
+ * valores como rutas del propio host), pero el destino tiene que ser
+ * una ruta interna de verdad.
+ *
+ * Y con ``?redirect=/a&redirect=/b`` la query llega como **array**: el
+ * cast ``as string`` no lo convertía, el ``push`` fallaba y su rechazo
+ * se quedaba sin gestionar (el login había funcionado, pero el usuario
+ * se quedaba en el formulario, sin ver el mensaje de bienvenida).
+ */
+function destinoSeguro(): string {
+  const valor = route.query.redirect
+  if (typeof valor !== 'string') return '/'
+  if (!valor.startsWith('/')) return '/'
+  // ``//host`` y ``/\host`` se interpretan como protocolo-relativo.
+  if (valor.startsWith('//') || valor.startsWith('/\\')) return '/'
+  return valor
+}
+
 async function submit(): Promise<void> {
   try {
     await auth.login(email.value, password.value)
-    const redirect = (route.query.redirect as string) || '/'
     ui.pushToast('success', 'Bienvenido a solidAPP')
-    router.push(redirect)
+    // El `await` va dentro del `try`: si la navegación falla, lo
+    // captura el catch de siempre (antes el rechazo se perdía).
+    await router.push(destinoSeguro())
   } catch {
     // El mensaje ya quedó en auth.error
   }
