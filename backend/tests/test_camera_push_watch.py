@@ -31,7 +31,7 @@ def _camara(
     )
     db.add(camera)
     db.flush()
-    for indice in range(pushes):
+    for _indice in range(pushes):
         db.add(
             PlatesDetected(
                 camera_id=camera.id,

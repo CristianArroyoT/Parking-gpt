@@ -45,6 +45,9 @@ const tipo = ref('')
 const TIPOS: Record<string, string> = {
   ocr_failed: 'Fallo de OCR',
   camera_offline: 'Cámara caída',
+  // T-164 (2026-10-24): la camara dejo de enviar lecturas (no es que el
+  // RTSP no responda).
+  camera_push_silent: 'Cámara sin lecturas',
   space_empty_too_long: 'Plaza vacía mucho tiempo',
   robbery_reported: 'Robo reportado',
   space_broken: 'Plaza averiada',
