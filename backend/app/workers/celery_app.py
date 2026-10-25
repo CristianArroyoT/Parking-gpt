@@ -24,6 +24,11 @@ celery_app.conf.update(
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
+    # T-186 (2026-10-25): se dejamos en Europe/Madrid. Se probo
+    # cambiarlo a UTC (por un «cambio de hora» que al final resulto ser un
+    # error de medicion: el beat despachaba de todo), pero no hay motivo
+    # medido para mover las horas de las tareas diarias, asi que se queda
+    # como estaba.
     timezone="Europe/Madrid",
     enable_utc=True,
     task_acks_late=True,
@@ -55,6 +60,28 @@ celery_app.conf.update(
 # decoradores @celery_app.task. Ver `app/workers/tasks.py` para detalle.
 from app.workers import tasks  # noqa: F401, E402
 
+
+# T-186 (2026-10-25): el bucle del beat de Celery es
+#
+#     interval = self.scheduler.tick()   # envia la tarea que toque
+#     time.sleep(interval)               # duerme hasta beat_max_loop_interval
+#     if self.scheduler.should_sync():
+#         self.scheduler._do_sync()      # <- reescribe celerybeat-schedule
+#
+# El fichero se reescribe **despues** de dormir, y se duerme como mucho
+# ``beat_max_loop_interval`` (300 s por defecto). Medido: el healthcheck
+# del compose pide «modificado en los ultimos 2 minutos»
+# (``find ... -mmin -2``) y con 300 s de escritura el beat pasaba
+# UNHEALTHY 180 s de cada 300 y luego volvia a healthy (medido). En Swarm
+# o K8s, unhealthy = reemplazar el contenedor en bucle (el propio compose
+# lo avisa para el worker).
+#
+# Con 60 s: el tick ocurre **cada 60 s como maximo** => el fichero se
+# reescribe cada minuto (el healthcheck pasa siempre) y las tareas se
+# disparan con **como mucho 60 s de retraso** (antes podian esperar 5
+# minutos).
+celery_app.conf.beat_max_loop_interval = 60
+celery_app.conf.beat_sync_every = 60
 
 celery_app.conf.beat_schedule = {
     # Inventario cada minuto: barato y útil para detectar caídas.

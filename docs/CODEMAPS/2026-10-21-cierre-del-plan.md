@@ -3252,3 +3252,22 @@ administrador.
 La puerta `tools/verificar_readme_despliegue.py` exige que el README
 nombre las dos cosas **en la sección de producción** (no en el README
 entero, que ya Mentionaba `alembic` en la de desarrollo).
+### 3-centésimosesentésimocuarenta y once. El beat ya no se declara unhealthy solo (2026-10-25)
+
+El healthcheck del beat mira que su fichero de schedule se actualice
+(«modificado en los últimos 2 minutos»), pero el sync de Celery va
+**detrás** de dormir y se duerme hasta `beat_max_loop_interval` (300 s por
+defecto). Medido: el beat pasaba **unhealthy 180 s de cada 300** y luego
+volvía a healthy.
+
+En producción eso es un contenedor que un orquestador **reemplaza en
+bucle** (el propio compose lo avisa para el worker).
+
+- `beat_max_loop_interval = 60`: el tick se despierta como mucho cada
+  minuto ⇒ las tareas salen con ≤60 s de retraso (antes, hasta 5 min).
+- El healthcheck pasa a `-mmin -10`: un margen que no puede parpadear.
+
+**Ojo con las mediciones**: las líneas del log de Docker **van partidas**
+y PowerShell mete prefijos de error; contar «Sending due task» así da
+cero y parece que el beat está mudo cuando no lo está. Para medir, `docker
+inspect` y `stat` sí sirven.

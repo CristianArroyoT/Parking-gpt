@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-24, tras la tanda T-165…T-182)
 >
-> El plan está **ejecutado**: **880 de 880 criterios** verificados, **ninguno sin marcar**. Los dos que quedaban están **cerrados**: el de la alarma `OCR_FAILED` (la despertó el **T-177** al despachar `ping_camera`, y su falso positivo —una entrada de parking vacía saltando la alarma— lo corrigió el **T-181**) y el de los **18 campos** sin nombre accesible (**T-182**). `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **887 de 887 criterios** verificados, **ninguno sin marcar**. Los dos que quedaban están **cerrados**: el de la alarma `OCR_FAILED` (la despertó el **T-177** al despachar `ping_camera`, y su falso positivo —una entrada de parking vacía saltando la alarma— lo corrigió el **T-181**) y el de los **18 campos** sin nombre accesible (**T-182**). `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > **Lo de esta tanda (2026-10-24)**: los **12 hallazgos** que dejaron las dos auditorías (frontend y pipeline de matrículas), repartidos entre **dos subagentes** y los que resolví yo. Cada uno con **su puerta** y **su prueba inversa**:
 >
@@ -4269,6 +4269,46 @@ El README decía que en staging/producción «los usuarios reales se dan de alta
   - [x] El README y el ADR-0001 documentan los dos pasos obligatorios.
   - [x] La puerta del README los exige **en la sección de producción** (con 3 casos de mentira nuevos: 13 en total).
   - [x] El script `create_admin` crea el administrador, verifica la contraseña y se niega si ya hay uno (10 tests nuevos).
+
+### T-186 · P1 (operación) — el healthcheck del beat lo declaraba unhealthy solo
+
+- **Estado**: **completado** — medido antes y después
+- **Contexto**: el healthcheck del beat comprueba que su fichero de schedule se esté actualizando (`find /var/lib/solidapp/celerybeat-schedule -mmin -2`, o sea «modificado en los últimos 2 minutos»). El comentario del compose decía que el fichero «se actualiza con cada tick».
+- **El defecto (medido el 2026-10-25, con `stat` y `docker inspect`)**: el fichero lo reescribe Celery cada **195-300 s** (el sync va **después** de dormir, y se duerme hasta `beat_max_loop_interval`), así que el healthcheck pedía más de lo que hay:
+  ```
+  ahora mtime=1792892383 health=healthy
+    sin cambios (mtime=1792892383)  health=healthy
+    sin cambios (mtime=1792892383)  health=unhealthy
+    ... (3 fallos seguidos)
+    escrito: mtime 1792892383 -> 1792892683 (+300s)  health=healthy
+  ```
+  O sea: el beat pasaba **unhealthy 180 s de cada 300** y luego volvía a healthy: el healthcheck **parpadeaba**. En producción eso es serio: el propio compose avisa (para el worker) de que «en Swarm/K8s, unhealthy significa **reemplazar el contenedor en bucle**».
+- **El arreglo**:
+  1. `beat_max_loop_interval = 60`: el tick se despierta **como mucho cada 60 s**, así que una tarea cuyo momento llega dentro de 5 minutos sale a los 60 s (antes podía esperar 5 minutos).
+  2. El healthcheck pasa a `-mmin -10`: un margen que **no puede parpadear** (el intervalo real de escritura es de 195-300 s) y que aplica el principio que el propio compose enuncia para el worker («el margen debe ser MAYOR que el tiempo de respuesta real»).
+
+#### Lo que se retracta (y por qué está aquí)
+
+Durante la investigación se atribuyó a un **cambio de hora de verano** la aparente mudanza del beat. **Era un error de medición mío**: las líneas del log de Celery y de Docker **van partidas** y PowerShell mete prefijos de error, así que al contar «Sending due task» salía a cero. Releído el log en crudo, el worker **sí** estaba recibiendo tareas (`Task solidapp.check_camera_pushes[...] received` a las 02:30:00) ⇒ el beat despachaba y el healthcheck era el único que parpadeaba.
+
+Se deja escrito para que nadie repita lameasurement rota: **el log de Docker en PowerShell no sirve para contar**; hay que mirar `docker inspect` (que sí es fiable) o el log del propio contenedor.
+
+#### El hueco de diseño que queda (no es un defecto)
+
+El healthcheck mide al **escritor** (que el beat siga vivo), no al que **despacha**: un beat vivo pero que no envia nada passaría el healthcheck. Detectar eso tiene que ser **externo** (el central mirando la sucursal: que las cámaras no se han sondeado en 10 min), porque cualquier comprobación hecha **dentro** de una tarea periódica tampoco puede detectarlo (si el beat calla, la tarea no se despacha).
+
+- **Criterios de aceptación**:
+  - [x] Medido antes: el healthcheck pasa de healthy a unhealthy y vuelve, con el fichero cada 195-300 s.
+  - [x] `beat_max_loop_interval = 60` (el banner del beat lo confirma) ⇒ las tareas salen con ≤60 s de retraso.
+  - [x] El healthcheck tiene un margen (10 min) que no puede dar un falso «unhealthy».
+  - [x] Retractado por escrito el «cambio de hora» (era un error de medición) y anotado cómo medir bien.
+
+
+- **Criterios de aceptación**:
+  - [x] Medido antes: el healthcheck pasa de healthy a unhealthy y vuelve, con el fichero cada 195-300 s.
+  - [x] `beat_max_loop_interval = 60`: el banner del beat lo confirma («maxinterval -> 1.00 minute») y las tareas salen como mucho 60 s tarde.
+  - [x] El healthcheck tiene un margen (10 min) que no puede dar un falso «unhealthy».
+  - [x] El hueco del cambio de hora queda documentado, con el motivo y con quién lo puede detectar (el central).
 
 ### T-14 · I3 — OCR con GPU
 

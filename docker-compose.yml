@@ -352,7 +352,23 @@ services:
     command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=info", "--schedule=/var/lib/solidapp/celerybeat-schedule"]
     healthcheck:
       # celerybeat-schedule vive en /var/lib/solidapp (ver el comando).
-      test: ["CMD-SHELL", "find /var/lib/solidapp/celerybeat-schedule -mmin -2 | grep -q ."]
+      #
+      # T-186 (2026-10-25): el margen es de 10 minutos, no de 2. Medido:
+      # el beat reescribe el fichero cada **195-300 s** (el sync de Celery va
+      # detras de dormir, y se duerme hasta `beat_max_loop_interval`), asi que
+      # con «-mmin -2» el contenedor pasaba **unhealthy 180 s de cada 300** y
+      # luego volvia a healthy (parpadeo). En Swarm o K8s, unhealthy =
+      # **reemplazar el contenedor en bucle** (el principio que el propio
+      # compose enuncia mas arriba para el worker: el margen debe ser MAYOR
+      # que el tiempo de respuesta real).
+      #
+      # OJO (el hueco que queda): este healthcheck mide al **escritor**
+      # (que el beat siga vivo), NO al que despacha. Medido el 2026-10-25:
+      # con el cambio de hora de verano (03:00 CEST -> 02:00 CET) el beat
+      # dejo de despachar durante **una hora** y nadie se entero (su
+      # fichero se seguia reescribiendo). Lo detecta el **central**, no el
+      # healthcheck: ver el T-186 del plan.
+      test: ["CMD-SHELL", "find /var/lib/solidapp/celerybeat-schedule -mmin -10 | grep -q ."]
       interval: 30s
       timeout: 5s
       retries: 3

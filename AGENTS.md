@@ -447,6 +447,18 @@ por las buenas. Ver T-124 y T-125 en el plan.
   segunda fuente de matrículas. El TTL de esa alarma se deriva del
   intervalo real (T-167). Al añadir o cambiar una tarea de Celery hay que
   **reiniciar el worker**: `docker compose restart celery-worker`.
+- **El healthcheck del beat mira su fichero de schedule** (T-186,
+  2026-10-25): `find ... -mmin -10`. El sync de Celery va **detrás** de
+  dormir y se duerme hasta `beat_max_loop_interval` (300 s por defecto):
+  con un margen de 2 minutos el beat pasaba *unhealthy* 180 s de cada
+  300 (parpadeo) y en Swarm/K8s lo reemplazarían en bucle. Ahora
+  `beat_max_loop_interval = 60` ⇒ las tareas salen con ≤60 s de retraso.
+  OJO: ese healthcheck mide al **escritor**, no al que **despacha**.
+- **Para medir, no cuentes líneas del log de Docker** (2026-10-25): van
+  **partidas** y PowerShell mete prefijos de error, así que contar
+  «Sending due task» da cero y parece que el beat está mudo cuando
+  está bien. `docker inspect` (estado y salud) y `stat` (mtime) sí
+  mienten bien.
 - **Las tareas periódicas toman un lock (T-102)**: `probe_heartbeats` se
   omite si ya hay una ronda en curso (`celery:lock:probe_heartbeats`).
   Sin ese lock, dos rondas a la vez contaban los fallos por duplicado y
