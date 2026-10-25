@@ -292,6 +292,17 @@ def _comprobaciones() -> list[Comprobacion]:
             timeout=300,
         ),
         Comprobacion(
+            "La medicion de la IP real detecta el defecto",
+            # T-184-bis (2026-10-25): la autoprueba **medida** (con una
+            # copia de la plantilla sin el modulo realip, la medicion tiene
+            # que fallar). Va en la puerta LOCAL y no en el CI: levanta un
+            # contenedor que necesita `host.docker.internal`, que en Linux
+            # no existe (es de Docker Desktop) y hizo fallar el CI.
+            [py, "tools/verificar_ip_real_nginx.py", "--autoprueba-medida"],
+            patron=r"(Autoprueba \(medida\) correcta.*)",
+            timeout=300,
+        ),
+        Comprobacion(
             "El nginx de produccion deja ver la IP real del visitante",
             # T-183 (2026-10-25): detras de un terminador de TLS, nginx ve
             # la IP del TERMINADOR y la reenvia al backend: todos los

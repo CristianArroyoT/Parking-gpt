@@ -230,6 +230,11 @@ def medir(plantilla: Path) -> tuple[bool, str]:
             "docker", "run", "-d", "--rm",
             "--name", nombre,
             "-p", f"127.0.0.1:{puerto_nginx}:80",
+            # OJO (T-184-bis, 2026-10-25): `host.docker.internal` es de
+            # Docker Desktop; en Linux hay que mapearlo al gateway del
+            # bridge (Docker 20.10+). Sin esto, el CI (ubuntu) no
+            # llega al upstream y la autoprueba medida falla.
+            "--add-host", "host.docker.internal:host-gateway",
             "-e", f"API_UPSTREAM=http://host.docker.internal:{puerto_upstream}",
             "-v", f"{plantilla}:/etc/nginx/templates/default.conf.template:ro",
             "nginx:1.27-alpine",
@@ -348,10 +353,7 @@ server {
         print(f"\nAutoprueba FALLIDA: {fallos} caso(s)")
         return 1
     print("\nAutoprueba correcta: la puerta sabe fallar.")
-    # Y ademas la de verdad: con una copia de la plantilla a la que se le
-    # quita el modulo realip, la medicion tiene que FALLAR (el upstream
-    # ve la IP del proxy en vez de la del visitante).
-    return autoprueba_medida()
+    return 0
 
 
 def autoprueba_medida() -> int:
@@ -415,10 +417,22 @@ def main() -> int:
             "y comprueba que el upstream recibe la IP del visitante."
         ),
     )
+    parser.add_argument(
+        "--autoprueba-medida",
+        action="store_true",
+        help=(
+            "Autoprueba MEDIDA (necesita Docker): con una copia de la "
+            "plantilla sin el modulo realip, la medicion tiene que fallar. "
+            "No va en el CI: en Linux `host.docker.internal` no existe "
+            "(esta es la de Docker Desktop)."
+        ),
+    )
     args = parser.parse_args()
 
     if args.autoprueba:
         return autoprueba()
+    if args.autoprueba_medida:
+        return autoprueba_medida()
     if args.medir:
         ok, detalle = medir(PLANTILLA_NGINX)
         if not ok:
