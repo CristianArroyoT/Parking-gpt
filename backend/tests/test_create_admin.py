@@ -8,8 +8,6 @@ despliegue documentado llegaba a una sucursal donde nadie podía entrar.
 """
 from __future__ import annotations
 
-import pytest
-
 from app.models.enums import UserRole
 from app.models.user import User
 from app.scripts.create_admin import crear_admin, motivo_no_crear
