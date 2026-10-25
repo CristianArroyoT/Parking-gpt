@@ -21,7 +21,13 @@ from app.core.security import (
     verify_password_or_dummy,
 )
 from app.models.user import User
-from app.schemas import LoginRequest, LogoutRequest, MessageResponse, TokenPair
+from app.schemas import (
+    LoginRequest,
+    LogoutRequest,
+    MessageResponse,
+    TokenPair,
+    TokenRefreshRequest,
+)
 from app.services.audit import record_audit_from_request
 from app.services.rate_limit import rate_limiter
 from app.services.session_tracker import session_tracker
@@ -322,10 +328,19 @@ def login_oauth(
 
 @router.post("/refresh", response_model=TokenPair)
 def refresh(
-    payload: TokenPair,
+    payload: TokenRefreshRequest,
     request: Request,
     db: Session = Depends(get_db),
 ) -> TokenPair:
+    """Renueva el par de tokens con el **refresh token**.
+
+    T-187 (2026-10-25): el body es un ``TokenRefreshRequest`` (sólo
+    ``refresh_token``), no un ``TokenPair`` completo. Antes el endpoint
+    exigía ``access_token`` y ``expires_in``, que el cliente no manda: el
+    refresco respondía 422 y la sesión moría a los 15 minutos, con el
+    refresh token (válido 7 días) sin poder usarse. Ver
+    ``app.schemas.TokenRefreshRequest``.
+    """
     try:
         data = decode_token(payload.refresh_token)
     except ValueError as exc:

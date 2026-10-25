@@ -87,7 +87,7 @@ que vigila**. Reglas:
 python tools/verificar_repo.py
 python tools/verificar_repo.py --completo      # + CI local y QA en 5 anchos (~40 min)
 
-# Las 29 autopruebas de las puertas
+# Las 32 autopruebas de las puertas
 python tools/autopruebas.py
 python tools/autopruebas.py --estricto          # lo "no comprobado" tambien falla
 
@@ -114,6 +114,7 @@ python tools/verificar_retention_backup.py --autoprueba
 python tools/verificar_pruebas_inversas.py --autoprueba
 python tools/verificar_roles_frontend.py --autoprueba
 python tools/verificar_contrato_frontend.py --autoprueba
+python tools/verificar_contrato_refresh.py --autoprueba
 python tools/verificar_cuentas_demo.py --autoprueba
 python tools/verificar_cobertura_frontend.py --autoprueba
 python tools/verificar_enums_frontend.py --autoprueba

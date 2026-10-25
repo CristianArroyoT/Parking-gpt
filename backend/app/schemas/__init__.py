@@ -64,6 +64,29 @@ class TokenPair(ORMModel):
     refresh_token: str
 
 
+class TokenRefreshRequest(ORMModel):
+    """Body de ``POST /auth/refresh``: sólo hace falta el **refresh token**.
+
+    T-187 (2026-10-25): el endpoint pedía un ``TokenPair`` COMPLETO
+    (``access_token`` + ``expires_in`` + ``refresh_token``) y el cliente
+    manda SÓLO ``{"refresh_token": ...}``: el backend respondía **422** y el
+    frontend limpiaba la sesión y echaba al login.
+
+    MEDIDO (2026-10-25, con un navegador de verdad): a los 15 minutos (el TTL
+    del access token) la primera petición da 401, el refresco da 422 y el
+    operador queda en el login con el refresh token —**válido 7 días**— sin
+    poder usarlo. El endpoint sólo lee ``refresh_token``; exigir el access
+    (caducado, justo lo que se viene a renovar) no tenía sentido.
+
+    El campo tiene valor por defecto para que un body vacío siga
+    respondiendo 401 ("Token de refresco requerido") y no un 422 de
+    Pydantic: el 422 significa "el cliente manda algo que no encaja", que es
+    un error de contrato, no de credenciales.
+    """
+
+    refresh_token: str = ""
+
+
 class LogoutRequest(ORMModel):
     """Body opcional de ``POST /auth/logout``.
 

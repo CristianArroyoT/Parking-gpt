@@ -746,6 +746,20 @@ CASOS: list[Caso] = [
             "test_la_tarea_limpia_el_directorio_de_respaldo"
         ),
     ),
+    Caso(
+        nombre="T-187 · el refresco vuelve a exigir el TokenPair completo",
+        fichero="app/api/v1/auth.py",
+        cambios=[
+            (
+                "    payload: TokenRefreshRequest,\n",
+                "    payload: TokenPair,\n",
+            ),
+        ],
+        test=(
+            "tests/test_refresh_contrato.py::"
+            "test_el_refresh_acepta_solo_el_refresh_token"
+        ),
+    ),
 
 ]
 

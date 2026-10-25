@@ -63,6 +63,10 @@ AUTOPRUEBAS: list[tuple[str, list[str]]] = [
         [sys.executable, "tools/verificar_contrato_frontend.py", "--autoprueba"],
     ),
     (
+        "La puerta del contrato del refresco sigue viendo",
+        [sys.executable, "tools/verificar_contrato_refresh.py", "--autoprueba"],
+    ),
+    (
         "El extractor de la API sigue sacando todos los roles",
         [sys.executable, "tools/extraer_api.py", "--autoprueba"],
     ),

@@ -172,6 +172,22 @@ jobs:
         # rojo en el primer minuto.
         run: python ../tools/verificar_aislamiento_sucursal.py
 
+      - name: El contrato del refresco encaja con el frontend
+        # POR QUE (2026-10-25, T-187): el cliente renueva la sesion con
+        # `POST /auth/refresh` mandando SOLO `{"refresh_token": ...}`, pero
+        # el backend exigia un `TokenPair` completo (`access_token` +
+        # `expires_in`): el refresco respondia 422 y la sesion moria a los
+        # 15 minutos, con el refresh token (valido 7 dias) sin poder usarse.
+        #
+        # Ni los tests (que mandaban el par entero, "para satisfacer la
+        # validacion de schema") ni la puerta del contrato frontend (que
+        # compara metodo y ruta, NUNCA el cuerpo) lo veian.
+        #
+        # Esta puerta es estatica (mira el codigo con `ast`, no importa la
+        # app), asi que va aqui, antes del `pip install`: si alguien vuelve
+        # a poner el cuerpo viejo, el CI se pone rojo en el primer minuto.
+        run: python ../tools/verificar_contrato_refresh.py
+
 
       - name: El compose de produccion es seguro y sus valores cargan
         # POR QUE (2026-10-24, T-147): esta puerta comprueba, ademas de las

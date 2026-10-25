@@ -115,6 +115,11 @@ def _comprobaciones() -> list[Comprobacion]:
             patron=r"(OK: el frontend llama a endpoints.*)",
         ),
         Comprobacion(
+            "El contrato del refresco encaja con el frontend",
+            [py, "tools/verificar_contrato_refresh.py"],
+            patron=r"(OK: el cuerpo del refresco encaja.*)",
+        ),
+        Comprobacion(
             "El guard de rol del frontend coincide con el RBAC",
             [py, "tools/verificar_roles_frontend.py"],
             patron=r"(OK: ninguna pantalla llama a un endpoint.*)",
