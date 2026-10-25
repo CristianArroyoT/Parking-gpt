@@ -39,6 +39,7 @@ import os
 import sys
 
 from pydantic import ValidationError
+from sqlalchemy.orm import Session
 
 from app.core.db import SessionLocal
 from app.core.emails import normalizar_email
@@ -99,7 +100,12 @@ def motivo_no_crear(
     return None
 
 
-def crear_admin(db, email: str, password: str, full_name: str | None = None) -> User:
+def crear_admin(
+    db: Session,
+    email: str,
+    password: str,
+    full_name: str | None = None,
+) -> User:
     """Crea el administrador (la fila) y lo devuelve."""
     correo = normalizar_email(email)
     usuario = User(
