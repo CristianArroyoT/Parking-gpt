@@ -133,3 +133,55 @@ def test_comprobar_bd_detecta_caida(monkeypatch) -> None:
     ok, detalle = health_mod._comprobar_bd()
     assert ok is False
     assert detalle == "OperationalError"
+
+
+def test_comprobar_esquema_ok_con_el_esquema_real(
+    monkeypatch, motor_de_test
+) -> None:
+    """Con el esquema aplicado, la comprobacion dice ``ok``.
+
+    (T-185, 2026-10-25): antes de esto, una base **vacia** tambien
+    pasaba la comprobacion de la base de datos (un ``SELECT 1`` funciona
+    contra una base sin tablas), asi que un despliegue sin migraciones
+    arrancaba, el healthcheck daba verde y todas las peticiones de
+    verdad devolvian 500.
+
+    OJO: se apunta al motor **de la suite** (el global de la app es otro:
+    en los tests es una base en memoria sin esquema).
+    """
+    monkeypatch.setattr(health_mod, "engine", motor_de_test)
+    ok, detalle = health_mod._comprobar_esquema()
+    assert ok is True
+    assert detalle == "ok"
+
+
+def test_comprobar_esquema_detecta_una_tabla_que_falta(monkeypatch) -> None:
+    """Si falta una tabla base, la comprobacion lo dice CUAL."""
+    from sqlalchemy.exc import OperationalError
+
+    class _Conexion:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def execute(self, statement, *args, **kwargs):
+            texto = str(statement)
+            if "FROM tickets " in texto:
+                raise OperationalError(texto, {}, Exception("no such table"))
+            return None
+
+    monkeypatch.setattr(health_mod.engine, "connect", lambda: _Conexion())
+
+    ok, detalle = health_mod._comprobar_esquema()
+    assert ok is False
+    assert "tickets" in detalle, detalle
+
+
+def test_el_readiness_incluye_el_esquema(monkeypatch, motor_de_test) -> None:
+    """El informe de dependencias dice tambien si el esquema esta."""
+    monkeypatch.setattr(health_mod, "engine", motor_de_test)
+    informe = health_mod.comprobar_dependencias()
+    assert "schema" in informe["dependencies"], informe
+    assert informe["dependencies"]["schema"] == "ok", informe

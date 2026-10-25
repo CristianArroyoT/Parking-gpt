@@ -3223,3 +3223,32 @@ La puerta `tools/verificar_ip_real_nginx.py` vigila que el módulo siga
 puesto **y** que los rangos que confía nginx cubran los que confía el
 backend (`TRUSTED_PROXIES`): si se separan, el backend ignora el XFF y
 vuelve a ver la IP del proxy.
+### 3-centésimosesentésimocuarenta y diez. El despliegue llega a una sucursal donde se puede entrar (2026-10-25)
+
+Al revisar el despliegue (buscando lo que pasa con el rate-limit por IP)
+salieron **dos** huecos, ambos medidos contra la imagen de producción.
+
+**Hueco 1 · las migraciones.** La imagen arranca con `uvicorn` (no aplica
+migraciones) y el README de producción no tenía el paso. Medido contra
+una base recién creada:
+
+    /health/ready : (200, '{"status":"ready",...}')
+    login          : (500, 'Internal Server Error')
+    health del contenedor: healthy
+
+El despliegue **parecía sano** y todo devolvía 500: un `SELECT 1` contra
+una base vacía funciona, así que la comprobación no lo veía. Ahora el
+readiness mira también el **esquema** (dice qué tablas faltan) y el
+README/ADR-0001 documentan el paso.
+
+**Hueco 2 · el primer administrador.** El README decía que los usuarios
+reales se dan de alta desde la aplicación, pero la aplicación sólo crea
+usuarios si **ya hay un admin** y el seed se niega a arrancar en
+producción: una sucursal recién desplegada se quedaba sin nadie dentro.
+El script nuevo `app/scripts/create_admin.py` crea **uno**, con la
+contraseña que elija el operador, y se niega a hacer nada si ya hay un
+administrador.
+
+La puerta `tools/verificar_readme_despliegue.py` exige que el README
+nombre las dos cosas **en la sección de producción** (no en el README
+entero, que ya Mentionaba `alembic` en la de desarrollo).

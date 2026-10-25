@@ -4,7 +4,7 @@
 
 > ### 📍 Estado actual (2026-10-24, tras la tanda T-165…T-182)
 >
-> El plan está **ejecutado**: **875 de 875 criterios** verificados, **ninguno sin marcar**. Los dos que quedaban están **cerrados**: el de la alarma `OCR_FAILED` (la despertó el **T-177** al despachar `ping_camera`, y su falso positivo —una entrada de parking vacía saltando la alarma— lo corrigió el **T-181**) y el de los **18 campos** sin nombre accesible (**T-182**). `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
+> El plan está **ejecutado**: **880 de 880 criterios** verificados, **ninguno sin marcar**. Los dos que quedaban están **cerrados**: el de la alarma `OCR_FAILED` (la despertó el **T-177** al despachar `ping_camera`, y su falso positivo —una entrada de parking vacía saltando la alarma— lo corrigió el **T-181**) y el de los **18 campos** sin nombre accesible (**T-182**). `main` y `origin/main` están **sincronizados** (el nº de commits crece con cada entrega; se consulta con `git log --oneline | wc -l`).
 >
 > **Lo de esta tanda (2026-10-24)**: los **12 hallazgos** que dejaron las dos auditorías (frontend y pipeline de matrículas), repartidos entre **dos subagentes** y los que resolví yo. Cada uno con **su puerta** y **su prueba inversa**:
 >
@@ -4196,6 +4196,79 @@ código):
   - [x] La medición es reproducible: `python tools/verificar_ip_real_nginx.py --medir`.
   - [x] La autoprueba **medida** falla con el módulo quitado y pasa con la plantilla buena.
   - [x] La puerta del repo la ejecuta (42 comprobaciones).
+
+#### T-184-bis · la autoprueba medida se quedó en local (lo enseñó el CI)
+
+- **Estado**: **completado**
+- **Contexto**: la autoprueba **medida** levanta un contenedor que tiene que
+  alcanzar al host por `host.docker.internal`, y ese nombre **es de Docker
+  Desktop**: en Linux no existe. En local pasaba; en el CI (ubuntu) el
+  job «Backend» se puso **rojo** en el paso «Las puertas se prueban a sí
+  mismas».
+- **Lo que se ha hecho**:
+  - La autoprueba que va al **CI** es la **estática** (mira la plantilla, sin
+    Docker): `--autoprueba`.
+  - La **medida** (`--autoprueba-medida`, con Docker) queda en la **puerta
+    local**, que es donde Docker Desktop resuelve ese nombre. El
+    contenedor además se levanta con `--add-host
+    host.docker.internal:host-gateway` (Docker 20.10+), para que la
+    medición no dependa de cómo se llame al host.
+  - Motivo de no meterla en el CI: una comprobación que puede fallar por
+    el entorno (y no por lo que vigila) es una puerta que grita de más
+    (el mismo motivo por el que la puerta del compose no iba en el job de
+    las imágenes: le faltan las dependencias del backend).
+- **Criterios de aceptación**:
+  - [x] El CI pasa con la autoprueba estática (sin Docker).
+  - [x] La autoprueba medida funciona en local: con el módulo quitado, la
+        medición ve `172.17.0.1` (el proxy) en vez de la IP del visitante.
+  - [x] Las dos están registradas donde toca: la estática en el CI, la
+        medida en la puerta local.
+
+### T-185 · P0 (despliegue) — el despliegue documentado llegaba a una sucursal donde nadie podía entrar
+
+- **Estado**: **completado** — los dos huecos, medidos y cerrados
+- **Contexto**: el README y el ADR-0001 describen el despliegue de una sucursal como «exportar las cuatro variables y `docker compose up -d`». Al revisarlo (buscando lo que pasa con el rate-limit por IP) salieron **dos** huecos, ambos **medidos** contra la imagen de producción.
+
+#### Hueco 1 · las migraciones no se aplicaban
+
+La imagen del backend arranca con `uvicorn` (su `CMD` no aplica migraciones) y el README de **producción** no tenía el paso `alembic upgrade head` (el de **desarrollo**, sí). Medido el 2026-10-25 con la imagen de producción contra una base recién creada (una sucursal nueva):
+
+```
+/health/ready : (200, '{"status":"ready",...,"dependencies":{"database":"ok","redis":"ok"}}')
+login          : (500, 'Internal Server Error')
+health del contenedor: healthy
+```
+
+O sea: el despliegue **parecía sano** (arrancaba, el healthcheck en verde, el readiness diciendo «ready») y **todas** las peticiones de verdad devolvían 500, porque las tablas no existían. Un `SELECT 1` contra una base vacía funciona: por eso la comprobación no lo veía.
+
+- **El arreglo, dos partes**:
+  1. **El readiness mira el esquema**: `_comprobar_esquema()` (en `app/services/health.py`) comprueba que existan las tablas base (`users`, `parkings`, `tickets`) y dice **cuáles** faltan. Con el esquema a medias (una migración que falló) también se nota. La respuesta ahora trae `dependencies.schema`, y el contenedor queda `unhealthy` ⇒ un despliegue sin migraciones **se ve**.
+  2. **El procedimiento documentado** dice el paso: el README y el ADR-0001 lo incluyen (y la puerta `tools/verificar_readme_despliegue.py` lo exige: **en la sección de producción**, no en el README entero — que ya Mentionaba `alembic` en la de desarrollo).
+
+#### Hueco 2 · no había forma de crear el primer administrador
+
+El README decía que en staging/producción «los usuarios reales se dan de alta desde la aplicación», pero la aplicación **sólo** crea usuarios si **ya hay un administrador** (`POST /users` es de admin) y el `seed` **se niega a arrancar** en producción (crea usuarios demo con contraseñas públicas, escritas en este repositorio). O sea: una sucursal recién desplegada se quedaba **sin nadie dentro**, y el círculo (alta de usuarios desde la app) no se podía romper.
+
+- **El arreglo**: el script nuevo `backend/app/scripts/create_admin.py` (`python -m app.scripts.create_admin`) crea **un** administrador, con el correo y la contraseña que elija el operador (ninguna pública):
+  - los datos se validan con el **mismo esquema de la aplicación** (`UserCreate`), así que la política de contraseñas no es una copia que se pueda quedar vieja;
+  - **se niega a hacer nada si ya hay un administrador** (es una operación de una vez, y no deja una puerta trasera abierta);
+  - la contraseña va por **variable de entorno** (`SOLIDAPP_ADMIN_EMAIL` / `SOLIDAPP_ADMIN_PASSWORD`), no en la línea de comandos (en los argumentos queda en el historial del shell).
+- **Medido** (2026-10-25, en el contenedor, contra una base nueva con el esquema aplicado):
+  ```
+  [create_admin] administrador creado: admin@sucursal.es (id 1). Ya puedes entrar con el.
+  admin@sucursal.es | admin | t | $2b$12$      <- correo canonico, rol, activo, hasheada
+  verifica: True
+  (la segunda vez) ERROR: ya hay un administrador en esta instalacion (admin@sucursal.es)
+  administradores: 1
+  ```
+- **La puerta**: `tools/verificar_readme_despliegue.py` exige que el README nombre `alembic upgrade head` y `create_admin` **en la sección de despliegue en una sucursal**, con tres casos de mentira nuevos (sin las migraciones, sin el administrador, y con las migraciones sólo en la sección de desarrollo).
+
+- **Criterios de aceptación**:
+  - [x] Medido antes: backend de producción contra una base vacía ⇒ `ready` + `healthy` + **500** en cada petición.
+  - [x] El readiness dice si falta el esquema (y cuáles tablas).
+  - [x] El README y el ADR-0001 documentan los dos pasos obligatorios.
+  - [x] La puerta del README los exige **en la sección de producción** (con 3 casos de mentira nuevos: 13 en total).
+  - [x] El script `create_admin` crea el administrador, verifica la contraseña y se niega si ya hay uno (10 tests nuevos).
 
 ### T-14 · I3 — OCR con GPU
 

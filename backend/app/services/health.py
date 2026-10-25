@@ -50,6 +50,39 @@ def _comprobar_bd() -> tuple[bool, str]:
         return False, type(exc).__name__
 
 
+#: Tablas que cualquier esquema de esta aplicacion tiene que tener. Se
+#: miran varias (y no una sola) para que una migracion a medias tambien
+#: se note.
+TABLAS_BASE = ("users", "parkings", "tickets")
+
+
+def _comprobar_esquema() -> tuple[bool, str]:
+    """¿Existe el esquema? (T-185, 2026-10-25)
+
+    Una base recien creada (una sucursal nueva) **responde**: un
+    ``SELECT 1`` funciona contra una base sin tablas. Por eso la
+    comprobacion de la base de datos decia «ok» y el despliegue
+    **parecia sano** mientras todas las peticiones de verdad devolvian
+    500. Ahora se mira que existan las tablas base.
+
+    Con el esquema a medias (una migracion que fallo por el camino) el
+    detalle dice cuantas faltan.
+    """
+    faltan: list[str] = []
+    try:
+        with engine.connect() as conexion:
+            for tabla in TABLAS_BASE:
+                try:
+                    conexion.execute(text(f"SELECT 1 FROM {tabla} LIMIT 1"))
+                except SQLAlchemyError:
+                    faltan.append(tabla)
+    except SQLAlchemyError as exc:
+        return False, type(exc).__name__
+    if faltan:
+        return False, "faltan las tablas: " + ", ".join(faltan)
+    return True, "ok"
+
+
 def _comprobar_redis() -> tuple[bool, str]:
     """¿Responde Redis? Un ``PING`` con timeout corto."""
     try:
@@ -76,11 +109,17 @@ def comprobar_dependencias() -> dict[str, Any]:
     """
     bd_ok, bd_detalle = _comprobar_bd()
     redis_ok, redis_detalle = _comprobar_redis()
+    # T-185: que la base **responda** no es lo mismo que tenga el
+    # esquema. Sin esta comprobacion, un despliegue sin migraciones
+    # arrancaba, el healthcheck daba verde y todas las peticiones
+    # devolvian 500.
+    esquema_ok, esquema_detalle = _comprobar_esquema()
     return {
-        "ok": bd_ok and redis_ok,
+        "ok": bd_ok and redis_ok and esquema_ok,
         "dependencies": {
             "database": "ok" if bd_ok else bd_detalle,
             "redis": "ok" if redis_ok else redis_detalle,
+            "schema": "ok" if esquema_ok else esquema_detalle,
         },
     }
 

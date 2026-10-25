@@ -86,7 +86,35 @@ export CORS_ORIGINS="https://parking.ejemplo.es"       # origenes del navegador
 export SMTP_HOST="smtp.ejemplo.es"                     # servidor de correo
 
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# 2) Aplicar las migraciones (OBLIGATORIO)
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+    exec backend alembic upgrade head
+
+# 3) Crear el primer administrador (OBLIGATORIO: sin el, nadie puede entrar)
+export SOLIDAPP_ADMIN_EMAIL="admin@sucursal.es"
+export SOLIDAPP_ADMIN_PASSWORD="una contrasena larga, de la sucursal"
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+    exec -e SOLIDAPP_ADMIN_EMAIL -e SOLIDAPP_ADMIN_PASSWORD backend \
+    python -m app.scripts.create_admin
 ```
+
+> **Ojo con el orden** (medido el 2026-10-25):
+>
+> - **Sin las migraciones**, la base se queda **sin tablas**. El backend
+>   **arranca**, el healthcheck da **verde** y `/health/ready` decía
+>   «ready»… y **todas** las peticiones devolvían **500**. Ahora el
+>   readiness mira también que exista el esquema (`schema` en la respuesta)
+>   y el contenedor queda `unhealthy`: se nota, pero mejor no llegar ahí.
+> - **Sin el primer administrador**, **nadie puede entrar**: la aplicación
+>   sólo crea usuarios si ya hay un admin (`POST /users` es de admin) y
+>   el `seed` se niega a arrancar en producción (crea usuarios demo con
+>   contraseñas públicas). El script `create_admin` crea **uno**, con la
+>   contraseña que elija el operador, y se niega a hacer nada si ya hay
+>   un administrador.
+>
+> La contraseña va en una **variable de entorno**, no en la línea de
+> comandos: en los argumentos queda en el historial del shell.
 
 | Variable | Por qué es obligatoria |
 |---|---|

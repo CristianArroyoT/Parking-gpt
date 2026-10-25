@@ -32,6 +32,13 @@ RAIZ = Path(__file__).resolve().parent.parent
 README = RAIZ / "README.md"
 ENV_EXAMPLE = RAIZ / ".env.example"
 
+#: La seccion del README donde se explica el despliegue en una sucursal.
+#: Las menciones se comprueban **ahi**, no en el README entero: el README
+#: ya decia ``alembic upgrade head`` en la seccion de DESARROLLO, asi
+#: que mirar el README entero no hacia falta para que nadie se enterase de
+#: que faltaba en la de produccion (T-185).
+SECCION_PRODUCCION = "### Despliegue en una sucursal"
+
 #: Lo que el README tiene que decir del despliegue en produccion.
 MENCIONES_README = (
     "docker-compose.prod.yml",
@@ -41,7 +48,27 @@ MENCIONES_README = (
     # T-142 (2026-10-24): el SMTP es obligatorio en el compose de produccion.
     # Sin el, el despliegue arranca y los correos no salen nunca.
     "SMTP_HOST",
+    # T-185 (2026-10-25): sin aplicar las migraciones, la base se queda
+    # sin tablas y todas las peticiones devuelven 500 (medido).
+    "alembic upgrade head",
+    # T-185 (2026-10-25): sin el primer administrador, nadie puede entrar
+    # (la aplicacion solo crea usuarios si ya hay un admin, y el seed se
+    # niega a arrancar en produccion).
+    "create_admin",
 )
+
+
+def _seccion_produccion(readme: str) -> str:
+    """La parte del README que explica el despliegue en una sucursal."""
+    if SECCION_PRODUCCION not in readme:
+        return ""
+    resto = readme.split(SECCION_PRODUCCION, 1)[1]
+    # Se corta en el siguiente encabezado de nivel 2.
+    for separador in ("\n## ", "\n### "):
+        if separador in resto:
+            resto = resto.split(separador, 1)[0]
+            break
+    return resto
 #: Lo que el .env.example tiene que declarar.
 MENCIONES_ENV = ("FRONTEND_BASE_URL", "TRUSTED_PROXIES")
 
@@ -50,10 +77,17 @@ def comprobar(readme: str, env_example: str) -> list[str]:
     """Devuelve la lista de problemas (vacía si todo está bien)."""
     problemas: list[str] = []
 
+    seccion = _seccion_produccion(readme)
+    if not seccion:
+        problemas.append(
+            f"el README no tiene la seccion '{SECCION_PRODUCCION}': sin ella, "
+            "nadie sabe como se despliega una sucursal"
+        )
     for mencion in MENCIONES_README:
-        if mencion not in readme:
+        if mencion not in seccion:
             problemas.append(
-                f"el README no menciona '{mencion}': sin eso, quien monte una "
+                f"el README no menciona '{mencion}' en la seccion de "
+                "despliegue en una sucursal: sin eso, quien monte una "
                 "sucursal sigue el camino de desarrollo (secreto JWT publico)"
             )
 
@@ -94,10 +128,15 @@ def autoprueba() -> int:
     print("Autoprueba de la puerta del README de despliegue:")
     fallos = 0
     readme_ok = (
+        "### Despliegue en una sucursal (produccion)\n"
         "Para una sucursal:\n"
         "  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d\n"
+        "  docker compose -f docker-compose.yml -f docker-compose.prod.yml "
+        "exec backend alembic upgrade head\n"
+        "  python -m app.scripts.create_admin\n"
         "Con JWT_SECRET, FRONTEND_BASE_URL, CORS_ORIGINS y SMTP_HOST (obligatorios).\n"
         "El stack por defecto es el de desarrollo.\n"
+        "## Cuentas demo\n"
     )
     env_ok = (
         "FRONTEND_BASE_URL=https://app.ejemplo.es\n"
@@ -113,6 +152,27 @@ def autoprueba() -> int:
         ("sin CORS_ORIGINS", readme_ok.replace("CORS_ORIGINS", ""), env_ok, True),
         ("sin SMTP_HOST", readme_ok.replace("SMTP_HOST", ""), env_ok, True),
         ("sin el aviso de desarrollo", readme_ok.replace("desarrollo", ""), env_ok, True),
+        (
+            "sin las migraciones",
+            readme_ok.replace("alembic upgrade head", ""),
+            env_ok,
+            True,
+        ),
+        (
+            "sin el primer administrador",
+            readme_ok.replace("create_admin", ""),
+            env_ok,
+            True,
+        ),
+        (
+            "las migraciones solo en la seccion de desarrollo",
+            readme_ok.replace("  docker compose -f docker-compose.yml -f "
+                              "docker-compose.prod.yml exec backend alembic "
+                              "upgrade head\n", "")
+            + "\n## Desarrollo\nalembic upgrade head\n",
+            env_ok,
+            True,
+        ),
         ("sin FRONTEND_BASE_URL en el .env.example", readme_ok, env_ok.replace("FRONTEND_BASE_URL", ""), True),
         ("sin TRUSTED_PROXIES en el .env.example", readme_ok, env_ok.replace("TRUSTED_PROXIES", ""), True),
         (

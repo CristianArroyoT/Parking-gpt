@@ -163,7 +163,20 @@ Ver [`infra/backup/README.md`](../../../infra/backup/README.md).
 
   ```bash
   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+  # Las migraciones (OBLIGATORIO: sin ellas la base se queda sin tablas
+  # y todas las peticiones devuelven 500):
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+      exec backend alembic upgrade head
+  # El primer administrador (OBLIGATORIO: sin el, nadie puede entrar):
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+      exec -e SOLIDAPP_ADMIN_EMAIL -e SOLIDAPP_ADMIN_PASSWORD backend \
+      python -m app.scripts.create_admin
   ```
+
+  Los dos pasos son **obligatorios** y no se pueden saltar en silencio
+  (medido el 2026-10-25, T-185): sin migraciones el despliegue arrancaba
+  «sano» y rompía en cada petición; sin administrador no había forma de
+  entrar (la aplicación sólo crea usuarios si ya hay un admin).
 
   Con él: `ENVIRONMENT=production`, el **secreto, la URL pública y los
   orígenes son obligatorios** (si faltan, `docker compose` falla al
