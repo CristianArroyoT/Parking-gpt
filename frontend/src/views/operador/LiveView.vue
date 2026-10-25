@@ -196,8 +196,10 @@ onBeforeUnmount(() => {
           <span>· Actualización en vivo por SSE (fallback 30 s)</span>
         </p>
       </div>
-      <!-- T-182: sin nombre accesible (medido: 1 control). El patron
-           del repo para los selects compactos es `aria-label`. -->
+      <!-- T-188 (2026-10-25): este control se midió SIN nombre accesible en
+           el T-182 (1 control) y ya lo tiene: el patrón del repo para los
+           selects compactos es `aria-label`. La QA lo vigila en la escena
+           "/vivo (la página)". -->
       <select v-model.number="selectedId" class="input w-auto"
         aria-label="Sucursal"
         @change="selectedId && (loadContext(selectedId), refreshAll())">

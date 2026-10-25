@@ -6,8 +6,9 @@ arreglo (con el bind mount, el HMR de Vite no siempre aplica y se mide
 el bundle viejo).
 
 Se deshace el arreglo en un formulario cada vez (sucursales, tarifas,
-cams, alta manual, vehiculos del cliente y modal de incidentes) y se
-exige que la QA falle por el motivo correcto en cada caso.
+cams, alta manual, vehiculos del cliente, modal de incidentes y el
+``<select>`` de sucursal de la pantalla «En vivo») y se exige que la QA
+falle por el motivo correcto en cada caso.
 
 OJO (T-182): la QA vigila ahora las cuatro vistas que faltaban (cliente,
 calibracion, operador), asi que la inversa tiene que comprobarlas tambien:
@@ -33,18 +34,33 @@ SRC = RAIZ / "frontend" / "src"
 COPIA = Path(r"D:\tmp\_copias_t171")
 COPIA.mkdir(parents=True, exist_ok=True)
 
-# (fichero, id del par etiqueta/campo, vista que tiene que señalar el fallo)
-MUTACIONES: list[tuple[str, str, str]] = [
-    ("views/admin/ParkingsView.vue", "parking-codigo", "/admin/parkings"),
-    ("views/admin/TariffsView.vue", "tarifa-nombre", "/admin/tariffs"),
-    ("views/gestor/CamerasView.vue", "camara-rtsp", "/cameras"),
+# (fichero, id del par etiqueta/campo, vista que tiene que señalar el fallo,
+#  modo de la mutación)
+#
+# "par":  se quita el ``for="X"`` y el ``id="X"`` de la etiqueta y el campo.
+# "aria": el control NO tiene etiqueta (es un ``<select>`` compacto): lo que
+#         da el nombre es el ``aria-label``, y lo que se quita es eso.
+MUTACIONES: list[tuple[str, str, str, str]] = [
+    ("views/admin/ParkingsView.vue", "parking-codigo", "/admin/parkings", "par"),
+    ("views/admin/TariffsView.vue", "tarifa-nombre", "/admin/tariffs", "par"),
+    ("views/gestor/CamerasView.vue", "camara-rtsp", "/cameras", "par"),
     # T-182: las cuatro vistas nuevas.
-    ("views/operador/ManualEntryView.vue", "alta-sucursal", "/operador/alta-manual"),
-    ("views/cliente/VehiclesView.vue", "veh-edicion-marca", "/mis-vehiculos"),
+    ("views/operador/ManualEntryView.vue", "alta-sucursal", "/operador/alta-manual", "par"),
+    ("views/cliente/VehiclesView.vue", "veh-edicion-marca", "/mis-vehiculos", "par"),
     (
         "views/operador/IncidentModal.vue",
         "inc-plaza",
         "/vivo (modal de incidentes: averiada)",
+        "par",
+    ),
+    # T-188 (2026-10-25): el ``<select>`` de sucursal de la pantalla «En vivo»
+    # (1 control medido). Su nombre va en ``aria-label``, no en un par
+    # for/id, asi que la mutacion quita el ``aria-label``.
+    (
+        "views/operador/LiveView.vue",
+        'aria-label="Sucursal"',
+        "/vivo (la página)",
+        "aria",
     ),
 ]
 
@@ -118,26 +134,41 @@ def _fallos_de(salida: str) -> list[str]:
 
 def main() -> int:
     fallo: str | None = None
-    for relativo, id_campo, vista in MUTACIONES:
+    for relativo, id_campo, vista, modo in MUTACIONES:
         ruta = SRC / relativo
         original = ruta.read_text(encoding="utf-8")
         copia = COPIA / ruta.name
         shutil.copy2(ruta, copia)
         try:
-            con_for = f' for="{id_campo}"'
-            con_id = f' id="{id_campo}"'
-            if original.count(con_for) != 1 or original.count(con_id) != 1:
-                fallo = (
-                    f"ERROR: en {relativo} el par {id_campo!r} aparece "
-                    f"{original.count(con_for)} veces como for= y "
-                    f"{original.count(con_id)} como id=."
-                )
-                print(fallo)
-                break
-
-            texto = original.replace(con_for, "").replace(con_id, "")
+            descripcion: str
+            if modo == "aria":
+                # El control no tiene etiqueta: su nombre va en el
+                # ``aria-label``, y lo que se quita es eso.
+                trozo = f" {id_campo}"
+                if original.count(trozo) != 1:
+                    fallo = (
+                        f"ERROR: en {relativo} el {id_campo!r} aparece "
+                        f"{original.count(trozo)} veces (se esperaba 1)."
+                    )
+                    print(fallo)
+                    break
+                texto = original.replace(trozo, "")
+                descripcion = f"quitado el {id_campo}"
+            else:
+                con_for = f' for="{id_campo}"'
+                con_id = f' id="{id_campo}"'
+                if original.count(con_for) != 1 or original.count(con_id) != 1:
+                    fallo = (
+                        f"ERROR: en {relativo} el par {id_campo!r} aparece "
+                        f"{original.count(con_for)} veces como for= y "
+                        f"{original.count(con_id)} como id=."
+                    )
+                    print(fallo)
+                    break
+                texto = original.replace(con_for, "").replace(con_id, "")
+                descripcion = f"quitado el for/id de {id_campo!r}"
             ruta.write_text(texto, encoding="utf-8", newline="")
-            print(f"  {relativo}: quitado el for/id de {id_campo!r}")
+            print(f"  {relativo}: {descripcion}")
 
             print("  reiniciando el frontend...")
             reiniciar_frontend()

@@ -38,9 +38,11 @@ fuera, y a los controles que no tenían etiqueta en absoluto (no sólo los
                                     ---
                                     23 controles sin nombre
 
-OJO: el ``<select>`` de sucursal de la PANTALLA "En vivo" (LiveView) sigue
-sin nombre accesible: **no** es de las cuatro vistas de este encargo y su
-fichero no se toca aquí. Queda medido y anotado en el plan.
+T-188 (2026-10-25): el ``<select>`` de sucursal de la PANTALLA "En vivo" (LiveView)
+ya tiene nombre accesible (``aria-label="Sucursal"``: se midió sin él en el
+T-182) y la QA lo vigila en la escena "/vivo (la página)". Antes este aviso
+era cierto y el arreglo lo aplicó el T-182: el texto se había quedado
+desactualizado y daba por cerrado algo que ya no lo estaba.
 
 Esta QA los recorre TODOS con un navegador de verdad y exige que cada
 control visible tenga un nombre accesible (una etiqueta asociada por
