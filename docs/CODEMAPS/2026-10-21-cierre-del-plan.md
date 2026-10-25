@@ -3271,3 +3271,53 @@ bucle** (el propio compose lo avisa para el worker).
 y PowerShell mete prefijos de error; contar «Sending due task» así da
 cero y parece que el beat está mudo cuando no lo está. Para medir, `docker
 inspect` y `stat` sí sirven.
+### 3-centésimosesentésimocuarenta y dos. La sesión no moría a los 15 minutos: el refresco exigía el `TokenPair` completo (2026-10-25)
+
+Encontrado en el **QA manual** (admin dentro del navegador), no leyendo
+código: al entrar en «En vivo», la red enseñó `GET /api/v1/parkings` → **401**
+y `POST /api/v1/auth/refresh` → **422**. El 422 no era del servicio: era la
+validación del **cuerpo**. El endpoint pedía `payload: TokenPair` (con
+`access_token` y `expires_in` obligatorios) y el cliente manda **sólo**
+`{"refresh_token": ...}`. El endpoint sólo lee `payload.refresh_token`.
+
+El efecto: a los 15 minutos (el TTL del access token) la primera petición
+daba 401, el refresco fallaba y el cliente echaba al login — con el refresh
+token, **válido 7 días**, sin poder usarse.
+
+Por qué nadie lo vio: los tests mandaban el par entero («simplemente para
+satisfacer la validación de schema») y la puerta del contrato frontend
+compara **método y ruta**, nunca el **cuerpo**.
+
+- `app/schemas/__init__.py`: `TokenRefreshRequest` (sólo `refresh_token`).
+- `app/api/v1/auth.py`: el endpoint `refresh` lo toma (la respuesta sigue
+  siendo `TokenPair`; los clientes que manden el par entero siguen
+  funcionando).
+- `backend/tests/test_refresh_contrato.py`: los tests usan **el body exacto
+  que manda el cliente**.
+- `tools/verificar_contrato_refresh.py`: la puerta que vigila el cuerpo
+  (obligatorios del modelo ⊆ body del cliente, y campos leídos ⊆ modelo de
+  respuesta), con 7 casos de mentira.
+- `tools/verificar_pruebas_inversas.py`: 34 casos (el nuevo pone el defecto
+  otra vez y exige que el test falle).
+
+### 3-centésimosesentésimocuarenta y tres. Tres textos decían que el «select» de «En vivo» seguía sin nombre (2026-10-25)
+
+El T-182 lo había arreglado (`aria-label="Sucursal"`), pero el plan, el
+docstring de la QA y el comentario del código seguían diciendo lo
+contrario: un plan que da por roto algo ya arreglado engaña al que lee y
+deja la puerta con un punto ciego.
+
+- El plan y el docstring de `qa_labels_admin.py` dicen la verdad.
+- `qa_labels_admin_inversa.py` aprende un modo de mutación nuevo («aria»:
+  para un control sin etiqueta, lo que da el nombre es el `aria-label`) y
+  pasa de 6 a **7** mutaciones.
+
+### 3-centésimosesentésimocuarenta y cuatro. El dinero se escribe igual en toda la app (2026-10-25)
+
+Medido en el QA manual: **Reportería** enseñaba «0.00 €» (punto) y
+**Planes**, dos pantallas más allá, «30,00 €» (coma). Seis vistas usaban la
+coma (la convención, la del PDF del ticket) y cuatro el punto.
+
+Arregladas: `CostsView`, `DashboardView`, `ReportsView` y
+`DashboardGestor`. **No hay puerta que lo vigile**: el dato sale de los ojos
+de una persona, y queda anotado como hueco, no como cobertura.

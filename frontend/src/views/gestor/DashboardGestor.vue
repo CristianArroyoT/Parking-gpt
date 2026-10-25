@@ -255,7 +255,7 @@ function healthClass(c: Camera): string {
             {{
               summary?.total_revenue_24h === null || summary === null
                 ? '—'
-                : `${summary.total_revenue_24h.toFixed(2)} €`
+                : `${summary.total_revenue_24h.toFixed(2).replace('.', ',')} €`
             }}
           </div>
         </div>
@@ -267,7 +267,7 @@ function healthClass(c: Camera): string {
             {{
               summary?.average_duration_minutes === null || summary === null
                 ? '—'
-                : `${summary.average_duration_minutes.toFixed(1)} min`
+                : `${summary.average_duration_minutes.toFixed(1).replace('.', ',')} min`
             }}
           </div>
         </div>

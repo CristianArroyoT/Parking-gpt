@@ -35,7 +35,7 @@ const loadingKpis = ref(false)
 
 function euro(n: number | null | undefined): string {
   if (n === null || n === undefined) return '—'
-  return `${n.toFixed(2)} €`
+  return `${n.toFixed(2).replace('.', ',')} €`
 }
 
 function labelFor(n: number | null, windowHours: number): string {

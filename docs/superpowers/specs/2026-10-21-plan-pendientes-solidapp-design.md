@@ -4299,16 +4299,107 @@ El healthcheck mide al **escritor** (que el beat siga vivo), no al que **despach
 
 - **Criterios de aceptación**:
   - [x] Medido antes: el healthcheck pasa de healthy a unhealthy y vuelve, con el fichero cada 195-300 s.
-  - [x] `beat_max_loop_interval = 60` (el banner del beat lo confirma) ⇒ las tareas salen con ≤60 s de retraso.
+  - [x] `beat_max_loop_interval = 60`: el banner del beat lo confirma («maxinterval -> 1.00 minute») y las tareas salen con ≤60 s de retraso.
   - [x] El healthcheck tiene un margen (10 min) que no puede dar un falso «unhealthy».
   - [x] Retractado por escrito el «cambio de hora» (era un error de medición) y anotado cómo medir bien.
+  - [x] El hueco de diseño queda documentado, con el motivo y con quién lo puede detectar (el central).
 
+### T-187 · P0 (sesión) — la sesión moría a los 15 minutos: el refresco exigía el `TokenPair` completo
+
+- **Estado**: **completado** — medido en el navegador con la red capturada, y verificado después del arreglo
+- **Contexto**: el login dura `access_token_ttl_minutes = 15` (15 min) y el `refresh_token` dura 7 días. Cuando el access caduca, el cliente debería **renovar** la sesión con el refresh: lo hace (`frontend/src/api/client.ts` → `doRefresh()`). Pero **nunca ha funcionado**: el `POST /auth/refresh` respondía **422** y el cliente, al no poder renovar, limpiaba los tokens y echaba al login (el evento `solidapp:sesion-caducada` → el guard manda a `/login`).
+- **Lo que se midió (2026-10-25, admin dentro del navegador)**: al entrar en «En vivo» —la primera pantalla que hace peticiones con el access ya caducado— la red del navegador enseñó las dos peticiones y sus dos códigos:
+  ```
+  GET  /api/v1/parkings        401  Unauthorized
+  POST /api/v1/auth/refresh    422  Unprocessable Entity
+  ```
+  El 422 **no es un fallo del servicio**: es la validación de Pydantic del **cuerpo**. El endpoint pedía `payload: TokenPair`, y `TokenPair` (`app/schemas/__init__.py`) tiene `access_token: str` y `expires_in: int` **obligatorios**; el cliente manda **sólo** `{"refresh_token": ...}`. El endpoint sólo lee `payload.refresh_token`: exigir el access (que está caducado, justo lo que se viene a renovar) no tenía sentido.
+
+  La traza del backend lo confirma: en `audit_logs` **no hay ningún `refresh_failure`** (el 422 salta **antes** de que se ejecute el handler) y **no hay contadores de rate-limit** activos ⇒ no era un 429 ni un token revocado: era el contrato del body.
+
+- **Por qué nadie lo vio (el patrón que el repo ya conoce)**: los tests del backend mandaban el par **completo**, y su propio comentario lo dice: *«Reusamos el access viejo simplemente para satisfacer la validación de schema — el endpoint sólo lee `payload.refresh_token`»*. Es el caso del T-171: **dos comprobaciones que comparten la fuente de verdad no se vigilan entre sí**. Aquí el test y el cliente discrepaban, y **sólo se comprobaba el test**. Las puertas tampoco lo veían: `tools/verificar_contrato_frontend.py` compara **(método, ruta)** y **nunca el cuerpo** de la petición.
+- **Consecuencia real**: cualquier operador que dejara la app abierta **más de 15 minutos** quedaba en el login, con un refresh token válido de 7 días que no podía usar. En una sucursal, con el operador en la garita, es la app inutilizable a media jornada.
+
+#### El arreglo
+
+1. `app/schemas/__init__.py`: un esquema propio para el body del refresco.
+   ```python
+   class TokenRefreshRequest(ORMModel):
+       refresh_token: str = ""
+   ```
+   Con valor por defecto a propósito: un body vacío sigue respondiendo **401** («no hay credenciales») y no un 422 de Pydantic. El 422 significa «el cliente manda algo que no encaja», que es un error de contrato, no de credenciales.
+2. `app/api/v1/auth.py`: el endpoint `refresh` toma `payload: TokenRefreshRequest` (la respuesta sigue siendo `TokenPair`). Los clientes que manden el par completo **siguen funcionando**: los campos de sobra se ignoran.
+3. `backend/tests/test_refresh_contrato.py` (nuevo): los tests usan **el body exacto que manda el cliente**, no el que le daba la gana a los tests de antes.
+4. `tools/verificar_contrato_refresh.py` (nuevo): la puerta que vigila el **cuerpo** del refresco, frontend contra backend: los campos obligatorios del modelo del backend tienen que estar **todos** en el body que manda el cliente, y los campos que el cliente lee de la respuesta tienen que existir en el modelo de respuesta.
+
+#### Lo que se comprobó
+
+| Comprobación | Resultado |
+|---|---|
+| Navegador, admin dentro: la primera petición con el access caducado | **200** (antes: 401 → refresco 422 → vuelta al login) |
+| `docker exec parking-backend-1 pytest -q tests/test_refresh_contrato.py` | **4 passed** |
+| `docker exec parking-backend-1 pytest -q tests/test_refresh_contrato.py tests/test_session_tracker_hook.py tests/test_token_blacklist.py tests/test_password_reset.py` | **45 passed** |
+| `python tools/verificar_contrato_refresh.py` | OK |
+| `python tools/verificar_contrato_refresh.py --autoprueba` | OK (los dos casos de mentira se detectan) |
+| `python tools/verificar_pruebas_inversas.py` | **34/34** |
 
 - **Criterios de aceptación**:
-  - [x] Medido antes: el healthcheck pasa de healthy a unhealthy y vuelve, con el fichero cada 195-300 s.
-  - [x] `beat_max_loop_interval = 60`: el banner del beat lo confirma («maxinterval -> 1.00 minute») y las tareas salen como mucho 60 s tarde.
-  - [x] El healthcheck tiene un margen (10 min) que no puede dar un falso «unhealthy».
-  - [x] El hueco del cambio de hora queda documentado, con el motivo y con quién lo puede detectar (el central).
+  - [x] Medido en el navegador (no leyendo código): 401 en la primera petición y **422** en el refresco.
+  - [x] El cuerpo que manda el frontend vale en el backend (**200**) y el access nuevo **sirve** (no basta con que el 200 sea bonito).
+  - [x] Un body vacío responde 401 (no 422) y un token inválido responde 401.
+  - [x] Los clientes que mandan el par completo siguen funcionando.
+  - [x] La puerta del contrato del refresco vigila el cuerpo, con su autoprueba.
+  - [x] La prueba inversa: al volver a poner `payload: TokenPair`, el test **falla**.
+
+### T-188 · P3 (documentación) — el plan, la QA y el código decían que el `select` de «En vivo» seguía sin nombre accesible
+
+- **Estado**: **completado** — corregido, y con la mutación inversa que faltaba
+- **Contexto**: el T-182 arregló 23 controles sin nombre accesible (los 18 del plan) en cuatro vistas y dejó el `select` de sucursal de la pantalla «En vivo» (`views/operador/LiveView.vue`) **fuera de alcance**, anotado en el plan. Pero el arreglo del T-182 **sí lo tocó**: el commit `9ff6f41` añadió `aria-label="Sucursal"` a ese select.
+- **El defecto (medido el 2026-10-25, en el QA manual con el admin dentro)**: tres ficheros seguían diciendo lo contrario:
+  - el **plan** (§ «Lo que queda fuera (medido, no arreglado)»): «sigue sin nombre accesible (**1 control**, medido)»;
+  - el **docstring** de `frontend/scripts/qa_labels_admin.py`: «sigue sin nombre accesible … su fichero no se toca aquí»;
+  - el **comentario del código** en `LiveView.vue`: «T-182: sin nombre accesible (medido: 1 control)», pegado al `aria-label` que ya lo arreglaba.
+
+  Y la **QA ya lo vigilaba**: la escena «/vivo (la página)» mide 1 control y exige que tenga nombre.
+- **Por qué importa**: un plan que dice «esto está roto» cuando ya está arreglado hace dos cosas malas: **engaña al que lee** (parece que hay trabajo pendiente) y **deja la puerta con un punto ciego** (si alguien lo arreglara «por el plan», la mutación inversa no lo encontraría: la inversa quitaba pares `for`/`id`, y este control no tiene etiqueta).
+- **El arreglo**:
+  1. El plan, el docstring de la QA y el comentario del código dicen la verdad: ya tiene nombre accesible, y la puerta lo vigila.
+  2. `frontend/scripts/qa_labels_admin_inversa.py` aprende un modo de mutación nuevo, **«aria»**: en un control sin etiqueta (un `<select>` compacto) lo que da el nombre es el `aria-label`, así que la mutación quita **eso** en vez de un par `for`/`id`.
+  3. La 7ª mutación quita el `aria-label="Sucursal"` de `LiveView.vue` y exige que la QA falle señalando `/vivo (la página)`.
+
+#### Lo que se comprobó
+
+| Comprobación | Resultado |
+|---|---|
+| `python frontend/scripts/qa_labels_admin.py` | OK (14 escenas, todas con nombre) |
+| `python frontend/scripts/qa_labels_admin_inversa.py` | OK (7 mutaciones) y vuelve a dar verde con los ficheros restaurados |
+| `cd frontend && npm run lint` | sin salida (verde) |
+| `cd frontend && npx vue-tsc --noEmit` | sin salida (verde) |
+| `python tools/escanear_texto.py <las rutas tocadas>` | 0 problema(s) |
+
+- **Criterios de aceptación**:
+  - [x] Los tres textos dicen la verdad (medido contra el código: el `aria-label` está y la escena lo vigila).
+  - [x] La QA inversa tiene una mutación para este control y falla señalando `/vivo (la página)`.
+  - [x] Con los ficheros restaurados, la QA vuelve a dar verde.
+
+### T-189 · P3 (interfaz) — el formato del dinero estaba partido: cuatro vistas con punto y seis con coma
+
+- **Estado**: **completado** — medido en el navegador y unificado
+- **Contexto**: el repo tiene una convención (el PDF del ticket enseña «2,67 - 1,34 = 1,34») y **seis** vistas la respetan: `PlansView`, `TariffsView`, `TicketsView`, `MyPlanView`, `PaymentsView` y `MovementsView` escriben «30,00 €».
+- **Lo que se midió (2026-10-25, QA manual con el admin dentro)**: en la pantalla de **Reportería** el informe de margen enseñaba «**0.00 €**» (punto) y en **Planes**, dos pantallas más allá, el catálogo enseña «**30,00 €**» (coma). La misma app, dos formatos, en el mismo recorrido.
+- **Dónde estaba el desvío** (`toFixed` sin `replace('.', ',')`):
+  - `views/admin/CostsView.vue`
+  - `views/admin/DashboardView.vue`
+  - `views/admin/ReportsView.vue`
+  - `views/gestor/DashboardGestor.vue` (los ingresos de 24 h y la duración media en minutos)
+- **El arreglo**: los cuatro pasan a `.toFixed(2).replace('.', ',')` (y `.toFixed(1).replace('.', ',')` en los minutos), que es lo que ya hacen las otras seis.
+- **Lo que NO hay (y se dice)**: **ninguna puerta vigila el formato del dinero**. El dato sale de los ojos de una persona (o de una QA visual que mire la pantalla), no de un script. Queda anotado como hueco, no como cobertura.
+
+- **Criterios de aceptación**:
+  - [x] Medido en el navegador: «0.00 €» en Reportería y «30,00 €» en Planes, en el mismo recorrido.
+  - [x] Los cuatro desvíos unificados con la convención del repo (coma decimal).
+  - [x] `npm run lint` y `vue-tsc --noEmit` en verde.
+  - [x] Anotado por escrito que no hay puerta que lo vigile.
 
 ### T-14 · I3 — OCR con GPU
 

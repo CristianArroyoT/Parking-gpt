@@ -47,7 +47,7 @@ const categoryLabel: Record<CostCategory, string> = {
 
 function euro(n: number | null | undefined): string {
   if (n === null || n === undefined) return '—'
-  return `${n.toFixed(2)} €`
+  return `${n.toFixed(2).replace('.', ',')} €`
 }
 
 async function loadParkings(): Promise<void> {
